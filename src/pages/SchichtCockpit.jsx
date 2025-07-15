@@ -7,7 +7,6 @@ import SchichtDienstAendernForm from '../components/Cockpit/SchichtDienstAendern
 import { supabase } from '../supabaseClient';
 import { useRollen } from '../context/RollenContext';
 import MitarbeiterBedarf from '../components/Cockpit/MitarbeiterBedarf';
-import BedarfsAnalyseModal from '../components/Cockpit/BedarfsAnalyseModal';
 import dayjs from 'dayjs';
 
 const SchichtCockpit = () => {
