@@ -4,7 +4,7 @@ import Dashboard from './pages/Dashboard';
 import LoginPage from './pages/LoginPage';
 import SchichtCockpit from './pages/SchichtCockpit';
 import SchichtartPflegen from "./pages/SchichtartPflegen";
-import KundenVerwaltung from './pages/kundenverwaltung';
+import KundenVerwaltung from './pages/Kundenverwaltung';
 import UserAnlegen from './pages/UserAnlegen';
 import SollplanSeite from './pages/SollplanSeite';
 import Schichtzuweisen from './pages/Schichtzuweisen';
@@ -17,6 +17,10 @@ import Termine from './pages/TermineVerwaltung';
 import MobileRouter from './pages/Mobile/MobileRouter';
 
 const App = () => {
+  if (window.matchMedia('(display-mode: standalone)').matches && !window.location.pathname.startsWith('/mobile')) {
+  window.location.href = '/mobile';
+}
+
   return (
     <Routes>
       {/* Login separat */}
