@@ -1,4 +1,4 @@
-// pages/Termine.jsx
+// pages/TermineVerwaltung.jsx
 import React, { useState } from 'react';
 import TermineFormular from '../components/TermineVerwaltung/TermineFormular';
 import TermineUebersicht from '../components/TermineVerwaltung/TermineUebersicht';
