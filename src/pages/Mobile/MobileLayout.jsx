@@ -24,10 +24,10 @@ const toggleDarkMode = async () => {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Sticky Logo-Leiste */}
+      {/* Sticky logo-Leiste */}
       <div className="text-gray-200 sticky top-0 z-50 bg-gray-900 pr-4 py-1 flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <img src={logo} alt="Logo" className="h-12 object-contain" />
+          <img src={logo} alt="logo" className="h-12 object-contain" />
         </div>
         <div className="flex items-center gap-3 text-sm">
   <button

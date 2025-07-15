@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from "../supabaseClient";
-import logo from "../assets/Logo.png";
+import logo from "../assets/logo.png";
 import { useNavigate } from "react-router-dom"; // ganz oben ergänzen
 
 const LoginPage = () => {
@@ -83,6 +83,7 @@ const LoginPage = () => {
           {successMessage && <p className="text-green-500 text-sm text-center">{successMessage}</p>}
         </form>
         
+  {/*       
 <hr className="my-6 border-gray-600" />
 <h2 className="text-center text-sm text-gray-400 mb-2 font-semibold">Entwicklungs-Anmeldetool</h2>
 
@@ -208,6 +209,7 @@ const LoginPage = () => {
 >
   Anmelden als Org_Admin Röhm → BMA
 </button> 
+*/}
         <div className="mt-6 text-center text-gray-400 text-sm">
           © {new Date().getFullYear()} SchichtPilot
         </div>

@@ -74,7 +74,7 @@ if (user?.id) {
       <div className="max-w-sm mx-auto bg-white rounded-xl shadow">
         {/* Header oben */}
         <div className="bg-gray-800 text-white rounded-t-xl px-3 py-2 flex items-center justify-between">
-          <img src={logo} alt="Logo" className="h-8" />
+          <img src={logo} alt="logo" className="h-8" />
           <h2 className="text-xl font-bold">Login</h2>
         </div>
 

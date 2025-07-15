@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
-import kundenlogo from '../assets/kundenlogo.png';
+//import kundenlogo from '../assets/kundenlogo.png';
 import Navigation from './Navigation';
 import { supabase } from '../supabaseClient';
 import { useRollen } from '../context/RollenContext';
@@ -245,7 +245,7 @@ const toggleAdminPanel = async () => {
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-200 text-black'}`}>
       <header className="flex justify-between items-center px-8 pt-2 pb-2 bg-gray-800 text-white relative">
-        <img src={logo} alt="Logo" className="h-16" />
+        <img src={logo} alt="logo" className="h-16" />
         <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-semibold">
           {begruessungRef.current}
         </div>
@@ -335,8 +335,8 @@ const toggleAdminPanel = async () => {
     </li>
   </ul>
 </div>
-          {/*Logo logik kommt etwas später!
-          <img src={kundenlogo} alt="Kundenlogo" className="h-16" />*/}
+          {/*logo logik kommt etwas später!
+          <img src={kundenlogo} alt="kundenlogo" className="h-16" />*/}
         </div>
       </header>
 
