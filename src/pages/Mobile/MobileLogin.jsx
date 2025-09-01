@@ -108,27 +108,34 @@ const MobileLogin = () => {
         </div>
 
         {/* Formular */}
-        <div className="p-6 text-center">
-          <input
-            type="email"
-            placeholder="E-Mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-2 border rounded mb-2"
-          />
-          <input
-            type="password"
-            placeholder="Passwort"
-            value={passwort}
-            onChange={(e) => setPasswort(e.target.value)}
-            className="w-full p-2 border rounded mb-2"
-          />
-          <button
-            onClick={handleLogin}
-            className="w-full bg-blue-600 text-white p-2 rounded mt-2"
-          >
-            Einloggen
-          </button>
+<div className="p-6 text-left">
+  <input
+    type="email"
+    placeholder="E-Mail"
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+    autoComplete="email"
+    inputMode="email"
+    className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
+               dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
+               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+  />
+  <input
+    type="password"
+    placeholder="Passwort"
+    value={passwort}
+    onChange={(e) => setPasswort(e.target.value)}
+    autoComplete="current-password"
+    className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
+               dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
+               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+  />
+  <button
+    onClick={handleLogin}
+    className="w-full bg-blue-600 text-white p-3 rounded mt-1"
+  >
+    Einloggen
+  </button>
 
           {/* PIN-Setup anzeigen */}
           {showPinSetup && (
@@ -138,7 +145,9 @@ const MobileLogin = () => {
                 type="password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                className="w-full p-2 border rounded mb-2"
+    className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
+               dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
+               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <button
                 onClick={handleSavePin}
