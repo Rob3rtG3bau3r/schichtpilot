@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo.png';
 import CryptoJS from 'crypto-js';
+import InstallButton from "../../components/InstallButton";
 
 const MobileLogin = () => {
   const [email, setEmail] = useState('');
@@ -103,6 +104,7 @@ const MobileLogin = () => {
         <div className="bg-gray-800 text-white rounded-t-xl px-3 py-2 flex items-center justify-between">
           <img src={logo} alt="logo" className="h-8" />
           <h2 className="text-xl font-bold">Login</h2>
+           <InstallButton />
         </div>
 
         {/* Formular */}
