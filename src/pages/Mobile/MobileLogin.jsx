@@ -99,7 +99,7 @@ const MobileLogin = () => {
 
   return (
     <div className="p-6 text-center">
-      <div className="max-w-sm mx-auto bg-white rounded-xl shadow">
+      <div className="max-w-sm mx-auto bg-white dark:bg-gray-800 dark:text-white rounded-xl shadow">
         {/* Header */}
         <div className="bg-gray-800 text-white rounded-t-xl px-3 py-2 flex items-center justify-between">
           <img src={logo} alt="logo" className="h-8" />

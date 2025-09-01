@@ -41,6 +41,20 @@ const MobileLayout = () => {
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState(COUNTDOWN_START);
 
+useEffect(() => {
+  const loadTheme = async () => {
+    if (localStorage.getItem("theme_mobile")) return; // schon gesetzt
+    const uid = localStorage.getItem("user_id");
+    if (!uid) return;
+    const { data } = await supabase.from("DB_User").select("theme_mobile").eq("user_id", uid).single();
+    const mode = data?.theme_mobile || "dark"; // Default gern "dark"
+    localStorage.setItem("theme_mobile", mode);
+    document.documentElement.classList.toggle("dark", mode === "dark");
+    setDarkMode(mode === "dark");
+  };
+  loadTheme();
+}, []);
+
   const gespeicherteId = localStorage.getItem("user_id");
   const timerRef = useRef(null);
   const countdownRef = useRef(null);
@@ -87,15 +101,15 @@ const MobileLayout = () => {
   }, [gespeicherteId, showConsentModal]);
 
   // 🌙 Dark Mode Umschalten
-  const toggleDarkMode = async () => {
-    const newMode = darkMode ? "light" : "dark";
-    document.documentElement.classList.toggle("dark");
-    setDarkMode(!darkMode);
-    await supabase
-      .from("DB_User")
-      .update({ theme_mobile: newMode })
-      .eq("user_id", gespeicherteId);
-  };
+const toggleDarkMode = async () => {
+  const newMode = darkMode ? "light" : "dark";
+  document.documentElement.classList.toggle("dark", newMode === "dark");
+  setDarkMode(newMode === "dark");
+  localStorage.setItem("theme_mobile", newMode);           // <-- wichtig
+  if (gespeicherteId) {
+    await supabase.from("DB_User").update({ theme_mobile: newMode }).eq("user_id", gespeicherteId);
+  }
+};
 
   // 🛡️ Einwilligung widerrufen
   const widerrufeEinwilligung = async () => {
