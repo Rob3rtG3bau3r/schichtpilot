@@ -18,8 +18,8 @@ const Schichtzuweisen = () => {
 
   return (
     <div className="px-6 pb-2 text-white">
-      <div className="flex justify-center">
-        <div className="grid grid-cols-12 gap-5">
+      <div className="<div className={`min-h-screen px-6 pb-2 ${darkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-200 text-gray-900'}`}>">
+        <div className="grid grid-cols-12 gap-4 mx-auto">
           <PersonalListe
             firma={sichtFirma}
             unit={sichtUnit}

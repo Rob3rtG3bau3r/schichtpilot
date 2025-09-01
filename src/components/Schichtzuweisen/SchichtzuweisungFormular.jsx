@@ -3,6 +3,8 @@ import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { Info } from 'lucide-react';
+import { berechneFuerJahre } from '../../utils/berechnungen_schichtzuweisung';
+
 dayjs.extend(isSameOrBefore);
 
 const SchichtzuweisungFormular = ({
@@ -23,8 +25,7 @@ const SchichtzuweisungFormular = ({
   const [kundenCheckInfo, setKundenCheckInfo] = useState(null);
   const [modalOffen, setModalOffen] = useState(false);
   const [gesamtAnzahl, setGesamtAnzahl] = useState(0);
-const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
-
+  const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
 
   useEffect(() => {
     const ladeTeams = async () => {
@@ -90,7 +91,6 @@ const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
       return;
     }
 
-    const heute = dayjs();
     const start = dayjs(datumStart);
     const ende = dayjs(datumEnde);
 
@@ -106,11 +106,11 @@ const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
       return;
     }
 
-const { data: kundenData, error: kundenError } = await supabase
-  .from('DB_Kunden')
-  .select('id, firmenname, created_at')
-  .eq('id', firma)
-  .maybeSingle();
+    const { data: kundenData, error: kundenError } = await supabase
+      .from('DB_Kunden')
+      .select('id, firmenname, created_at')
+      .eq('id', firma)
+      .maybeSingle();
 
     if (kundenError || !kundenData) {
       alert('Kunde wurde nicht in DB_Kunden gefunden.');
@@ -125,33 +125,34 @@ const { data: kundenData, error: kundenError } = await supabase
       setIsLoading(false);
       return;
     }
-const tageAnzahl = ende.diff(start, 'day') + 1;
-setGesamtAnzahl(tageAnzahl);
-setAktuellerFortschritt(0);
+
+    const tageAnzahl = ende.diff(start, 'day') + 1;
+    setGesamtAnzahl(tageAnzahl);
+    setAktuellerFortschritt(0);
+
     for (let d = start.clone(); d.isSameOrBefore(ende, 'day'); d = d.add(1, 'day')) {
       const datum = d.format('YYYY-MM-DD');
 
-const { data: sollEintraege, error: sollFehler } = await supabase
-  .from('DB_SollPlan')
-  .select('kuerzel, schichtart_id, startzeit, endzeit, dauer')
-  .eq('datum', datum)
-  .eq('firma_id', firma)
-  .eq('unit_id', unit)
-  .eq('schichtgruppe', team)
-  .limit(1); // Absicherung gegen Duplikate
+      const { data: sollEintraege, error: sollFehler } = await supabase
+        .from('DB_SollPlan')
+        .select('kuerzel, schichtart_id, startzeit, endzeit, dauer')
+        .eq('datum', datum)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('schichtgruppe', team)
+        .limit(1);
 
-if (sollFehler) {
-  console.warn(`❌ Fehler beim Laden des SollPlans für ${datum}:`, sollFehler.message);
-  continue;
-}
+      if (sollFehler) {
+        console.warn(`❌ Fehler beim Laden des SollPlans für ${datum}:`, sollFehler.message);
+        continue;
+      }
 
-if (!sollEintraege || sollEintraege.length === 0) {
-  console.warn(`⚠️ Kein SollPlan für ${datum} und Team ${team} gefunden.`);
-  continue;
-}
+      if (!sollEintraege || sollEintraege.length === 0) {
+        console.warn(`⚠️ Kein SollPlan für ${datum} und Team ${team} gefunden.`);
+        continue;
+      }
 
-const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
-
+      const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
 
       const { data: vorhandeneEintraege, error: checkError } = await supabase
         .from('DB_Kampfliste')
@@ -207,30 +208,42 @@ const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
         await supabase.from('DB_Kampfliste').delete().eq('id', alterEintrag.id);
       }
 
-    const { error: insertError } = await supabase.from('DB_Kampfliste').insert({
-      created_by: selectedUser.user_id,
-      created_at: new Date().toISOString(),
-      user: selectedUser.user_id,
-      firma_id: firma,
-      unit_id: unit,
-      datum,
-      schichtgruppe: team,
-      soll_schicht: kuerzel,
-      ist_schicht: schichtart_id,
-      startzeit_ist: startzeit,
-      endzeit_ist: endzeit,
-      dauer_ist: dauer,
-      kommentar: '',
-      aenderung: false,
-    });
+      const { error: insertError } = await supabase.from('DB_Kampfliste').insert({
+        created_by: selectedUser.user_id,
+        created_at: new Date().toISOString(),
+        user: selectedUser.user_id,
+        firma_id: firma,
+        unit_id: unit,
+        datum,
+        schichtgruppe: team,
+        soll_schicht: kuerzel,
+        ist_schicht: schichtart_id,
+        startzeit_ist: startzeit,
+        endzeit_ist: endzeit,
+        dauer_ist: dauer,
+        dauer_soll: dauer,
+        kommentar: '',
+        aenderung: false,
+      });
 
       if (insertError) {
         alert(`Fehler beim Einfügen für ${datum}: ${insertError.message}`);
         setIsLoading(false);
         return;
       }
+
       setAktuellerFortschritt((prev) => prev + 1);
     }
+
+    // Nach allen Inserts Berechnung starten
+    await berechneFuerJahre(
+      selectedUser.user_id,
+      firma,
+      unit,
+      start.year(),
+      ende.year()
+    );
+
     alert('✅ Schicht erfolgreich zugewiesen!');
     if (typeof onRefresh === 'function') {
       onRefresh();
@@ -238,7 +251,8 @@ const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
 
     setIsLoading(false);
   };
- return (
+
+  return (
     <div className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}>
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">Soll Schichtplan zuweisen</h2>
@@ -246,13 +260,15 @@ const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
           <Info size={20} className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
         </button>
       </div>
-    {kundenCheckInfo && (
-      <div className="bg-gray-100 dark:bg-gray-800 text-sm rounded p-2 mb-2">
-        <p><strong>Unternehmen:</strong></p>
-        <p>{kundenCheckInfo.db}</p>
-      </div>
-    )}
-     <label className="block mb-2">Zugewiesenes Team</label>
+
+      {kundenCheckInfo && (
+        <div className="bg-gray-100 dark:bg-gray-800 text-sm rounded p-2 mb-2">
+          <p><strong>Unternehmen:</strong></p>
+          <p>{kundenCheckInfo.db}</p>
+        </div>
+      )}
+
+      <label className="block mb-2">Zugewiesenes Team</label>
       <select
         value={team}
         onChange={(e) => {
@@ -267,47 +283,49 @@ const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
         ))}
       </select>
 
-    <label className="block mb-2">Zuweisung ab</label>
-    <input
-      type="date"
-      value={datumStart}
-      onChange={(e) => setDatumStart(e.target.value)}
-      className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
-    />
+      <label className="block mb-2">Zuweisung ab</label>
+      <input
+        type="date"
+        value={datumStart}
+        onChange={(e) => setDatumStart(e.target.value)}
+        className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
+      />
 
-    <label className="block mb-2">Zuweisung bis</label>
-    <input
-      type="date"
-      value={datumEnde}
-      onChange={(e) => setDatumEnde(e.target.value)}
-      max={maxDatumEnde}
-      min={datumStart || undefined}
-      className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
-    />
+      <label className="block mb-2">Zuweisung bis</label>
+      <input
+        type="date"
+        value={datumEnde}
+        onChange={(e) => setDatumEnde(e.target.value)}
+        max={maxDatumEnde}
+        min={datumStart || undefined}
+        className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
+      />
 
-    {selectedUser && (
-      <p className="mb-4">
-        Mitarbeiter: <strong>{selectedUser.nachname}, {selectedUser.vorname}</strong>
-      </p>
-    )}
-
-    <button
-      onClick={handleSubmit}
-      disabled={isLoading}
-      className={`px-4 py-2 rounded w-full flex items-center justify-center gap-2 text-white ${
-        isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-      }`}
-    >
-      {isLoading && (
-        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+      {selectedUser && (
+        <p className="mb-4">
+          Mitarbeiter: <strong>{selectedUser.nachname}, {selectedUser.vorname}</strong>
+        </p>
       )}
-      {isLoading ? 'Mitarbeiter wird zugewiesen' : 'Zuweisung durchführen'}
-    </button>
-    {gesamtAnzahl > 0 && (
-  <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 text-center">
-    Kopiere {aktuellerFortschritt} von {gesamtAnzahl} Tagen...
-  </div>
-)}
+
+      <button
+        onClick={handleSubmit}
+        disabled={isLoading}
+        className={`px-4 py-2 rounded w-full flex items-center justify-center gap-2 text-white ${
+          isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+        }`}
+      >
+        {isLoading && (
+          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        )}
+        {isLoading ? 'Mitarbeiter wird zugewiesen' : 'Zuweisung durchführen'}
+      </button>
+
+      {gesamtAnzahl > 0 && (
+        <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 text-center">
+          Kopiere {aktuellerFortschritt} von {gesamtAnzahl} Tagen...
+        </div>
+      )}
+
       {modalOffen && (
         <div
           className="fixed inset-0 bg-black backdrop-blur-sm bg-opacity-50 z-50 flex items-center justify-center"

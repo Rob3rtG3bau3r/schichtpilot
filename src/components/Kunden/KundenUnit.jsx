@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 
-
 const KundenUnit = () => {
   const { sichtFirma } = useRollen();
   const [unitName, setUnitName] = useState('');
   const [standort, setStandort] = useState('');
+  const [bundesland, setBundesland] = useState('');
   const [anzahlMA, setAnzahlMA] = useState(1);
   const [anzahlSchichten, setAnzahlSchichten] = useState(2);
   const [schichtNamen, setSchichtNamen] = useState([]);
@@ -14,74 +14,80 @@ const KundenUnit = () => {
   const handleReset = () => {
     setUnitName('');
     setStandort('');
+    setBundesland('');
     setAnzahlMA(1);
     setAnzahlSchichten(2);
     setSchichtNamen([]);
   };
 
-const handleSave = async () => {
-  if (!sichtFirma) {
-    console.error('Keine Firma ausgewählt');
-    return;
-  }
-
-  // 1. Unit speichern
-  const { data: unitData, error: unitError } = await supabase.from('DB_Unit').insert([
-    {
-      firma: sichtFirma,
-      unitname: unitName,
-      unit_standort: standort,
-      anzahl_ma: anzahlMA,
-      anzahl_schichten: anzahlSchichten,
-      schichtname1: schichtNamen[0] || null,
-      schichtname2: schichtNamen[1] || null,
-      schichtname3: schichtNamen[2] || null,
-      schichtname4: schichtNamen[3] || null,
-      schichtname5: schichtNamen[4] || null,
-      schichtname6: schichtNamen[5] || null,
+  const handleSave = async () => {
+    if (!sichtFirma) {
+      console.error('Keine Firma ausgewählt');
+      return;
     }
-  ]).select().single();
+    if (!bundesland) {
+      alert('Bitte ein Bundesland auswählen!');
+      return;
+    }
 
-  if (unitError) {
-    console.error('Fehler beim Speichern der Unit:', unitError.message);
-    return;
-  }
+    // 1. Unit speichern
+    const { data: unitData, error: unitError } = await supabase.from('DB_Unit').insert([
+      {
+        firma: sichtFirma,
+        unitname: unitName,
+        unit_standort: standort,
+        bundesland: bundesland, // <-- Hier speichern
+        anzahl_ma: anzahlMA,
+        anzahl_schichten: anzahlSchichten,
+        schichtname1: schichtNamen[0] || null,
+        schichtname2: schichtNamen[1] || null,
+        schichtname3: schichtNamen[2] || null,
+        schichtname4: schichtNamen[3] || null,
+        schichtname5: schichtNamen[4] || null,
+        schichtname6: schichtNamen[5] || null,
+      }
+    ]).select().single();
 
-  // 2. Schichtarten direkt einfügen
-  const schichtarten = [
-    { kuerzel: 'F', beschreibung: 'Frühschicht', start: '06:00', ende: '13:00', dauer: 7, bg: '#4aca1c', text: '#000000', relevant: true, ignoriert: false, pos: 1 },
-    { kuerzel: 'S', beschreibung: 'Spätschicht', start: '13:00', ende: '21:00', dauer: 8, bg: '#ffa200', text: '#000000', relevant: false, ignoriert: false, pos: 2 },
-    { kuerzel: 'N', beschreibung: 'Nachtschicht', start: '21:00', ende: '06:00', dauer: 9, bg: '#0040ff', text: '#ffffff', relevant: true, ignoriert: false, pos: 3 },
-    { kuerzel: 'U', beschreibung: 'Urlaub', start: '00:00', ende: '00:00', dauer: 0, bg: '#fafb0d', text: '#000000', relevant: false, ignoriert: true, pos: 5 },
-    { kuerzel: '-', beschreibung: 'Frei', start: '00:00', ende: '00:00', dauer: 0, bg: '#ffffff', text: '#000000', relevant: true, ignoriert: false, pos: 4 },
-    { kuerzel: 'KO', beschreibung: 'Krank ohne Attest', start: '00:00', ende: '00:00', dauer: 0, bg: '#ffffff', text: '#000000', relevant: false, ignoriert: true, pos: 6 },
-    { kuerzel: 'KAU', beschreibung: 'Krank mit Attest', start: '00:00', ende: '00:00', dauer: 0, bg: '#ffffff', text: '#000000', relevant: false, ignoriert: true, pos: 7 }
-  ];
+    if (unitError) {
+      console.error('Fehler beim Speichern der Unit:', unitError.message);
+      return;
+    }
 
-  const eintraege = schichtarten.map(s => ({
-    firma_id: sichtFirma,
-    unit_id: unitData.id,
-    kuerzel: s.kuerzel,
-    beschreibung: s.beschreibung,
-    startzeit: s.start,
-    endzeit: s.ende,
-    dauer: s.dauer,
-    farbe_bg: s.bg,
-    farbe_text: s.text,
-    sollplan_relevant: s.relevant,
-    ignoriert_arbeitszeit: s.ignoriert,
-    position: s.pos
-  }));
+    // 2. Schichtarten direkt einfügen
+    const schichtarten = [
+      { kuerzel: 'F', beschreibung: 'Frühschicht', start: '06:00', ende: '13:00', dauer: 7, bg: '#4aca1c', text: '#000000', relevant: true, ignoriert: false, pos: 1 },
+      { kuerzel: 'S', beschreibung: 'Spätschicht', start: '13:00', ende: '21:00', dauer: 8, bg: '#ffa200', text: '#000000', relevant: true, ignoriert: false, pos: 2 },
+      { kuerzel: 'N', beschreibung: 'Nachtschicht', start: '21:00', ende: '06:00', dauer: 9, bg: '#0040ff', text: '#ffffff', relevant: true, ignoriert: false, pos: 3 },
+      { kuerzel: 'U', beschreibung: 'Urlaub', start: '00:00', ende: '00:00', dauer: 0, bg: '#fafb0d', text: '#000000', relevant: false, ignoriert: true, pos: 5 },
+      { kuerzel: '-', beschreibung: 'Frei', start: '00:00', ende: '00:00', dauer: 0, bg: '#e3dede', text: '#000000', relevant: true, ignoriert: false, pos: 4 },
+      { kuerzel: 'KO', beschreibung: 'Krank ohne Attest', start: '00:00', ende: '00:00', dauer: 0, bg: '#e3dede', text: '#000000', relevant: false, ignoriert: true, pos: 6 },
+      { kuerzel: 'K', beschreibung: 'Krank mit Attest', start: '00:00', ende: '00:00', dauer: 0, bg: '#e3dede', text: '#000000', relevant: false, ignoriert: true, pos: 7 }
+    ];
 
-  const { error: schichtError } = await supabase.from('DB_SchichtArt').insert(eintraege);
+    const eintraege = schichtarten.map(s => ({
+      firma_id: sichtFirma,
+      unit_id: unitData.id,
+      kuerzel: s.kuerzel,
+      beschreibung: s.beschreibung,
+      startzeit: s.start,
+      endzeit: s.ende,
+      dauer: s.dauer,
+      farbe_bg: s.bg,
+      farbe_text: s.text,
+      sollplan_relevant: s.relevant,
+      ignoriert_arbeitszeit: s.ignoriert,
+      position: s.pos
+    }));
 
-  if (schichtError) {
-    console.error('Fehler beim Einfügen der Schichtarten:', schichtError.message);
-  } else {
-    console.log('Unit und Schichtarten erfolgreich erstellt!');
-    handleReset();
-  }
-};
+    const { error: schichtError } = await supabase.from('DB_SchichtArt').insert(eintraege);
+
+    if (schichtError) {
+      console.error('Fehler beim Einfügen der Schichtarten:', schichtError.message);
+    } else {
+      console.log('Unit und Schichtarten erfolgreich erstellt!');
+      handleReset();
+    }
+  };
 
   const updateSchichtName = (index, value) => {
     setSchichtNamen(prev => {
@@ -106,14 +112,29 @@ const handleSave = async () => {
           />
         </div>
 
-        <div>
-          <label className="block text-sm">Standort</label>
-          <input
-            type="text"
-            value={standort}
-            onChange={e => setStandort(e.target.value)}
-            className="w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-          />
+        <div className="flex space-x-4">
+          <div className="flex-1">
+            <label className="block text-sm">Standort</label>
+            <input
+              type="text"
+              value={standort}
+              onChange={e => setStandort(e.target.value)}
+              className="w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm">Bundesland</label>
+            <select
+              value={bundesland}
+              onChange={e => setBundesland(e.target.value)}
+              className="w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">Bundesland wählen</option>
+              {["BW", "BY", "BE", "BB", "HB", "HH", "HE", "MV", "NI", "NW", "RP", "SL", "SN", "ST", "SH", "TH"].map((bl) => (
+                <option key={bl} value={bl}>{bl}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="flex space-x-4">

@@ -2,16 +2,44 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 
-
-const schichtgruppen = ['A-Schicht', 'B-Schicht', 'C-Schicht', 'D-Schicht', 'E-Schicht'];
-
 const Sollplan = ({ jahr, monat }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
-
   const [eintraege, setEintraege] = useState([]);
   const [schichtarten, setSchichtarten] = useState([]);
+  const [schichtgruppen, setSchichtgruppen] = useState([]);
 
+  // Lade Schichtgruppen
+  useEffect(() => {
+    const ladeSchichtgruppen = async () => {
+      if (!unit) return;
+      const { data, error } = await supabase
+        .from('DB_Unit')
+        .select('schichtname1, schichtname2, schichtname3, schichtname4, schichtname5, schichtname6')
+        .eq('id', unit)
+        .single();
+
+      if (error) {
+        console.error('Fehler beim Laden der Schichtgruppen:', error.message);
+        return;
+      }
+
+      const gruppen = [
+        data.schichtname1,
+        data.schichtname2,
+        data.schichtname3,
+        data.schichtname4,
+        data.schichtname5,
+        data.schichtname6,
+      ].filter(Boolean);
+
+      setSchichtgruppen(gruppen);
+    };
+
+    ladeSchichtgruppen();
+  }, [unit]);
+
+  // Lade SollPlan & Schichtarten
   useEffect(() => {
     const fetchData = async () => {
       const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
@@ -39,6 +67,7 @@ const Sollplan = ({ jahr, monat }) => {
 
   const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
 
+
   const cellBase = "w-[48px] min-w-[48px] flex items-center justify-center text-sm border border-gray-700";
   const cellNiedrig = "h-[20px]"; // Anpassbare Höhe für Sollplan-Zellen
 
@@ -55,7 +84,7 @@ const Sollplan = ({ jahr, monat }) => {
             tageMap[tagNummer] = {
               kuerzel: schichtart?.kuerzel || '???',
               bg: schichtart?.farbe_bg || '#999',
-              text: schichtart?.farbe_schrift || '#000',
+              text: schichtart?.farbe_text || '#000',
             };
           });
 
@@ -81,7 +110,7 @@ const Sollplan = ({ jahr, monat }) => {
                     >
                       {eintrag ? (
                         <div
-                          className="w-[40px] h-[14px] flex items-center justify-center rounded"
+                          className="w-[40px] h-[14px] flex items-center font-semibold justify-center rounded"
                           style={{
                             backgroundColor: eintrag.bg,
                             color: eintrag.text,

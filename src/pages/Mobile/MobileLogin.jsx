@@ -12,14 +12,18 @@ const MobileLogin = () => {
   const [pin, setPin] = useState('');
   const navigate = useNavigate();
 
+  // ✅ Wenn PIN schon existiert → direkt zur PIN-Eingabe
   useEffect(() => {
     const savedPin = localStorage.getItem('user_pin');
     if (savedPin) {
       navigate('/mobile/pin');
     }
-  }, []);
+  }, [navigate]);
 
+  // ✅ Login-Vorgang
   const handleLogin = async () => {
+    setFehler('');
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password: passwort,
@@ -27,32 +31,52 @@ const MobileLogin = () => {
 
     if (error) {
       setFehler('Login fehlgeschlagen. Bitte überprüfe deine Daten.');
-    } else {
-      setFehler('');
-      const user = data?.user || data?.session?.user;
-if (user?.id) {
-  localStorage.setItem('user_id', user.id);
+      return;
+    }
 
-  // ➕ Firma & Unit des Users laden
-  const { data: userDetails, error: userDetailsError } = await supabase
-    .from('DB_User')
-    .select('firma_id, unit_id')
-    .eq('user_id', user.id)
-    .single();
+    const user = data?.user || data?.session?.user;
+    if (!user?.id) {
+      setFehler('Benutzer konnte nicht geladen werden.');
+      return;
+    }
 
-  if (!userDetailsError && userDetails) {
-    localStorage.setItem('firma_id', userDetails.firma_id);
-    localStorage.setItem('unit_id', userDetails.unit_id);
-    console.log('✅ Firma & Unit gespeichert:', userDetails);
-  } else {
-    console.warn('⚠️ Firma oder Unit konnten nicht geladen werden:', userDetailsError?.message);
-  }
-}
+    try {
+      // Firma & Unit laden
+      const { data: userDetails, error: userDetailsError } = await supabase
+        .from('DB_User')
+        .select('firma_id, unit_id')
+        .eq('user_id', user.id)
+        .single();
 
+      if (userDetailsError) {
+        console.warn('⚠️ Firma oder Unit konnten nicht geladen werden:', userDetailsError.message);
+      }
+
+      // Login-Log und LocalStorage setzen
+      await Promise.all([
+        supabase.from('DB_LoginLog').insert({
+          user_id: user.id,
+          user_agent: navigator.userAgent,
+        }),
+        Promise.resolve().then(() => {
+          localStorage.setItem('user_id', user.id);
+          if (userDetails) {
+            localStorage.setItem('firma_id', userDetails.firma_id);
+            localStorage.setItem('unit_id', userDetails.unit_id);
+            console.log('✅ Firma & Unit gespeichert:', userDetails);
+          }
+        }),
+      ]);
+
+      // PIN-Einrichtung aktivieren
       setShowPinSetup(true);
+    } catch (err) {
+      console.error('❌ Fehler beim Speichern des Login-Logs oder LocalStorage:', err);
+      setFehler('Es ist ein Fehler beim Login-Tracking aufgetreten.');
     }
   };
 
+  // ✅ PIN speichern (verschlüsselt)
   const handleSavePin = () => {
     if (pin.length < 4 || pin.length > 6) {
       setFehler('Der PIN muss zwischen 4 und 6 Ziffern lang sein.');
@@ -60,8 +84,11 @@ if (user?.id) {
     }
 
     try {
+      // 🔐 PIN verschlüsseln
       const encrypted = CryptoJS.AES.encrypt(pin, 'geheimerKey').toString();
       localStorage.setItem('user_pin', encrypted);
+
+      // Erfolgreich → zur Dienste-Seite
       navigate('/mobile/dienste');
     } catch (err) {
       console.error('Fehler beim Speichern des PIN:', err);
@@ -72,7 +99,7 @@ if (user?.id) {
   return (
     <div className="p-6 text-center">
       <div className="max-w-sm mx-auto bg-white rounded-xl shadow">
-        {/* Header oben */}
+        {/* Header */}
         <div className="bg-gray-800 text-white rounded-t-xl px-3 py-2 flex items-center justify-between">
           <img src={logo} alt="logo" className="h-8" />
           <h2 className="text-xl font-bold">Login</h2>
@@ -101,6 +128,7 @@ if (user?.id) {
             Einloggen
           </button>
 
+          {/* PIN-Setup anzeigen */}
           {showPinSetup && (
             <div className="mt-4">
               <p className="mb-2 font-semibold">PIN festlegen (4–6 Ziffern):</p>
@@ -119,6 +147,7 @@ if (user?.id) {
             </div>
           )}
 
+          {/* Fehleranzeige */}
           {fehler && <p className="text-red-600 mt-2">{fehler}</p>}
         </div>
       </div>
@@ -127,3 +156,4 @@ if (user?.id) {
 };
 
 export default MobileLogin;
+

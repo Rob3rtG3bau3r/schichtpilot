@@ -15,6 +15,13 @@ import QualifikationsVerwaltung from './pages/QualifikationenVerwalten';
 import FerienundFeiertage from './pages/FerienundFeiertage';
 import Termine from './pages/TermineVerwaltung';
 import MobileRouter from './pages/Mobile/MobileRouter';
+import Home from "./pages/Home";
+import Impressum from './pages/Impressum';
+import Datenschutz from './pages/Datenschutz';
+import SystemTools from './pages/SystemTools';
+import Pricing from './pages/Pricing';
+import PasswortVergessen from "./pages/PasswortVergessen";
+import ResetPassword from "./pages/ResetPassword";
 
 const App = () => {
   if (window.matchMedia('(display-mode: standalone)').matches && !window.location.pathname.startsWith('/mobile')) {
@@ -23,26 +30,24 @@ const App = () => {
 
   return (
     <Routes>
-      {/* Login separat */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/mobile/*" element={<MobileRouter />} />
+  {/* Login separat */}
+  <Route path="/login" element={<LoginPage />} />
+  <Route path="/mobile/*" element={<MobileRouter />} />
+  <Route path="/" element={<Home />} /> 
+  <Route path="/impressum" element={<Impressum />} />
+  <Route path="/datenschutz" element={<Datenschutz />} />
+  <Route path="/pricing" element={<Pricing />} />
+  <Route path="/passwort-vergessen" element={<PasswortVergessen />} />
+  <Route path="/reset-password" element={<ResetPassword />} />
 
-      {/* Alle geschützten Routen im Layout */}
-      <Route path="/" element={<Layout />}>
-        <Route
-          index
-          element={
-            <RollenCheckRoute erlaubteRollen={['Admin_Dev', 'Planner','Team_Leader','Employee', 'SuperAdmin']}>
-              <Dashboard />
-            </RollenCheckRoute>
-          }
-        />
-        <Route
-          path="dashboard"
-          element={
-            <RollenCheckRoute erlaubteRollen={['Admin_Dev', 'Planner','Team_Leader','Employee', 'SuperAdmin']}>
-              <Dashboard />
-            </RollenCheckRoute>
+  {/* Alle geschützten Routen im Layout */}
+  <Route path="/" element={<Layout />}>
+    <Route
+      path="dashboard"
+      element={
+        <RollenCheckRoute erlaubteRollen={['Admin_Dev', 'Planner', 'Team_Leader', 'Employee', 'SuperAdmin']}>
+          <Dashboard />
+        </RollenCheckRoute>
           }
         />
         <Route
@@ -131,6 +136,14 @@ const App = () => {
             </RollenCheckRoute>
           }
         />
+        <Route
+  path="system-tools"
+  element={
+    <RollenCheckRoute erlaubteRollen={['SuperAdmin']}>
+      <SystemTools />
+    </RollenCheckRoute>
+  }
+/>
       </Route>
     </Routes>
   );

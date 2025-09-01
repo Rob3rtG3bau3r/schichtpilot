@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { Info } from 'lucide-react';
+import { Info,X } from 'lucide-react';
 
 const SchichtUebernahme = ({
   schicht,
@@ -224,31 +224,30 @@ const SchichtUebernahme = ({
         Übernehmen
       </button>
 
-      {meldung && <div className="text-sm mt-2 text-green-400">{meldung}</div>}
+      {meldung && <div className="text-sm mt-2 text-green-400 ">{meldung}</div>}
     </form>
     {modalOffen && (
   <div
-    className="animate-fade-in fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center"
+    className="animate-fade-in fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center backdrop-blur-sm"
     onClick={() => setModalOffen(false)}
   >
-    <div
-      className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg p-6 max-w-sm shadow-lg"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <h2 className="text-lg font-bold mb-2">Information zur Übergabe</h2>
-      <p className="text-sm mb-4">
-        Hier kannst du später eine Beschreibung aller Funktionen reinschreiben.
-        <br />
-        Aktuell: Auswahl von Firma, Unit, Schichtgruppe, Datum & Wiederholung.
-        <br />
-        Speichern prüft auf Duplikate und übernimmt die Schicht in den Soll-Plan.
-      </p>
-      <button
-        onClick={() => setModalOffen(false)}
-        className="mt-2 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-      >
-        Schließen
-      </button>
+<div
+  className="relative bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg p-6 max-w-sm shadow-lg"
+  onClick={(e) => e.stopPropagation()}
+>
+                  <button
+              className="absolute top-2 right-2 text-gray-500 hover:text-red-500"
+              onClick={() => setModalOffen(false)}
+            >
+              <X size={20} />
+            </button>
+      <h3 className="text-lg font-bold mb-2">Information zur Übergabe</h3>
+      <ul className="list-disc list-inside text-sm mb-4">
+        <li>Hier kannst du später eine Beschreibung aller Funktionen reinschreiben.</li>
+        <li>Aktuell: Auswahl von Firma, Unit, Schichtgruppe, Datum & Wiederholung.</li>
+        <li>Speichern prüft auf Duplikate und übernimmt die Schicht in den Soll-Plan.</li>    
+      </ul>
+
     </div>
   </div>
 )}

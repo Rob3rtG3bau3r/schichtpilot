@@ -97,7 +97,7 @@ return (
       <label className="block text-sm font-medium mb">Farbe</label>
       <input
         type="color"
-        className="w-full h-8 rounded border"
+        className="w-full bg-gray-200 dark:bg-gray-800 h-8 rounded "
         value={farbe}
         onChange={(e) => setFarbe(e.target.value)}
       />
@@ -120,8 +120,8 @@ return (
       {/* Qualifikation anzeigen */}
       <div className="mb-4">
         <label className="block text-sm font-medium mb-1">Qualifikation</label>
-        <div className="px-3 py-1 rounded bg-gray-100 dark:bg-gray-700 text-xl">
-          {ausgewaehlteQualiName || '– Keine Qualifikation ausgewählt –'}
+        <div className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-800 text-xl">
+          {ausgewaehlteQualiName || 'Keine Qualifikation ausgewählt'}
         </div>
       </div>
 
@@ -130,7 +130,7 @@ return (
         <label className="block text-sm font-medium mb-1">Anzahl</label>
         <input
           type="number"
-          className="w-full text-xl px-3 py-1 rounded border dark:bg-gray-800"
+          className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800  rounded"
           value={anzahl}
           min={1}
           onChange={(e) => setAnzahl(parseInt(e.target.value))}

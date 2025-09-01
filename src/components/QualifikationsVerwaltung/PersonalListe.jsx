@@ -18,20 +18,20 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
   const [sortierung, setSortierung] = useState({ feld: 'name', richtung: 'asc' });
 
   const handleSortierung = (feld) => {
-  setSortierung((aktuell) => {
-    if (aktuell.feld === feld) {
-      return {
-        feld,
-        richtung: aktuell.richtung === 'asc' ? 'desc' : 'asc',
-      };
-    } else {
-      return {
-        feld,
-        richtung: 'asc',
-      };
-    }
-  });
-};
+    setSortierung((aktuell) => {
+      if (aktuell.feld === feld) {
+        return {
+          feld,
+          richtung: aktuell.richtung === 'asc' ? 'desc' : 'asc',
+        };
+      } else {
+        return {
+          feld,
+          richtung: 'asc',
+        };
+      }
+    });
+  };
 
   // Qualifikationen für Dropdown laden
   useEffect(() => {
@@ -54,110 +54,112 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 
   // Mitarbeiter + höchste Quali laden
   useEffect(() => {
-  const ladeDaten = async () => {
-    // 1. Mitarbeiter aus der Unit holen
-const { data: mitarbeiter, error: error1 } = await supabase
-  .from('DB_User')
-  .select('user_id, vorname, nachname, rolle')
-  .eq('firma_id', firma)
-  .eq('unit_id', unit)
-  .eq('aktiv', true);
+    const ladeDaten = async () => {
+      // 1. Mitarbeiter aus der Unit holen
+      const { data: mitarbeiter, error: error1 } = await supabase
+        .from('DB_User')
+        .select('user_id, vorname, nachname, rolle')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('aktiv', true);
 
-    if (error1) {
-      console.error('Fehler beim Laden der Mitarbeitenden:', error1);
-      return;
-    }
+      if (error1) {
+        console.error('Fehler beim Laden der Mitarbeitenden:', error1);
+        return;
+      }
 
-    // 2. Qualifikationen laden
-    const { data: qualiEintraege, error: error2 } = await supabase
-      .from('DB_Qualifikation')
-      .select('user_id, quali');
+      // 2. Qualifikationen laden
+      const { data: qualiEintraege, error: error2 } = await supabase
+        .from('DB_Qualifikation')
+        .select('user_id, quali');
 
-    if (error2) {
-      console.error('Fehler beim Laden der Qualifikationen:', error2);
-      return;
-    }
-// 3. QualiMatrix laden für Positionen
-const { data: matrix, error: error3 } = await supabase
-  .from('DB_Qualifikationsmatrix')
-  .select('id, qualifikation, position')
-  .eq('firma_id', firma)
-  .eq('unit_id', unit);
+      if (error2) {
+        console.error('Fehler beim Laden der Qualifikationen:', error2);
+        return;
+      }
 
-if (error3) {
-  console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
-  return;
-}
+      // 3. QualiMatrix laden für Positionen
+      const { data: matrix, error: error3 } = await supabase
+        .from('DB_Qualifikationsmatrix')
+        .select('id, qualifikation, position')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit);
 
-// 4. Kampfliste-Einträge für heute laden
-const heute = new Date().toISOString().split('T')[0];
-const { data: kampfliste, error: errorKampfliste } = await supabase
-  .from('DB_Kampfliste')
-  .select('user, schichtgruppe')
-  .eq('firma_id', firma)
-  .eq('unit_id', unit)
-  .eq('datum', heute);
+      if (error3) {
+        console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
+        return;
+      }
 
-if (errorKampfliste) {
-  console.error('Fehler beim Laden der Kampfliste:', errorKampfliste);
-  return;
-}
+      // 4. Kampfliste-Einträge für heute laden
+      const heute = new Date().toISOString().split('T')[0];
+      const { data: kampfliste, error: errorKampfliste } = await supabase
+        .from('DB_Kampfliste')
+        .select('user, schichtgruppe')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('datum', heute);
 
-const personenMitQuali = mitarbeiter.map((person) => {
-  const eigeneQualis = qualiEintraege
-    .filter((q) => q.user_id === person.user_id)
-    .map((q) => {
-      const details = matrix.find((m) => m.id === q.quali);
-      return {
-        qualifikation: details?.qualifikation ?? '',
-        position: details?.position ?? 999,
-      };
-    });
+      if (errorKampfliste) {
+        console.error('Fehler beim Laden der Kampfliste:', errorKampfliste);
+        return;
+      }
 
-  const alle = eigeneQualis.map((q) => q.qualifikation);
-  const hoechste = eigeneQualis.sort((a, b) => a.position - b.position)[0];
+      const personenMitQuali = mitarbeiter.map((person) => {
+        const eigeneQualis = qualiEintraege
+          .filter((q) => q.user_id === person.user_id)
+          .map((q) => {
+            const details = matrix.find((m) => m.id === q.quali);
+            return {
+              qualifikation: details?.qualifikation ?? '',
+              position: details?.position ?? 999,
+            };
+          });
 
-  const kampfEintrag = kampfliste?.find((k) => k.user === person.user_id);
-  const aktuelleSchichtgruppe = kampfEintrag?.schichtgruppe ?? '–';
+        const alle = eigeneQualis.map((q) => q.qualifikation);
+        const hoechste = eigeneQualis.sort((a, b) => a.position - b.position)[0];
 
-  return {
-    user_id: person.user_id,
-    name: `${person.vorname} ${person.nachname}`,
-    rolle: person.rolle,
-    schichtgruppe: aktuelleSchichtgruppe,
-    hoechste_quali: hoechste?.qualifikation || '–',
-    alle_qualis: alle, // 🆕 wichtig!
-  };
-});
+        const kampfEintrag = kampfliste?.find((k) => k.user === person.user_id);
+        const aktuelleSchichtgruppe = kampfEintrag?.schichtgruppe ?? '–';
 
-    setPersonen(personenMitQuali);
-  };
+        return {
+          user_id: person.user_id,
+          name: `${person.vorname} ${person.nachname}`,
+          rolle: person.rolle,
+          schichtgruppe: aktuelleSchichtgruppe,
+          hoechste_quali: hoechste?.qualifikation || '–',
+          alle_qualis: alle,
+        };
+      });
 
-  ladeDaten();
-}, [firma, unit, refreshKey]);
+      setPersonen(personenMitQuali);
+    };
+
+    ladeDaten();
+  }, [firma, unit, refreshKey]);
 
   const gefiltertePersonen = personen
     .filter((p) =>
       p.name?.toLowerCase().includes(suche.toLowerCase()) &&
       (!selectedQuali || p.alle_qualis.includes(selectedQuali))
     )
-.sort((a, b) => {
-  const { feld, richtung } = sortierung;
+    .sort((a, b) => {
+      const { feld, richtung } = sortierung;
 
-  const aWert =
-    feld === 'name'
-      ? a.name.split(' ').slice(-1)[0].toLowerCase()
-      : a[feld]?.toLowerCase?.() || '';
+      const aWert =
+        feld === 'name'
+          ? a.name.split(' ').slice(-1)[0].toLowerCase()
+          : a[feld]?.toLowerCase?.() || '';
 
-  const bWert =
-    feld === 'name'
-      ? b.name.split(' ').slice(-1)[0].toLowerCase()
-      : b[feld]?.toLowerCase?.() || '';
+      const bWert =
+        feld === 'name'
+          ? b.name.split(' ').slice(-1)[0].toLowerCase()
+          : b[feld]?.toLowerCase?.() || '';
 
-  if (aWert < bWert) return richtung === 'asc' ? -1 : 1;
-  if (aWert > bWert) return richtung === 'asc' ? 1 : -1;
-  return 0;
-});
+      if (aWert < bWert) return richtung === 'asc' ? -1 : 1;
+      if (aWert > bWert) return richtung === 'asc' ? 1 : -1;
+      return 0;
+    });
+
   return (
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
       <div className="flex justify-between items-center mb-2">
@@ -196,56 +198,71 @@ const personenMitQuali = mitarbeiter.map((person) => {
       <div className="overflow-auto max-h-[60vh]">
         <table className="min-w-full table-auto">
           <thead className="bg-gray-200 dark:bg-gray-700">
-  <tr>
-    <th
-      className="p-2 text-left cursor-pointer select-none"
-      onClick={() => handleSortierung('name')}
-    >
-      <div className="flex items-center gap-1">
-        Name
-        <SortIcon
-          aktiv={sortierung.feld === 'name'}
-          richtung={sortierung.richtung}
-        />
-      </div>
-    </th>
-    <th
-      className="p-2 text-left cursor-pointer select-none"
-      onClick={() => handleSortierung('hoechste_quali')}
-    >
-      <div className="flex items-center gap-1">
-        Qualifikation
-        <SortIcon
-          aktiv={sortierung.feld === 'hoechste_quali'}
-          richtung={sortierung.richtung}
-        />
-      </div>
-    </th>
-    <th
-      className="p-2 text-left cursor-pointer select-none"
-      onClick={() => handleSortierung('schichtgruppe')}
-    >
-      <div className="flex items-center gap-1">
-        Team
-        <SortIcon
-          aktiv={sortierung.feld === 'schichtgruppe'}
-          richtung={sortierung.richtung}
-        />
-      </div>
-    </th>
-  </tr>
-</thead>
-<tbody>
-  {gefiltertePersonen.map((p) => (
-    <tr key={p.user_id} className="cursor-pointer hover:bg-blue-100 dark:hover:bg-gray-700"
-      onClick={() => onUserClick(p)}>
-      <td className="p-2">{p.name}</td>
-      <td className="p-2 text-xs">{p.hoechste_quali}</td>
-      <td className="p-2 text-xs">{p.schichtgruppe}</td>
-    </tr>
-  ))}
-</tbody>
-
+            <tr>
+              <th
+                className="p-2 text-left cursor-pointer select-none"
+                onClick={() => handleSortierung('name')}
+              >
+                <div className="flex items-center gap-1">
+                  Name
+                  <SortIcon
+                    aktiv={sortierung.feld === 'name'}
+                    richtung={sortierung.richtung}
+                  />
+                </div>
+              </th>
+              <th
+                className="p-2 text-left cursor-pointer select-none"
+                onClick={() => handleSortierung('rolle')}
+              >
+                <div className="flex items-center gap-1">
+                  Rolle
+                  <SortIcon
+                    aktiv={sortierung.feld === 'rolle'}
+                    richtung={sortierung.richtung}
+                  />
+                </div>
+              </th>
+              <th
+                className="p-2 text-left cursor-pointer select-none"
+                onClick={() => handleSortierung('hoechste_quali')}
+              >
+                <div className="flex items-center gap-1">
+                  Qualifikation
+                  <SortIcon
+                    aktiv={sortierung.feld === 'hoechste_quali'}
+                    richtung={sortierung.richtung}
+                  />
+                </div>
+              </th>
+              <th
+                className="p-2 text-left cursor-pointer select-none"
+                onClick={() => handleSortierung('schichtgruppe')}
+              >
+                <div className="flex items-center gap-1">
+                  Team
+                  <SortIcon
+                    aktiv={sortierung.feld === 'schichtgruppe'}
+                    richtung={sortierung.richtung}
+                  />
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {gefiltertePersonen.map((p) => (
+              <tr
+                key={p.user_id}
+                className="cursor-pointer hover:bg-blue-100 dark:hover:bg-gray-700"
+                onClick={() => onUserClick(p)}
+              >
+                <td className="py-2 px-2">{p.name}</td>
+                <td className="px-2 text-xs">{p.rolle}</td>
+                <td className="px-2 text-xs">{p.hoechste_quali}</td>
+                <td className="px-2 text-xs">{p.schichtgruppe}</td>
+              </tr>
+            ))}
+          </tbody>
         </table>
         {gefiltertePersonen.length === 0 && (
           <p className="text-sm mt-2">Keine Ergebnisse gefunden.</p>
@@ -267,8 +284,7 @@ const personenMitQuali = mitarbeiter.map((person) => {
               <li>Nur aktive User der aktuellen Unit werden angezeigt.</li>
               <li>Pro Person wird die höchste zugewiesene Qualifikation angezeigt (nach Position).</li>
               <li>Du kannst nach Namen suchen und nach Qualifikation filtern.</li>
-              <li>Auch nach dem Filtern bleibt die höchste zugewiesene Qualifikation in der ansicht.</li>
-              <li>Die Tabelle ist alphabetisch sortiert.</li>
+              <li>Die Tabelle kann jetzt auch nach Rolle sortiert werden.</li>
             </ul>
             <div className="mt-4 text-right">
               <button
@@ -284,4 +300,5 @@ const personenMitQuali = mitarbeiter.map((person) => {
     </div>
   );
 };
+
 export default Personalliste;

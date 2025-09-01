@@ -13,15 +13,15 @@ const BedarfsVerwaltung = () => {
     const [vorbelegtFormular, setVorbelegtFormular] = useState(null);
   return (
     <div className="px-6 pb-6">
-      <div className="grid grid-cols-12 gap-4 max-w-[1600px] mx-auto">
+      <div className=" grid grid-cols-12 gap-2">
         
         {/* Links: Qualifikationen im Betrieb */}
-        <div className="col-span-3 bg-gray-200 dark:bg-gray-800 p-4">
+        <div className="col-span-3 bg-gray-200 dark:bg-gray-800 p-2">
           <QualiMatrixAnzeige onQualiClick={(id, name) => setAusgewaehlteQuali({ id, name })} />
         </div>
 
         {/* Mitte: Formular */}
-        <div className="col-span-3 bg-gray-200 dark:bg-gray-800 p-4">
+        <div className="col-span-3 bg-gray-200 dark:bg-gray-800 p-2">
 <BedarfErfassenFormular
   ausgewaehlteQualiId={ausgewaehlteQuali.id}
   ausgewaehlteQualiName={ausgewaehlteQuali.name}
@@ -32,10 +32,10 @@ const BedarfsVerwaltung = () => {
 
         {/* Rechts: Tabellen + Bearbeiten */}
         <div className="col-span-5 flex flex-col gap-4">
-          <div className="bg-gray-200 dark:bg-gray-800 p-4">
+          <div className="bg-gray-200 dark:bg-gray-800 p-2">
             <NormalbetriebAnzeige refreshKey={refreshKey} />
           </div>
-          <div className="bg-gray-200 dark:bg-gray-800 p-4">
+          <div className="bg-gray-200 dark:bg-gray-800 p-2">
 <ZeitlichBegrenzteListe
   refreshKey={refreshKey}
   onAuswahl={(eintrag) => {

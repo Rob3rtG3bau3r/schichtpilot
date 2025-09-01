@@ -1,4 +1,5 @@
 {
+  "id": "/mobile",
   "short_name": "SchichtPilot",
   "name": "SchichtPilot Mobile",
   "start_url": "/mobile",
@@ -20,4 +21,5 @@
     }
   ]
 }
+
 

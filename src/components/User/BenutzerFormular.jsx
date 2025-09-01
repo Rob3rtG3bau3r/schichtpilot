@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Info } from 'lucide-react';
-import InfoModal from './InfoModal'; // Neue Komponente für Modal
+import InfoModal from './InfoModal';
 import { useRollen } from '../../context/RollenContext';
 
+/** Firma anlegen und ID zurückgeben (bei "Kunden Anlegen") */
 const erstelleFirmaUndHoleId = async (firmenname) => {
   const { data, error } = await supabase
     .from('DB_Kunden')
@@ -11,11 +12,21 @@ const erstelleFirmaUndHoleId = async (firmenname) => {
     .select('id')
     .single();
 
-  if (error) {
-    throw new Error('❌ Fehler beim Anlegen der Firma: ' + error.message);
-  }
-
+  if (error) throw new Error('❌ Fehler beim Anlegen der Firma: ' + error.message);
   return data.id;
+};
+
+/** Sicheren Temp-PW-Generator (Fallback falls randomUUID fehlt) */
+const genTempPassword = () =>
+  (crypto?.randomUUID?.() ?? (Math.random().toString(36).slice(2) + Date.now().toString(36)))
+    .replace(/-/g, '')
+    .slice(0, 12);
+
+/** Reset-Link verschicken, der zu /reset-password führt */
+const sendeResetLink = async (email) => {
+  const redirectTo = `${window.location.origin}/reset-password`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  if (error) throw error;
 };
 
 const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
@@ -31,6 +42,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
     passwort: '',
     passwortWiederholen: '',
   });
+
   const [editingUserId, setEditingUserId] = useState(null);
   const [firmen, setFirmen] = useState([]);
   const [units, setUnits] = useState([]);
@@ -38,9 +50,11 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
   const [ladeStatus, setLadeStatus] = useState(false);
   const [zeigePasswort, setZeigePasswort] = useState(false);
   const [zeigeInfo, setZeigeInfo] = useState(false);
-  const { userId } = useRollen(); // oder userId oder wie du ihn im Kontext genannt hast
   const [statusMessage, setStatusMessage] = useState('');
 
+  const { userId } = useRollen();
+
+  /** Firmen/Units laden */
   useEffect(() => {
     const ladeFirmenUndUnits = async () => {
       const { data: firmenData } = await supabase.from('DB_Kunden').select('id, firmenname');
@@ -51,6 +65,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
     ladeFirmenUndUnits();
   }, []);
 
+  /** Default-Rolle/Funktion je nach "typ" einstellen */
   useEffect(() => {
     if (formData.typ === 'User Anlegen') {
       setFormData(prev => ({ ...prev, funktion: 'Mitarbeiter', rolle: 'Employee' }));
@@ -61,6 +76,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
     }
   }, [formData.typ]);
 
+  /** In den Bearbeiten-Modus übernehmen */
   useEffect(() => {
     if (selectedUser) {
       setFormData(prev => ({
@@ -87,25 +103,33 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
     e.preventDefault();
     setLadeStatus(true);
 
+    // Pflichtfelder
     if (!formData.email || !formData.vorname || !formData.nachname || !formData.rolle) {
-      alert("Bitte alle Pflichtfelder ausfüllen.");
+      alert('Bitte alle Pflichtfelder ausfüllen.');
       setLadeStatus(false);
       return;
     }
 
-    const passwort = passwortManuell ? formData.passwort : crypto.randomUUID().slice(0, 12);
+    // Nur bei manueller Vergabe: Gleichheits-Check (keine weiteren Regeln)
+    if (!editingUserId && passwortManuell && formData.passwort !== formData.passwortWiederholen) {
+      alert('Die beiden Passwörter stimmen nicht überein.');
+      setLadeStatus(false);
+      return;
+    }
 
+    const passwort = passwortManuell ? formData.passwort : genTempPassword();
+
+    // Firma-ID ggf. anlegen/ermitteln
     let firmaId = formData.firma_id;
-
-if (formData.typ === 'Kunden Anlegen') {
-  try {
-    firmaId = await erstelleFirmaUndHoleId(formData.firma_id); // hier steht der Firmenname drin
-  } catch (error) {
-    alert(error.message);
-    setLadeStatus(false);
-    return;
-  }
-}
+    if (formData.typ === 'Kunden Anlegen') {
+      try {
+        firmaId = await erstelleFirmaUndHoleId(formData.firma_id); // hier ist der Firmenname eingegeben
+      } catch (error) {
+        alert(error.message);
+        setLadeStatus(false);
+        return;
+      }
+    }
 
     const userPayload = {
       vorname: formData.vorname,
@@ -119,79 +143,136 @@ if (formData.typ === 'Kunden Anlegen') {
     };
 
     try {
-      const res = await fetch(editingUserId
-        ? 'https://schicht-pilot-backend.vercel.app/api/update-user'
-        : 'https://schicht-pilot-backend.vercel.app/api/create-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingUserId
-          ? { id: editingUserId, updateData: userPayload, updateAuthEmail: formData.email }
-          : { email: formData.email, password: passwort, userData: userPayload })
-      });
+      const res = await fetch(
+        editingUserId
+          ? 'https://schicht-pilot-backend.vercel.app/api/update-user'
+          : 'https://schicht-pilot-backend.vercel.app/api/create-user',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            editingUserId
+              ? { id: editingUserId, updateData: userPayload, updateAuthEmail: formData.email }
+              : { email: formData.email, password: passwort, userData: userPayload }
+          ),
+        }
+      );
 
       const result = await res.json();
-      if (res.ok) {
-        console.log('✅ Erfolgreich gespeichert.');
-        if (onUserUpdated) onUserUpdated();
-        setStatusMessage(editingUserId ? '✅ Benutzer erfolgreich geändert.' : '✅ Benutzer erfolgreich angelegt.');
-        setTimeout(() => setStatusMessage(''), 3000);
-      } else {
-        alert("❌ Fehler: " + result.error);
+
+      if (!res.ok) {
+        alert('❌ Fehler: ' + (result?.error || 'Unbekannter Fehler'));
+        setLadeStatus(false);
+        return;
       }
+
+      // Erfolg
+      if (onUserUpdated) onUserUpdated();
+
+      if (!editingUserId) {
+        if (passwortManuell) {
+          setStatusMessage('✅ Benutzer angelegt. Passwort wurde manuell gesetzt.');
+        } else {
+          // Automatisch Reset-Link versenden
+          try {
+            await sendeResetLink(formData.email);
+            setStatusMessage('📧 Benutzer angelegt. Ein Link zum Passwort-Setzen wurde per E-Mail verschickt.');
+          } catch (mailErr) {
+            console.warn('resetPasswordForEmail error:', mailErr);
+            setStatusMessage('⚠️ Benutzer angelegt, aber E-Mail konnte nicht gesendet werden. Bitte später erneut versuchen.');
+          }
+        }
+      } else {
+        setStatusMessage('✅ Benutzer erfolgreich geändert.');
+      }
+
+      // Nach Erfolg Formular zurücksetzen (Firma/Unit bei "User Anlegen" behalten)
+      const firmaBehalten = formData.typ === 'User Anlegen' ? formData.firma_id : '';
+      const unitBehalten = formData.typ === 'User Anlegen' ? formData.unit_id : '';
+      setFormData({
+        typ: 'User Anlegen',
+        vorname: '',
+        nachname: '',
+        funktion: 'Mitarbeiter',
+        firma_id: firmaBehalten,
+        unit_id: unitBehalten,
+        rolle: 'Employee',
+        email: '',
+        passwort: '',
+        passwortWiederholen: '',
+      });
+      setPasswortManuell(false);
+      setEditingUserId(null);
+
+      setTimeout(() => setStatusMessage(''), 4000);
     } catch (err) {
-      alert("❌ Netzwerkfehler oder API nicht erreichbar.");
+      alert('❌ Netzwerkfehler oder API nicht erreichbar.');
+    } finally {
+      setLadeStatus(false);
+      if (onCancelEdit) onCancelEdit();
     }
-
-    const firmaBehalten = formData.typ === 'User Anlegen' ? formData.firma_id : '';
-    const unitBehalten = formData.typ === 'User Anlegen' ? formData.unit_id : '';
-
-    setFormData({
-      typ: 'User Anlegen',
-      vorname: '',
-      nachname: '',
-      funktion: 'Mitarbeiter',
-      firma_id: firmaBehalten,
-      unit_id: unitBehalten,
-      rolle: 'Employee',
-      email: '',
-      passwort: '',
-      passwortWiederholen: '',
-    });
-
-    setPasswortManuell(false);
-    setEditingUserId(null);
-    setLadeStatus(false);
-    if (onCancelEdit) onCancelEdit();
   };
 
   const istKunde = formData.typ === 'Kunden Anlegen';
 
   return (
     <div className="bg-gray-200 dark:bg-gray-800 p-6 rounded-xl shadow-xl text-gray-900 dark:text-white w-full relative border border-gray-300 dark:border-gray-700">
-      <button onClick={() => setZeigeInfo(true)} className="absolute top-4 right-4 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" title="Info">
+      {/* Info-Button */}
+      <button
+        onClick={() => setZeigeInfo(true)}
+        className="absolute top-4 right-4 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+        title="Info"
+      >
         <Info size={20} />
       </button>
-<div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-  <strong>Nutzer-ID:</strong> {userId || 'wird geladen...'}
-</div>
+      <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+        <strong>Nutzer-ID:</strong> {userId || 'wird geladen...'}
+      </div>
 
       {zeigeInfo && <InfoModal onClose={() => setZeigeInfo(false)} />}
-    
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <h2 className="text-xl font-semibold">
           {editingUserId ? 'Benutzer ändern' : 'Benutzer anlegen'}
         </h2>
-        <select name="typ" value={formData.typ} onChange={handleChange} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700">
+
+        <select
+          name="typ"
+          value={formData.typ}
+          onChange={handleChange}
+          className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+          disabled={ladeStatus}
+        >
           <option>User Anlegen</option>
           <option>Kunden Anlegen</option>
           <option>Entwickler Anlegen</option>
           <option>User Ändern</option>
         </select>
 
-        <input name="vorname" placeholder="Vorname" onChange={handleChange} value={formData.vorname} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700" />
-        <input name="nachname" placeholder="Nachname" onChange={handleChange} value={formData.nachname} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700" />
+        <input
+          name="vorname"
+          placeholder="Vorname"
+          onChange={handleChange}
+          value={formData.vorname}
+          className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+          disabled={ladeStatus}
+        />
+        <input
+          name="nachname"
+          placeholder="Nachname"
+          onChange={handleChange}
+          value={formData.nachname}
+          className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+          disabled={ladeStatus}
+        />
 
-        <select name="funktion" value={formData.funktion} onChange={handleChange} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700">
+        <select
+          name="funktion"
+          value={formData.funktion}
+          onChange={handleChange}
+          className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+          disabled={ladeStatus}
+        >
           <option>Kostenverantwortlich</option>
           <option>Mitarbeiter</option>
           <option>Auszubildender</option>
@@ -199,26 +280,55 @@ if (formData.typ === 'Kunden Anlegen') {
         </select>
 
         {istKunde ? (
-          <input name="firma_id" placeholder="Firma (frei eingeben)" onChange={handleChange} value={formData.firma_id} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700" />
+          <input
+            name="firma_id"
+            placeholder="Firma (frei eingeben)"
+            onChange={handleChange}
+            value={formData.firma_id}
+            className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+            disabled={ladeStatus}
+          />
         ) : (
-          <select name="firma_id" value={formData.firma_id} onChange={handleChange} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700">
+          <select
+            name="firma_id"
+            value={formData.firma_id}
+            onChange={handleChange}
+            className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+            disabled={ladeStatus}
+          >
             <option value="">Wähle Firma</option>
             {firmen.map((firma) => (
-              <option key={firma.id} value={firma.id}>{firma.firmenname}</option>
+              <option key={firma.id} value={firma.id}>
+                {firma.firmenname}
+              </option>
             ))}
           </select>
         )}
 
         {!istKunde && (
-          <select name="unit_id" value={formData.unit_id} onChange={handleChange} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700">
+          <select
+            name="unit_id"
+            value={formData.unit_id}
+            onChange={handleChange}
+            className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+            disabled={ladeStatus}
+          >
             <option value="">Wähle Unit</option>
             {units.map((unit) => (
-              <option key={unit.id} value={unit.id}>{unit.unitname}</option>
+              <option key={unit.id} value={unit.id}>
+                {unit.unitname}
+              </option>
             ))}
           </select>
         )}
 
-        <select name="rolle" value={formData.rolle} onChange={handleChange} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700">
+        <select
+          name="rolle"
+          value={formData.rolle}
+          onChange={handleChange}
+          className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+          disabled={ladeStatus}
+        >
           <option>Employee</option>
           <option>Team_Leader</option>
           <option>Planner</option>
@@ -227,12 +337,25 @@ if (formData.typ === 'Kunden Anlegen') {
           <option>SuperAdmin</option>
         </select>
 
-        <input name="email" type="email" placeholder="E-Mail" onChange={handleChange} value={formData.email} className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700" />
+        <input
+          name="email"
+          type="email"
+          placeholder="E-Mail"
+          onChange={handleChange}
+          value={formData.email}
+          className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+          disabled={ladeStatus}
+        />
 
         {!editingUserId && (
           <>
             <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-              <input type="checkbox" checked={passwortManuell} onChange={() => setPasswortManuell(prev => !prev)} />
+              <input
+                type="checkbox"
+                checked={passwortManuell}
+                onChange={() => setPasswortManuell(prev => !prev)}
+                disabled={ladeStatus}
+              />
               Passwort manuell erstellen
             </label>
 
@@ -242,12 +365,18 @@ if (formData.typ === 'Kunden Anlegen') {
                   <input
                     name="passwort"
                     type={zeigePasswort ? 'text' : 'password'}
-                    placeholder="Passwort"
+                    placeholder="Passwort (frei, ohne Regeln)"
                     onChange={handleChange}
                     value={formData.passwort}
                     className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+                    disabled={ladeStatus}
                   />
-                  <button type="button" onClick={() => setZeigePasswort(prev => !prev)} className="absolute right-2 top-2 text-sm text-gray-500">
+                  <button
+                    type="button"
+                    onClick={() => setZeigePasswort(prev => !prev)}
+                    className="absolute right-2 top-2 text-sm text-gray-500"
+                    disabled={ladeStatus}
+                  >
                     👁
                   </button>
                 </div>
@@ -258,26 +387,34 @@ if (formData.typ === 'Kunden Anlegen') {
                   onChange={handleChange}
                   value={formData.passwortWiederholen}
                   className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+                  disabled={ladeStatus}
                 />
               </>
             )}
           </>
         )}
-       {statusMessage && (
-           <div className="bg-green-100 text-green-800 text-sm p-2 rounded shadow border border-green-300 mt-2">
-              {statusMessage}
-            </div>
+
+        {statusMessage && (
+          <div className="bg-green-100 text-green-800 text-sm p-2 rounded shadow border border-green-300 mt-2">
+            {statusMessage}
+          </div>
         )}
+
         <button
           type="submit"
-          className="bg-blue-600 hover:bg-blue-700 text-white py-2 shadow-md px-4 rounded w-full"
+          className="bg-blue-600 hover:bg-blue-700 text-white py-2 shadow-md px-4 rounded w-full disabled:opacity-50"
           disabled={ladeStatus}
         >
           {ladeStatus ? '⏳ Speichert...' : editingUserId ? '💾 Benutzer ändern' : '👑 Benutzer anlegen'}
         </button>
 
         {editingUserId && (
-          <button type="button" onClick={onCancelEdit} className="bg-gray-600 hover:bg-gray-700 text-white shadow-md py-2 px-4 rounded w-full">
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="bg-gray-600 hover:bg-gray-700 text-white shadow-md py-2 px-4 rounded w-full"
+            disabled={ladeStatus}
+          >
             ❌ Bearbeitung abbrechen
           </button>
         )}

@@ -11,7 +11,7 @@ const QualifikationsVerwaltung = () => {
   return (
     <div className="px-6 pb-2 space-y-6">
       <div className="flex justify-center">
-        <div className="grid grid-cols-12 gap-4 w-full max-w-[1600px] mx-auto">
+        <div className="grid grid-cols-12 gap-4 w-full mx-auto">
   <div className="col-span-4 min-w-[400px]">
     <PersonalListe onUserClick={setAusgewaehlterUser} refreshKey={refreshKey}/>
   </div>

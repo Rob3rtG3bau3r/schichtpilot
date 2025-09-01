@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
 
 const monate = [
@@ -11,6 +12,8 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
   const [tage, setTage] = useState([]);
   const [eintraege, setEintraege] = useState({ feiertage: [], termine: [] });
   const [qualiMap, setQualiMap] = useState({});
+  
+  const { sichtFirma: firma, sichtUnit: unit } = useRollen(); // ✅ Richtig platziert!
 
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
@@ -38,8 +41,6 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
   const start = dayjs(new Date(jahr, monat, 1)).format('YYYY-MM-DD');
   const ende = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
-  const firma = localStorage.getItem('firma_id');
-  const unit = localStorage.getItem('unit_id');
 
   // 1. Bundesland der Unit laden
   const { data: unitData, error: unitError } = await supabase

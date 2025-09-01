@@ -142,7 +142,7 @@ const TermineFormular = ({ setReloadKey }) => {
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-bold">Termin erstellen</h2>
         <button onClick={() => setInfoOffen(true)} title="Infos zum Modul">
-          <Info className="text-blue-400 hover:text-blue-200" />
+          <Info className="w-5 h-5 top-3 right-3 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
         </button>
       </div>
 
@@ -159,7 +159,7 @@ const TermineFormular = ({ setReloadKey }) => {
       <div className="flex items-center gap-4 flex-wrap">
         <input
           type="date"
-          className="p-2 rounded bg-gray-200 dark:bg-gray-800"
+          className="p-2 rounded bg-gray-200 dark:bg-gray-800 "
           value={datum}
           onChange={(e) => setDatum(e.target.value)}
         />
@@ -177,12 +177,12 @@ const TermineFormular = ({ setReloadKey }) => {
             <input
               type="number"
               min="1"
-              className="w-[60px] p-1 rounded"
+              className="w-[60px] p-1 rounded text-gray-900 dark:text-gray-200 bg-gray-200 dark:bg-gray-700"
               value={wiederholAnzahl}
               onChange={(e) => setWiederholAnzahl(Number(e.target.value))}
             />
             <select
-              className="p-1 rounded"
+              className="p-1 rounded text-gray-900 dark:text-gray-200 bg-gray-200 dark:bg-gray-700"
               value={wiederholIntervall}
               onChange={(e) => setWiederholIntervall(e.target.value)}
             >
@@ -192,7 +192,7 @@ const TermineFormular = ({ setReloadKey }) => {
             </select>
             <input
               type="date"
-              className="p-1 rounded"
+              className="p-1 rounded text-gray-900 dark:text-gray-200 bg-gray-200 dark:bg-gray-700"
               value={wiederholenBis}
               onChange={(e) => setWiederholenBis(e.target.value)}
             />
@@ -200,7 +200,7 @@ const TermineFormular = ({ setReloadKey }) => {
         )}
       </div>
 
-      {wiederholend && <div className="text-sm italic text-gray-300">{wiederholungSatz()}</div>}
+      {wiederholend && <div className="text-sm italic text-gray-900 dark:text-gray-200">{wiederholungSatz()}</div>}
 
       <div>
         <div className="flex justify-between items-center">

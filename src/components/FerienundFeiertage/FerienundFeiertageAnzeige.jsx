@@ -80,9 +80,9 @@ const FerienundFeiertageAnzeige = (refresh) => {
         </button>
       </div>
 
-      <table className="w-full text-sm">
+      <table className="w-full text-md">
         <thead>
-          <tr className="text-left border-b dark:border-gray-700">
+          <tr className="bg-gray-300 dark:bg-gray-700 text-left border-b border-gray-300 dark:border-gray-700">
             <th>Von</th>
             <th>Bis</th>
             <th>Name</th>
@@ -94,7 +94,7 @@ const FerienundFeiertageAnzeige = (refresh) => {
         </thead>
         <tbody>
           {gefiltert.map(e => (
-            <tr key={e.id} className="border-b dark:border-gray-700">
+            <tr key={e.id} className="text-sm border-b border-gray-300 dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700">
               <td>{dayjs(e.von).format('DD.MM.YYYY')}</td>
               <td>{e.bis ? dayjs(e.bis).format('DD.MM.YYYY') : '-'}</td>
               <td>{e.name}</td>

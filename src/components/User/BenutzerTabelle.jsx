@@ -1,7 +1,7 @@
 // Start: Neuer Code für BenutzerTabelle.jsx mit D&L, Pagination, Alphabetfilter, Sortierung + InfoModal + Export + umsortiertes Buttonlayout + Namenssuchfeld
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
-import { Info, Download } from 'lucide-react';
+import { Info, Download, RefreshCcw, Pencil } from 'lucide-react';
 
 const BenutzerTabelle = ({ onEditUser, refresh }) => {
   const [benutzer, setBenutzer] = useState([]);
@@ -157,9 +157,10 @@ const BenutzerTabelle = ({ onEditUser, refresh }) => {
 
           <button
             onClick={ladeBenutzer}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm"
-          >
-            🔄 Refresh
+           className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
+        >
+          <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+          Refresh 
           </button>
         </div>
       </div>
@@ -191,7 +192,9 @@ const BenutzerTabelle = ({ onEditUser, refresh }) => {
                 <td className="px-3 py-2">{user.unitname}</td>
                 <td className="px-3 py-2">{user.rolle}</td>
                 <td className="px-3 py-2">
-                  <button onClick={() => onEditUser(user)} className="text-blue-600 hover:text-blue-800">✏️</button>
+                  <button onClick={() => onEditUser(user)}>
+                    <Pencil size={16} className="inline text-blue-500 hover:text-blue-700 mr-2" />
+                  </button>
                 </td>
               </tr>
             ))}

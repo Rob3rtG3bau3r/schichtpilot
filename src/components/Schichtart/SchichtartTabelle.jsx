@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
-import { GripVertical, Info, RefreshCcw, X } from 'lucide-react';
+import { GripVertical, Info, RefreshCcw, X, Trash2, Pencil } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 
 const SchichtartTabelle = ({ onBearbeiten }) => {
@@ -103,41 +103,44 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
           </div>
         </div>
       )}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Schichtarten</h2>
-          <button
-            className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
-            onClick={() => setInfoOffen(true)}
-            title="Mehr Infos zu Schichtarten"
-          >
-            <Info size={20} />
-          </button>
-        </div>
+<div className="flex items-center justify-between mb-4">
+  <div className="flex items-center gap-2">
+    <h2 className="text-lg font-semibold">Schichtarten</h2>
+  </div>
 
-        <button
-          onClick={ladeSchichtarten}
-          className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
-        >
-          <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
+  <div className="flex items-center gap-3">
+    <button
+      onClick={ladeSchichtarten}
+      className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
+    >
+      <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+      Refresh
+    </button>
+    <button
+      className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+      onClick={() => setInfoOffen(true)}
+      title="Mehr Infos zu Schichtarten"
+    >
+      <Info size={20} />
+    </button>
+  </div>
+</div>
 
-      <table className="min-w-full text-left border border-gray-300 dark:border-gray-600 text-sm">
-        <thead className="bg-gray-200 dark:bg-gray-700">
+
+      <table className="min-w-full text-left  text-sm">
+        <thead className="bg-gray-300 dark:bg-gray-700">
           <tr>
-            <th className="px-2 py-1 border dark:border-gray-600"></th>
-            <th className="px-2 py-1 border dark:border-gray-600">Kürzel</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Beginn</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Ende</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Dauer</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Tag</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Fix</th>
-            <th className="px-2 py-1 border dark:border-gray-600">SollPl.</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Beschreibung</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Firma ➝ Unit</th>
-            <th className="px-2 py-1 border dark:border-gray-600">Aktionen</th>
+            <th className="px-2 py-1 "></th>
+            <th className="px-2 py-1">Kürzel</th>
+            <th className="px-2 py-1 ">Beginn</th>
+            <th className="px-2 py-1 ">Ende</th>
+            <th className="px-2 py-1 ">Dauer</th>
+            <th className="px-2 py-1 ">Tag</th>
+            <th className="px-2 py-1 ">Fix</th>
+            <th className="px-2 py-1 ">SollPl.</th>
+            <th className="px-2 py-1 ">Beschreibung</th>
+            <th className="px-2 py-1 ">Firma ➝ Unit</th>
+            <th className="px-2 py-1 ">Aktionen</th>
           </tr>
         </thead>
         <tbody>
@@ -150,10 +153,10 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
               onDrop={(e) => handleDrop(e, index)}
               className="hover:bg-gray-100 dark:hover:bg-gray-700"
             >
-              <td className="px-2 py-1 border text-gray-400 dark:text-gray-500 dark:border-gray-600 cursor-move">
+              <td className="px-2 py-1  text-gray-400 dark:text-gray-500 border-b border-gray-300 dark:border-gray-700 cursor-move">
                 <GripVertical size={16} />
               </td>
-              <td className="px-2 py-1 border dark:border-gray-600">
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 <span
                   className="px-2 py-1 rounded font-bold inline-block text-center"
                   style={{
@@ -165,28 +168,25 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
                   {item.kuerzel}
                 </span>
               </td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.startzeit}</td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.endzeit}</td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.dauer} h</td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.endet_naechsten_tag ? 'yes' : 'no'}</td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.ignoriert_arbeitszeit ? 'yes' : 'no'}</td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.sollplan_relevant ? 'yes' : 'no'}</td>
-              <td className="px-2 py-1 border dark:border-gray-600">{item.beschreibung}</td>
-              <td className="px-2 py-1 border dark:border-gray-600">
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.startzeit}</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.endzeit}</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.dauer} h</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.endet_naechsten_tag ? 'yes' : 'no'}</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.ignoriert_arbeitszeit ? 'yes' : 'no'}</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.sollplan_relevant ? 'yes' : 'no'}</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">{item.beschreibung}</td>
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 {item.DB_Kunden?.firmenname || '❓'} ➝ {item.DB_Unit?.unitname || '❓'}
               </td>
-              <td className="px-2 py-1 border dark:border-gray-600 space-x-2">
+              <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700 space-x-2">
                 <button
-                  className="text-blue-600 hover:underline"
-                  onClick={() => onBearbeiten(item)}
-                >
-                  ✏️
+                  onClick={() => onBearbeiten(item)}>
+                  <Pencil size={16} className="inline text-blue-500 hover:text-blue-700 mr-2" />
                 </button>
                 <button
-                  className="text-red-600 hover:underline"
                   onClick={() => handleDelete(item.id)}
-                >
-                  🗑️
+                  className="text-red-500 hover:text-red-700">
+                  <Trash2 size={18} />
                 </button>
               </td>
             </tr>

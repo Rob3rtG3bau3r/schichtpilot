@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
-import { Info, RefreshCw, Pencil, Trash } from 'lucide-react';
+import { Info, RefreshCcw, Pencil, Trash2 } from 'lucide-react';
 
 const QualifikationsAnzeige = ({ onEdit, onReload, refreshKey }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
@@ -91,19 +91,23 @@ useEffect(() => {
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">Qualifikationen</h2>
         <div className="flex gap-3">
+          <button onClick={ladeDaten}
+           className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
+        >
+          <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+          Refresh
+          </button>
           <button onClick={() => setInfoOffen(true)}>
-            <Info className="w-5 h-5 text-blue-500 hover:text-blue-700" />
+            <Info className="w-5 h-5 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
           </button>
-          <button onClick={ladeDaten}>
-            <RefreshCw className="w-5 h-5 text-gray-500 hover:text-gray-800" />
-          </button>
+
         </div>
       </div>
 
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left border-b dark:border-gray-700">
-            <th className="py-2">Kürzel</th>
+          <tr className="text-left border-b dark:border-gray-700 bg-gray-300 dark:bg-gray-700">
+            <th className="py-2 px-1">Kürzel</th>
             <th>Qualifikation</th>
             <th>Schwerpunkt</th>
             <th>Betriebsrelevant</th>
@@ -119,7 +123,7 @@ useEffect(() => {
               onDragStart={() => handleDragStart(index)}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => handleDrop(index)}
-              className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 ${
+              className={`border-b dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700 ${
                 eintrag.betriebs_relevant ? 'cursor-move' : ''
               }`}
               title={eintrag.beschreibung || ''}
@@ -134,7 +138,7 @@ useEffect(() => {
                   <Pencil size={16} className="inline text-blue-500 hover:text-blue-700 mr-2" />
                 </button>
                 <button onClick={() => handleLoeschen(eintrag)}>
-                  <Trash size={16} className="inline text-red-500 hover:text-red-700" />
+                  <Trash2 size={16} className="inline text-red-500 hover:text-red-700" />
                 </button>
               </td>
             </tr>

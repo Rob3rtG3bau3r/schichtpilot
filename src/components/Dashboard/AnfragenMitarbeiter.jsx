@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
-import { Info, ChevronDown, ChevronRight, Trash2, GripVertical, RefreshCcw, X  } from 'lucide-react';
+import { Info, ChevronDown, ChevronRight, RefreshCcw } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 
 const AnfragenMitarbeiter = () => {
@@ -15,44 +15,50 @@ const AnfragenMitarbeiter = () => {
   const [infoModalOffen, setInfoModalOffen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-const ladeAnfragen = async () => {
-  const { data, error } = await supabase
-    .from('DB_AnfrageMA')
-    .select('*, created_by_user:created_by ( vorname, nachname ), verantwortlicher_user:verantwortlicher ( vorname, nachname )')
-    .eq('firma_id', firma)
-    .eq('unit_id', unit);
+useEffect(() => {
+  const ladeAnfragen = async () => {
+    if (!firma || !unit) return; // Guard
 
-  if (error) {
-    console.error('Fehler beim Laden:', error.message);
-    return;
-  }
+    let query = supabase
+      .from('DB_AnfrageMA')
+      .select('*, created_by_user:created_by ( vorname, nachname ), verantwortlicher_user:verantwortlicher ( vorname, nachname )')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit);
 
-  const gefiltert = data.filter((eintrag) => {
-    const istAbgelaufen = dayjs().diff(dayjs(eintrag.created_at), 'day') > 3;
-    const istOffen = eintrag.genehmigt === null;
-    const istGeschlossen = eintrag.genehmigt !== null;
+    // Employees sehen nur eigene Anfragen
+    if (rolle === 'Employee') {
+      query = query.eq('created_by', userId);
+    }
 
-    return (
-      (filter.abgelaufen && istAbgelaufen) ||
-      (filter.offen && istOffen && !istAbgelaufen) ||
-      (filter.geschlossen && istGeschlossen && !istAbgelaufen)
-    );
-  }).sort((a, b) => {
-    if (a.genehmigt === null && b.genehmigt !== null) return -1;
-    if (a.genehmigt !== null && b.genehmigt === null) return 1;
-    return 0;
-  });
+    const { data, error } = await query;
+    if (error) {
+      console.error('Fehler beim Laden:', error.message);
+      return;
+    }
 
-  const sichtbar = rolle === 'Employee, SuperAdmin'
-    ? gefiltert.filter((a) => a.created_by === userId)
-    : gefiltert;
+    const gefiltert = (data || [])
+      .filter((eintrag) => {
+        const istAbgelaufen = dayjs().diff(dayjs(eintrag.created_at), 'day') > 3;
+        const istOffen = eintrag.genehmigt === null;
+        const istGeschlossen = eintrag.genehmigt !== null;
+        return (
+          (filter.abgelaufen && istAbgelaufen) ||
+          (filter.offen && istOffen && !istAbgelaufen) ||
+          (filter.geschlossen && istGeschlossen && !istAbgelaufen)
+        );
+      })
+      .sort((a, b) => {
+        if (a.genehmigt === null && b.genehmigt !== null) return -1;
+        if (a.genehmigt !== null && b.genehmigt === null) return 1;
+        return 0;
+      });
 
-  setAnfragen(sichtbar);
-};
+    setAnfragen(gefiltert);
+  };
 
-    ladeAnfragen();
-  }, [filter, rolle, firma, unit, refreshKey]);
+  ladeAnfragen();
+}, [filter, rolle, firma, unit, userId, refreshKey]);
+
 
   const handleSpeichern = async () => {
     if (!modalAnfrage || entscheidung === null) return;
@@ -79,14 +85,13 @@ const ladeAnfragen = async () => {
   };
 
   return (
-    <div className="rounded-xl shadow-xl border border-gray-300 dark:border-gray-700">
+    <div className="bg-gray-200 dark:bg-gray-800 rounded-xl shadow-xl p-1 shadow-xl border border-gray-300 dark:border-gray-700">
 
-      {/* Titel & Toggle */}
 <div
   onClick={() => setBereichOffen(prev => !prev)}
   role="button"
   tabIndex={0}
-  className="w-full flex justify-between items-center px-4 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl shadow-inner hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
+  className="w-full flex justify-between items-center py-3 bg-gray-200 dark:bg-gray-800 rounded-xl transition-all"
   onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setBereichOffen(prev => !prev)}
 >
   <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-white">
@@ -100,15 +105,12 @@ const ladeAnfragen = async () => {
     }}
     title="Mehr Infos"
   >
-    <div className="h-5 w-5 rounded-full border border-blue-400 text-blue-500 flex items-center justify-center text-xs font-bold">
-      i
-    </div>
+<Info className="w-5 h-5 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
   </button>
 </div>
-
       {/* Inhalt */}
       {bereichOffen && (
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-b-xl border-t border-gray-300 dark:border-gray-700">
+        <div className="bg-gray-200 dark:bg-gray-800 p-4 rounded-b-xl  dark:border-gray-700">
 {/* Filter + Refresh */}
 <div className="flex justify-between items-center mb-4 text-sm">
   {/* Linke Seite: Checkboxen */}
@@ -143,7 +145,7 @@ const ladeAnfragen = async () => {
           <div className="overflow-auto max-h-[500px]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-100 dark:bg-gray-700 text-left">
+                <tr className="bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-gray-300 text-left">
                   <th className="p-2">Datum</th>
                   <th>Schicht</th>
                   <th>Von</th>
@@ -162,7 +164,7 @@ const ladeAnfragen = async () => {
                     <tr
                       key={a.id}
                       onClick={() => istAenderbar && setModalAnfrage(a)}
-                      className={`hover:bg-gray-100 dark:hover:bg-gray-700 ${!istAenderbar ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                      className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700 ${!istAenderbar ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
                       title={a.kommentar || ''}
                     >
                       <td className="p-2">{dayjs(a.datum).format('DD.MM.YYYY')}</td>

@@ -1,6 +1,6 @@
 // QualiZuweisung.jsx
 import React, { useState, useEffect } from 'react';
-import { Info, Trash, X } from 'lucide-react';
+import { Info, Trash2, X } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 
@@ -210,7 +210,7 @@ useEffect(() => {
                   <td className="p-1">{eintrag.kuerzel}</td>
                   <td className="p-1">{new Date(eintrag.created_at).toLocaleDateString()}</td>
                   <td className="p-1 text-red-600 text-center">
-                    <Trash size={16} className="inline cursor-pointer" onClick={() => handleEntfernen(eintrag.id)} />
+                    <Trash2 size={16} className="inline cursor-pointer" onClick={() => handleEntfernen(eintrag.id)} />
                   </td>
                 </tr>
               ))}

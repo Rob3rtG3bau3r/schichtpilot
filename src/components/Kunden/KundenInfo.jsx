@@ -2,18 +2,44 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Dialog } from '@headlessui/react';
 import { Pencil } from 'lucide-react';
+import { useRollen } from '../../context/RollenContext';
 
-const KundenInfo = ({ firma }) => {
+const KundenInfo = ({ firma, onFirmaChange }) => {
+  const { rolle } = useRollen();
+  const [firmen, setFirmen] = useState([]);
+  const [selectedFirma, setSelectedFirma] = useState(firma || '');
   const [kunde, setKunde] = useState(null);
   const [modalOffen, setModalOffen] = useState(false);
   const [neuerName, setNeuerName] = useState('');
   const [bestaetigungOffen, setBestaetigungOffen] = useState(false);
   const [erfolgsmeldung, setErfolgsmeldung] = useState('');
 
+  // Firmenliste laden (nur für SuperAdmin)
+  useEffect(() => {
+    if (rolle !== 'SuperAdmin') return;
+    const ladeFirmen = async () => {
+      const { data, error } = await supabase
+        .from('DB_Kunden')
+        .select('id, firmenname')
+        .order('firmenname', { ascending: true });
+
+      if (!error && data.length > 0) {
+        setFirmen(data);
+
+        // Wenn noch keine Firma ausgewählt ist, nimm die erste
+        if (!selectedFirma) {
+          setSelectedFirma(data[0].id);
+          if (onFirmaChange) onFirmaChange(data[0].id);
+        }
+      }
+    };
+    ladeFirmen();
+  }, [rolle]);
+
   // Kundendaten laden
   useEffect(() => {
     const ladeKunde = async () => {
-      if (!firma) {
+      if (!selectedFirma) {
         console.log('Firma fehlt – Abfrage wird nicht ausgeführt');
         return;
       }
@@ -21,7 +47,7 @@ const KundenInfo = ({ firma }) => {
       const { data, error } = await supabase
         .from('DB_Kunden')
         .select('*')
-        .eq('id', firma)
+        .eq('id', selectedFirma)
         .single();
 
       if (error) {
@@ -31,51 +57,70 @@ const KundenInfo = ({ firma }) => {
         setNeuerName(data.firmenname);
       }
     };
-
     ladeKunde();
-  }, [firma]);
+  }, [selectedFirma]);
+
+  // Firma ändern
+  const handleFirmaChange = (id) => {
+    setSelectedFirma(id);
+    if (onFirmaChange) onFirmaChange(id);
+  };
 
   // Speichern
-const handleSpeichern = async () => {
-  const nameGeändert = neuerName !== kunde.firmenname;
+  const handleSpeichern = async () => {
+    const nameGeändert = neuerName !== kunde.firmenname;
+    if (nameGeändert && !bestaetigungOffen) {
+      setBestaetigungOffen(true);
+      return;
+    }
 
-  // Nur bei Namensänderung bestätigen
-  if (nameGeändert && !bestaetigungOffen) {
-    setBestaetigungOffen(true);
-    return;
-  }
+    const { error } = await supabase
+      .from('DB_Kunden')
+      .update({
+        firmenname: neuerName,
+        strasse: kunde.strasse,
+        plz: kunde.plz,
+        stadt: kunde.stadt,
+        telefon: kunde.telefon,
+        telefon2: kunde.telefon2,
+      })
+      .eq('id', selectedFirma); // <--- Fix
 
-  const { error } = await supabase
-    .from('DB_Kunden')
-    .update({
-      firmenname: neuerName,
-      strasse: kunde.strasse,
-      plz: kunde.plz,
-      stadt: kunde.stadt,
-      telefon: kunde.telefon,
-      telefon2: kunde.telefon2,
-    })
-    .eq('firmenname', firma);
-
-  if (!error) {
-    setErfolgsmeldung('Daten erfolgreich geändert!');
-    setModalOffen(false); // ← Modal schließen
-    setBestaetigungOffen(false);
-
-    // lokal den Namen übernehmen
-    setKunde(prev => ({
-      ...prev,
-      firmenname: neuerName,
-    }));
-
-    setTimeout(() => setErfolgsmeldung(''), 3000);
-  }
-};
+    if (!error) {
+      setErfolgsmeldung('Daten erfolgreich geändert!');
+      setModalOffen(false);
+      setBestaetigungOffen(false);
+      setKunde((prev) => ({
+        ...prev,
+        firmenname: neuerName,
+      }));
+      setTimeout(() => setErfolgsmeldung(''), 3000);
+    }
+  };
 
   if (!kunde) return <div className="text-sm text-gray-400">Lade Unternehmensdaten…</div>;
 
   return (
     <div className="p-4 rounded-xl text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-600 shadow-xl bg-gray-200 dark:bg-gray-800">
+
+      {/* Dropdown für SuperAdmin */}
+      {rolle === 'SuperAdmin' && (
+        <div className="mb-4">
+          <label className="block text-sm font-semibold mb-1">Firma auswählen:</label>
+          <select
+            value={selectedFirma}
+            onChange={(e) => handleFirmaChange(e.target.value)}
+            className="border rounded px-2 py-1 w-full bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+          >
+            {firmen.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.firmenname}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <h2 className="text-xl font-semibold mb-4">Dein Unternehmen</h2>
 
       <div className="flex items-center gap-2">
@@ -105,87 +150,82 @@ const handleSpeichern = async () => {
       )}
 
       {/* Modal */}
-<Dialog open={modalOffen} onClose={() => { setModalOffen(false); setBestaetigungOffen(false); }}>
-  <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-    <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl w-[90%] max-w-md">
-      <Dialog.Title className="text-lg font-semibold mb-4">
-        Du möchtest die Firmendaten ändern?
-      </Dialog.Title>
+      <Dialog open={modalOffen} onClose={() => { setModalOffen(false); setBestaetigungOffen(false); }}>
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl w-[90%] max-w-md">
+            <Dialog.Title className="text-lg font-semibold mb-4">
+              Du möchtest die Firmendaten ändern?
+            </Dialog.Title>
 
-      {/* Eingabefelder */}
-      <div className="space-y-2">
-        <input
-          type="text"
-          value={neuerName}
-          onChange={(e) => setNeuerName(e.target.value)}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-          placeholder="Firmenname"
-        />
-        <input
-          type="text"
-          value={kunde.strasse || ''}
-          onChange={(e) => setKunde(prev => ({ ...prev, strasse: e.target.value }))}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-          placeholder="Straße"
-        />
-<div className="flex gap-2">
-  <input
-    type="text"
-    value={kunde.plz || ''}
-    onChange={(e) => setKunde(prev => ({ ...prev, plz: e.target.value }))}
-    className="w-24 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-    placeholder="PLZ"
-    maxLength={10}
-  />
-  <input
-    type="text"
-    value={kunde.stadt || ''}
-    onChange={(e) => setKunde(prev => ({ ...prev, stadt: e.target.value }))}
-    className="flex-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-    placeholder="Ort"
-  />
-</div>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={neuerName}
+                onChange={(e) => setNeuerName(e.target.value)}
+                className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+                placeholder="Firmenname"
+              />
+              <input
+                type="text"
+                value={kunde.strasse || ''}
+                onChange={(e) => setKunde((prev) => ({ ...prev, strasse: e.target.value }))}
+                className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+                placeholder="Straße"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={kunde.plz || ''}
+                  onChange={(e) => setKunde((prev) => ({ ...prev, plz: e.target.value }))}
+                  className="w-24 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+                  placeholder="PLZ"
+                  maxLength={10}
+                />
+                <input
+                  type="text"
+                  value={kunde.stadt || ''}
+                  onChange={(e) => setKunde((prev) => ({ ...prev, stadt: e.target.value }))}
+                  className="flex-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+                  placeholder="Ort"
+                />
+              </div>
+              <input
+                type="text"
+                value={kunde.telefon || ''}
+                onChange={(e) => setKunde((prev) => ({ ...prev, telefon: e.target.value }))}
+                className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+                placeholder="Telefon"
+              />
+              <input
+                type="text"
+                value={kunde.telefon2 || ''}
+                onChange={(e) => setKunde((prev) => ({ ...prev, telefon2: e.target.value }))}
+                className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+                placeholder="Mobil"
+              />
+            </div>
 
-        <input
-          type="text"
-          value={kunde.telefon || ''}
-          onChange={(e) => setKunde(prev => ({ ...prev, telefon: e.target.value }))}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-          placeholder="Telefon"
-        />
-        <input
-          type="text"
-          value={kunde.telefon2 || ''}
-          onChange={(e) => setKunde(prev => ({ ...prev, telefon2: e.target.value }))}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
-          placeholder="Mobil"
-        />
-      </div>
+            {bestaetigungOffen && (
+              <p className="text-sm text-red-500 mt-2">⚠️ Bist du dir sicher?</p>
+            )}
 
-      {/* Sicherheitshinweis */}
-      {bestaetigungOffen && (
-        <p className="text-sm text-red-500 mt-2">⚠️ Bist du dir sicher?</p>
-      )}
-
-      {/* Buttons */}
-      <div className="mt-4 flex justify-end gap-2">
-        <button
-          onClick={() => { setModalOffen(false); setBestaetigungOffen(false); }}
-          className="px-3 py-1 rounded bg-gray-300 dark:bg-gray-700 text-sm"
-        >
-          Abbrechen
-        </button>
-        <button
-          onClick={handleSpeichern}
-          className="px-3 py-1 rounded bg-blue-600 text-white text-sm"
-        >
-          Speichern
-        </button>
-      </div>
-    </div>
-  </div>
-</Dialog>
-
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => { setModalOffen(false); setBestaetigungOffen(false); }}
+                className="px-3 py-1 rounded bg-gray-300 dark:bg-gray-700 text-sm"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleSpeichern}
+                className="px-3 py-1 rounded bg-blue-600 text-white text-sm"
+              >
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 };

@@ -6,6 +6,16 @@ import { useRollen } from '../../context/RollenContext';
 import QualiModal from '../Cockpit/QualiModal';
 import SchichtDienstAendernForm from './SchichtDienstAendernForm';
 
+const currentUserId = localStorage.getItem('user_id');
+
+// Maskierung: Employer sieht K/KO bei anderen als "-"
+const maskKuerzelForEmployer = (kuerzel, cellUserId, role, me) => {
+  if (role === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO') && String(cellUserId) !== String(me)) {
+    return '-';
+  }
+  return kuerzel || '-';
+};
+
 const KampfListe = ({
   jahr,
   monat,
@@ -218,7 +228,6 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
   key={userId}
   className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!eintrag.user_visible ? 'opacity-20' : ''}`}
 >
-
                   {tage.map((t) => {
                     const eintragTag = eintrag.tage[t.tag];
                     const zellenDatum = `${jahr}-${String(monat + 1).padStart(2, '0')}-${String(t.tag).padStart(2, '0')}`;
@@ -241,7 +250,7 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
                             name: eintrag.vollName,
                             datum: zellenDatum,
                             soll_schicht: null,
-                            ist_schicht: eintragTag?.kuerzel,
+                            ist_schicht: maskKuerzelForEmployer(eintragTag?.kuerzel, userId, rolle, currentUserId),
                             ist_schicht_id: eintragTag?.ist_schicht_id || null,
                             beginn: eintragTag?.beginn || '',
                             ende: eintragTag?.ende || '',
@@ -272,7 +281,7 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
     <div
       className="absolute top-0 right-0 w-0 h-0"
       style={{
-        borderTop: '10px solid #facc15', // Tailwind yellow-400
+        borderTop: '10px solid #ed0606f7', // Tailwind yellow-400
         borderLeft: '10px solid transparent',
         zIndex: 10,
       }}
@@ -296,7 +305,7 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
     <div
       className="absolute top-0 left-0 w-0 h-0"
       style={{
-        borderTop: '10px solid red', // Tailwind sky-400
+        borderTop: '10px solid #d64a04ff', // Tailwind sky-400
         borderRight: '10px solid transparent',
         zIndex: 10,
       }}
@@ -314,8 +323,10 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
                           </div>
                         )}
                         {eintragTag ? (
-                          <span className="text-xs font-medium">{eintragTag.kuerzel}</span>
-                        ) : (
+                          <span className="text-xs font-medium">
+                            {maskKuerzelForEmployer(eintragTag.kuerzel, userId, rolle, currentUserId)}
+                          </span>
+                          ) : (
                           <span className="text-gray-500">–</span>
                         )}
                       </div>

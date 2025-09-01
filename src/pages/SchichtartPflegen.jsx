@@ -26,7 +26,7 @@ const SchichtartPflegen = () => {
   }, []);
 
   return (
-    <div className={`min-h-screen px-6 pb-2 ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-900'}`}>
+    <div className={`min-h-screen px-6 pb-2 ${darkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-200 text-gray-900'}`}>
       {/* Hauptbereich */}
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Linker Bereich: Formular */}
