@@ -14,6 +14,17 @@
     <!-- Mobile Web App Unterstützung -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <script>
+  // Setze Dark-Mode sofort, bevor React rendert (verhindert White-Flash)
+  try {
+    const t = localStorage.getItem("theme_mobile");
+    if (t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  } catch (e) {}
+</script>
 <script>
   // Nur auf Prod/HTTPS registrieren – nicht auf localhost
   if (location.hostname !== "localhost" && "serviceWorker" in navigator) {

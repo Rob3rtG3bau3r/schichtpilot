@@ -1,0 +1,8 @@
+{
+  "redirects": [
+    { "source": "/mobile/Login", "destination": "/mobile/login", "permanent": true }
+  ],
+  "rewrites": [
+    { "source": "/:path*", "destination": "/index.html" }
+  ]
+}
