@@ -64,7 +64,7 @@ const MobileLogin = () => {
           if (userDetails) {
             localStorage.setItem('firma_id', userDetails.firma_id);
             localStorage.setItem('unit_id', userDetails.unit_id);
-            console.log('✅ Firma & Unit gespeichert:', userDetails);
+            //console.log('✅ Firma & Unit gespeichert:', userDetails);
           }
         }),
       ]);

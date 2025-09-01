@@ -13,21 +13,29 @@ import {
 import { supabase } from "../../supabaseClient";
 import { erstelleDatenschutzPDF } from "../../utils/DatenschutzPDF";
 
-const INAKTIV_TIMEOUT = 10 * 60 * 1000; // 10 Minuten
-const COUNTDOWN_START = 10; // Countdown startet 10 Sekunden vor Logout
+// ⏱ Timeout & Countdown
+const INAKTIV_TIMEOUT = 5 * 60 * 1000; // 30 Sekunden (anpassen: 5 * 60 * 1000 für 5 Min)
+const COUNTDOWN_START = 10;            // Countdown läuft 10s vor Sperre
+
+// 🔒 Background-Lock
+const LOCK_KEY = "mobile_locked_at";
+// 0 = immer PIN nach Wiederkehr; z. B. 10*60*1000 => erst nach 10 Min Hintergrund
+const LOCK_AFTER_MS = 0;
 
 const MobileLayout = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const isAuthScreen =
+    pathname.startsWith("/mobile/login") || pathname.startsWith("/mobile/pin");
 
-  // 🔹 Sofort-PIN-Check bei App-Start
+  // 🔹 Sofort-Route-Check bei App-Start/Route-Wechsel
   useEffect(() => {
     const erlaubteSeiten = ["/mobile/login", "/mobile/pin"];
     const gespeicherterPin = localStorage.getItem("user_pin");
 
-    // Wenn kein PIN gesetzt & wir sind nicht auf Login oder PIN → weiterleiten
+    // Wenn KEIN PIN gesetzt & wir sind NICHT auf Login oder PIN → zur LOGIN-Seite
     if (!gespeicherterPin && !erlaubteSeiten.includes(pathname)) {
-      navigate("/mobile/pin");
+      navigate("/mobile/login");
     }
   }, [pathname, navigate]);
 
@@ -41,44 +49,41 @@ const MobileLayout = () => {
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState(COUNTDOWN_START);
 
-useEffect(() => {
-  const loadTheme = async () => {
-    if (localStorage.getItem("theme_mobile")) return; // schon gesetzt
-    const uid = localStorage.getItem("user_id");
-    if (!uid) return;
-    const { data } = await supabase.from("DB_User").select("theme_mobile").eq("user_id", uid).single();
-    const mode = data?.theme_mobile || "dark"; // Default gern "dark"
-    localStorage.setItem("theme_mobile", mode);
-    document.documentElement.classList.toggle("dark", mode === "dark");
-    setDarkMode(mode === "dark");
-  };
-  loadTheme();
-}, []);
+  // 🌙 Dark-Init (aus LS / System)
+  useEffect(() => {
+    const t = localStorage.getItem("theme_mobile");
+    const wantsDark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.classList.toggle("dark", wantsDark);
+    setDarkMode(wantsDark);
+  }, []);
 
   const gespeicherteId = localStorage.getItem("user_id");
   const timerRef = useRef(null);
   const countdownRef = useRef(null);
 
-  // 🧹 Zentrale Logout/PIN-Reset Funktion
-  const clearSession = async (redirectTo = "/mobile/login") => {
+  // 🧹 Zentrale Logout/Lock-Funktion (Hard vs. Soft)
+  const clearSession = async (
+    redirectTo = "/mobile/login",
+    { keepPin = false, signOut = true } = {}
+  ) => {
     try {
-      [
-        "user_pin",
-        "user_id",
-        "firma_id",
-        "unit_id",
-        "datenschutz_einwilligung_mobile",
-      ].forEach((key) => localStorage.removeItem(key));
-
-      await supabase.auth.signOut();
+      if (!keepPin) {
+        localStorage.removeItem("user_pin");
+        ["user_id", "firma_id", "unit_id", "datenschutz_einwilligung_mobile"].forEach((key) =>
+          localStorage.removeItem(key)
+        );
+      }
+      if (signOut) {
+        await supabase.auth.signOut();
+      }
       navigate(redirectTo);
     } catch (err) {
-      console.error("Fehler beim Logout:", err);
+      console.error("Fehler beim Logout/Lock:", err);
       alert("⚠️ Fehler beim Abmelden. Bitte erneut versuchen.");
     }
   };
 
-  // ✅ Lade Einwilligungsstatus aus DB
+  // ✅ Einwilligungstatus laden
   useEffect(() => {
     const ladeConsent = async () => {
       if (!gespeicherteId) return;
@@ -91,25 +96,22 @@ useEffect(() => {
       if (!error && data) {
         setEinwilligung(data.consent_anfragema);
         setEinwilligungDatum(data.consent_anfragema_at);
-        localStorage.setItem(
-          "datenschutz_einwilligung_mobile",
-          data.consent_anfragema
-        );
+        localStorage.setItem("datenschutz_einwilligung_mobile", data.consent_anfragema);
       }
     };
     ladeConsent();
   }, [gespeicherteId, showConsentModal]);
 
   // 🌙 Dark Mode Umschalten
-const toggleDarkMode = async () => {
-  const newMode = darkMode ? "light" : "dark";
-  document.documentElement.classList.toggle("dark", newMode === "dark");
-  setDarkMode(newMode === "dark");
-  localStorage.setItem("theme_mobile", newMode);           // <-- wichtig
-  if (gespeicherteId) {
-    await supabase.from("DB_User").update({ theme_mobile: newMode }).eq("user_id", gespeicherteId);
-  }
-};
+  const toggleDarkMode = async () => {
+    const newMode = darkMode ? "light" : "dark";
+    document.documentElement.classList.toggle("dark", newMode === "dark");
+    setDarkMode(newMode === "dark");
+    localStorage.setItem("theme_mobile", newMode);
+    if (gespeicherteId) {
+      await supabase.from("DB_User").update({ theme_mobile: newMode }).eq("user_id", gespeicherteId);
+    }
+  };
 
   // 🛡️ Einwilligung widerrufen
   const widerrufeEinwilligung = async () => {
@@ -155,64 +157,108 @@ const toggleDarkMode = async () => {
     alert("Vielen Dank! Deine Einwilligung wurde gespeichert.");
   };
 
-  // 🔁 PIN zurücksetzen
+  // 🔁 PIN zurücksetzen (Hard-Logout)
   const handlePinReset = async () => {
     const bestaetigt = window.confirm(
       "Bist du sicher, dass du deinen PIN zurücksetzen möchtest?\n\n" +
         "⚠️ Danach wirst du automatisch ausgeloggt und musst dich neu anmelden."
     );
     if (!bestaetigt) return;
-    clearSession("/mobile/login");
+    clearSession("/mobile/login", { keepPin: false, signOut: true });
   };
 
-  // ⏳ Automatischer Logout nach Inaktivität
+  // ⏳ Auto-Inaktivität → Soft-Lock (nur wenn „echte“ Session)
   const handleAutoLogout = async () => {
-    clearSession("/mobile/pin");
+    const hasUser = !!localStorage.getItem("user_id");
+    const hasPin = !!localStorage.getItem("user_pin");
+    if (!hasUser && !hasPin) return; // nichts zu sperren
+    if (isAuthScreen) return;        // auf Login/PIN nie sperren
+    clearSession("/mobile/pin", { keepPin: true, signOut: false });
   };
 
-  // ⏲️ Inaktivitätsüberwachung mit Countdown
-  const resetTimer = () => {
-    if (showCountdown) return; // Countdown läuft bereits
+// ⏲️ Inaktivitätsüberwachung mit Countdown (auf Login/PIN aus)
+const stopTimers = () => {
+  if (timerRef.current) clearTimeout(timerRef.current);
+  if (countdownRef.current) clearInterval(countdownRef.current);
+};
 
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (countdownRef.current) clearInterval(countdownRef.current);
-
+const resetTimer = () => {
+  if (isAuthScreen) {
+    stopTimers();
     setShowCountdown(false);
-    setCountdown(COUNTDOWN_START);
+    return;
+  }
 
-    timerRef.current = setTimeout(() => {
-      setShowCountdown(true);
-      let sec = COUNTDOWN_START;
+  stopTimers();
+  setShowCountdown(false);
+  setCountdown(COUNTDOWN_START);
+
+  timerRef.current = setTimeout(() => {
+    setShowCountdown(true);
+    let sec = COUNTDOWN_START;
+    setCountdown(sec);
+
+    countdownRef.current = setInterval(() => {
+      sec--;
       setCountdown(sec);
+      if (sec <= 0) {
+        clearInterval(countdownRef.current);
+        clearTimeout(timerRef.current);
+        handleAutoLogout();
+      }
+    }, 1000);
+  }, Math.max(0, INAKTIV_TIMEOUT - COUNTDOWN_START * 1000));
+};
 
-      countdownRef.current = setInterval(() => {
-        sec--;
-        setCountdown(sec);
-
-        if (sec <= 0) {
-          clearInterval(countdownRef.current);
-          clearTimeout(timerRef.current);
-          handleAutoLogout();
-        }
-      }, 1000);
-    }, INAKTIV_TIMEOUT - COUNTDOWN_START * 1000);
+// 🎧 Timer-Events + auf Routenwechsel reagieren
+useEffect(() => {
+  resetTimer();
+  window.addEventListener("mousemove", resetTimer);
+  window.addEventListener("keydown", resetTimer);
+  window.addEventListener("touchstart", resetTimer);
+  return () => {
+    window.removeEventListener("mousemove", resetTimer);
+    window.removeEventListener("keydown", resetTimer);
+    window.removeEventListener("touchstart", resetTimer);
+    stopTimers();
   };
+}, [pathname]);
 
-  // 🎧 Timer-Events überwachen
+
+  // 🔒 Background-Lock nur bei „echter“ Session; nie auf Login/PIN
   useEffect(() => {
-    resetTimer();
-    window.addEventListener("mousemove", resetTimer);
-    window.addEventListener("keydown", resetTimer);
-    window.addEventListener("touchstart", resetTimer);
-    return () => {
-      window.removeEventListener("mousemove", resetTimer);
-      window.removeEventListener("keydown", resetTimer);
-      window.removeEventListener("touchstart", resetTimer);
+    const hasSessionOrPin = () =>
+      !!localStorage.getItem("user_id") || !!localStorage.getItem("user_pin");
+
+    const lockNow = () => {
+      if (!hasSessionOrPin()) return;
+      sessionStorage.setItem(LOCK_KEY, String(Date.now()));
     };
-  }, []);
+
+    const maybeRequirePin = () => {
+      const lockedAt = Number(sessionStorage.getItem(LOCK_KEY) || "0");
+      if (!lockedAt) return;
+      sessionStorage.removeItem(LOCK_KEY);
+      if (isAuthScreen) return; // Auth-Screens nicht überschreiben
+      if (Date.now() - lockedAt >= LOCK_AFTER_MS) {
+        navigate("/mobile/pin");
+      }
+    };
+
+    const onVisibility = () => (document.hidden ? lockNow() : maybeRequirePin());
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", lockNow);
+    window.addEventListener("pageshow", maybeRequirePin);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", lockNow);
+      window.removeEventListener("pageshow", maybeRequirePin);
+    };
+  }, [navigate, isAuthScreen]);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="min-h-screen flex flex-col bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       {/* Sticky Header */}
       <div className="text-gray-200 sticky top-0 z-50 bg-gray-900 pr-4 py-1 flex justify-between items-center">
         <div className="flex items-center gap-2">
@@ -269,9 +315,7 @@ const toggleDarkMode = async () => {
                   onClick={toggleDarkMode}
                   className="w-full text-left text-blue-600 hover:underline"
                 >
-                  {darkMode
-                    ? "🌞 Light Mode aktivieren"
-                    : "🌙 Dark Mode aktivieren"}
+                  {darkMode ? "🌞 Light Mode aktivieren" : "🌙 Dark Mode aktivieren"}
                 </button>
               </li>
 
@@ -322,7 +366,7 @@ const toggleDarkMode = async () => {
               {/* Logout */}
               <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
                 <button
-                  onClick={() => clearSession("/mobile/login")}
+                  onClick={() => clearSession("/mobile/login", { keepPin: false, signOut: true })}
                   className="w-full text-left text-red-600 hover:underline flex items-center gap-2"
                 >
                   <LogOut className="w-4 h-4" /> Abmelden
@@ -340,8 +384,7 @@ const toggleDarkMode = async () => {
             <h3 className="text-lg font-bold mb-4">📜 Datenschutzerklärung</h3>
             <p className="text-sm mb-4">
               Um Anfragen stellen oder dich für Schichten anbieten zu können,
-              benötigen wir deine Einwilligung. Du kannst sie jederzeit im Menü
-              widerrufen.
+              benötigen wir deine Einwilligung. Du kannst sie jederzeit im Menü widerrufen.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -362,7 +405,7 @@ const toggleDarkMode = async () => {
       )}
 
       {/* Countdown vor Logout */}
-      {showCountdown && (
+      {showCountdown && !isAuthScreen && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-60 z-50">
           <div className="bg-red-600 text-white p-6 rounded-xl shadow-lg text-center">
             <p className="text-lg font-bold">Automatischer Logout</p>

@@ -1,5 +1,5 @@
 // public/service-worker.js
-const CACHE_VERSION = "v3-schichtpilot";
+const CACHE_VERSION = "v6-schichtpilot";
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
