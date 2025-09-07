@@ -167,4 +167,3 @@ const MobileLogin = () => {
 };
 
 export default MobileLogin;
-

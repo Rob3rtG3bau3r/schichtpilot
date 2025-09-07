@@ -283,7 +283,7 @@ const speichernGesperrt =
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white text-gray-800 dark:bg-gray-900 dark:text-white border border-gray-400 p-6 rounded-xl w-[700px] shadow-lg relative">
+      <div className="bg-white text-gray-800 dark:bg-gray-900 dark:text-white border border-gray-500 p-6 rounded-xl w-[700px] shadow-lg relative">
         <button
           onClick={() => setInfoOffen(true)}
           className="absolute top-2 right-2 text-blue-500 hover:text-blue-700"

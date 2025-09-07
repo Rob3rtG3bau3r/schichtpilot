@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import { ArrowLeft } from 'lucide-react';
+import { useSwipeable } from 'react-swipeable';
 import { ermittleBedarfUndStatus } from './Utils/bedarfsauswertung';
 import UrlaubsModal from './UrlaubsModal';
 import BieteMichAnModal from './BieteMichAnModal';
@@ -10,11 +11,11 @@ import RenderKalender from './RenderKalender';
 import RenderListe from './RenderListe';
 
 const monate = [
-  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
+  'Januar','Februar','März','April','Mai','Juni',
+  'Juli','August','September','Oktober','November','Dezember'
 ];
 
-const MeineDiensteListe = () => {
+export default function MeineDiensteListe() {
   const gespeicherteId = localStorage.getItem('user_id');
   const firma = localStorage.getItem('firma_id');
   const unit = localStorage.getItem('unit_id');
@@ -25,17 +26,27 @@ const MeineDiensteListe = () => {
   const [bedarfStatus, setBedarfStatus] = useState({});
   const [urlaubModal, setUrlaubModal] = useState({ offen: false, tag: '', datum: '', schicht: '' });
   const [hilfeModal, setHilfeModal] = useState({ offen: false, tag: '', datum: '', schicht: '' });
-  const [kalenderAnsicht, setKalenderAnsicht] = useState(false);
-  const [jahr, setJahr] = useState(dayjs().year());
 
+  // 💡 WICHTIG: sofort synchron initialisieren (verhindert Flackern)
+  const initialAnsicht = (localStorage.getItem('mobile_kalender') ?? 'kalender') === 'kalender';
+  const [kalenderAnsicht, setKalenderAnsicht] = useState(initialAnsicht);
+
+  const [jahr, setJahr] = useState(dayjs().year());
   const scrollRef = useRef(null);
   const heuteRef = useRef(null);
 
   const aktuellesJahr = dayjs().year();
   const aktuelleJahre = [aktuellesJahr - 1, aktuellesJahr, aktuellesJahr + 1];
 
+  // Reagiere live auf Änderungen aus dem Einstellungsmenü
   useEffect(() => {
-    ladeUserEinstellungen();
+    const onPrefChange = (e) => {
+      if (e.detail?.key === 'mobile_kalender') {
+        setKalenderAnsicht(e.detail.value === 'kalender');
+      }
+    };
+    window.addEventListener('schichtpilot:prefchange', onPrefChange);
+    return () => window.removeEventListener('schichtpilot:prefchange', onPrefChange);
   }, []);
 
   useEffect(() => {
@@ -44,24 +55,6 @@ const MeineDiensteListe = () => {
       ladeBedarfStatus();
     }
   }, [gespeicherteId, startDatum]);
-
-  const ladeUserEinstellungen = async () => {
-    if (!gespeicherteId) return;
-    const { data, error } = await supabase
-      .from('DB_User')
-      .select('mobile_kalender')
-      .eq('user_id', gespeicherteId)
-      .single();
-    if (!error && data) setKalenderAnsicht(data.mobile_kalender === 'kalender');
-  };
-
-  const speichereAnsicht = async (istKalender) => {
-    if (!gespeicherteId) return;
-    await supabase
-      .from('DB_User')
-      .update({ mobile_kalender: istKalender ? 'kalender' : 'liste' })
-      .eq('user_id', gespeicherteId);
-  };
 
   const ladeDienste = async () => {
     const { data } = await supabase
@@ -77,10 +70,7 @@ const MeineDiensteListe = () => {
   const ladeBedarfStatus = async () => {
     if (firma && unit && gespeicherteId) {
       const status = await ermittleBedarfUndStatus(
-        gespeicherteId,
-        parseInt(firma),
-        parseInt(unit),
-        startDatum.toDate()
+        gespeicherteId, parseInt(firma), parseInt(unit), startDatum.toDate()
       );
       setBedarfStatus(status);
     }
@@ -90,6 +80,7 @@ const MeineDiensteListe = () => {
     const heute = dayjs();
     setJahr(heute.year());
     setStartDatum(heute.startOf('month'));
+    setInfoOffenIndex(null);
   };
 
   const changeMonth = (event) => {
@@ -97,6 +88,8 @@ const MeineDiensteListe = () => {
     if (newMonthIndex >= 0) {
       const neuesDatum = startDatum.set('month', newMonthIndex).startOf('month');
       setStartDatum(neuesDatum);
+      setJahr(neuesDatum.year());
+      setInfoOffenIndex(null);
     }
   };
 
@@ -106,8 +99,26 @@ const MeineDiensteListe = () => {
       const neuesDatum = startDatum.set('year', newYear).startOf('month');
       setJahr(newYear);
       setStartDatum(neuesDatum);
+      setInfoOffenIndex(null);
     }
   };
+
+  const changeMonthRel = (delta) => {
+    setStartDatum(prev => {
+      const neu = prev.add(delta, 'month').startOf('month');
+      setJahr(neu.year());
+      return neu;
+    });
+    setInfoOffenIndex(null);
+  };
+
+  const swipeHandlers = useSwipeable({
+    onSwipedLeft: () => changeMonthRel(1),
+    onSwipedRight: () => changeMonthRel(-1),
+    trackMouse: true,
+    delta: 40,
+    preventScrollOnSwipe: true,
+  });
 
   if (!startDatum || typeof startDatum.daysInMonth !== 'function') {
     return <div className="p-4 text-red-500">Lade Kalender...</div>;
@@ -129,21 +140,25 @@ const MeineDiensteListe = () => {
               value={jahr} onChange={changeYear}>
               {aktuelleJahre.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
+
+            {/* Fallback-Buttons für Monat +/- bleiben */}
             <button
-              onClick={() => {
-                const neueAnsicht = !kalenderAnsicht;
-                setKalenderAnsicht(neueAnsicht);
-                speichereAnsicht(neueAnsicht);
-              }}
-              className="ml-2 bg-blue-500 text-white px-2 py-1 rounded text-sm"
-            >
-              {kalenderAnsicht ? 'Liste' : 'Kalender'}
-            </button>
+              onClick={() => changeMonthRel(-1)}
+              className="ml-2 bg-gray-600 text-white px-2 py-1 rounded text-xs"
+              title="Vorheriger Monat"
+            >◀︎</button>
+            <button
+              onClick={() => changeMonthRel(1)}
+              className="bg-gray-600 text-white  px-2 py-1 rounded text-xs"
+              title="Nächster Monat"
+            >▶︎</button>
+
+            {/* ✅ Umschalter wurde entfernt – lebt jetzt in den Einstellungen */}
           </div>
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto pt-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto pt-4" {...swipeHandlers}>
         {kalenderAnsicht ? (
           <RenderKalender
             startDatum={startDatum}
@@ -188,6 +203,4 @@ const MeineDiensteListe = () => {
       />
     </div>
   );
-};
-
-export default MeineDiensteListe;
+}

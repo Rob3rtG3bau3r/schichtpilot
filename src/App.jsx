@@ -22,6 +22,7 @@ import SystemTools from './pages/SystemTools';
 import Pricing from './pages/Pricing';
 import PasswortVergessen from "./pages/PasswortVergessen";
 import ResetPassword from "./pages/ResetPassword";
+import UnitReports from './pages/UnitReports';
 
 const App = () => {
   if (window.matchMedia('(display-mode: standalone)').matches && !window.location.pathname.startsWith('/mobile')) {
@@ -136,6 +137,14 @@ const App = () => {
             </RollenCheckRoute>
           }
         />
+           <Route
+      path="unit-reports"
+       element={
+       <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
+         <UnitReports />
+       </RollenCheckRoute>
+        }
+       />
         <Route
   path="system-tools"
   element={

@@ -43,7 +43,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   const pfadZuTitel = {
     '/dashboard': 'Übersicht',
     '/schichtcockpit': 'Cockpit',
-    '/kundenverwaltung': 'Dein Unternehmen',
+    '/kundenverwaltung': 'Unternehmen',
     '/schichtart-pflegen': 'Schichtarten einpflegen',
     '/schichtzuweisen': 'Schicht zuweisen',
     '/user-anlegen': 'Benutzerverwaltung',
@@ -53,7 +53,8 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/qualifikationsmatrix': 'Qualifikationen einpflegen',
     '/ferienundfeiertage': 'Ferien & Feiertage',
     '/termineverwaltung': 'Termine',
-    '/system-tools': 'System-Tools', // ← NEU
+    '/system-tools': 'System-Tools', 
+    '/unit-reports': 'Unit Reports',
   };
 
   const aktuellerTitel = pfadZuTitel[location.pathname] || '';
@@ -94,6 +95,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
                 <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikation einpflegen</Link>
                 <Link to="/qualifikationenverwalten" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikationen zuweisen</Link>
                 <Link to="/schichtzuweisen" className="hover:bg-gray-700 rounded px-2 py-1">Schicht zuweisen</Link>
+                <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit Reports</Link>
               </div>
             )}
           </div>
@@ -116,7 +118,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
 
         {/* Kundenverwaltung: Nur Org_Admin & SuperAdmin */}
         {['SuperAdmin', 'Org_Admin'].includes(rolle) && (
-          <Link to="/kundenverwaltung" className="hover:underline">Dein Unternehmen</Link>
+          <Link to="/kundenverwaltung" className="hover:underline">Unternehmen</Link>
         )}
       </div>
 

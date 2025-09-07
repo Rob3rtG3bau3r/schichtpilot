@@ -14,7 +14,7 @@ import { supabase } from "../../supabaseClient";
 import { erstelleDatenschutzPDF } from "../../utils/DatenschutzPDF";
 
 // ⏱ Timeout & Countdown
-const INAKTIV_TIMEOUT = 5 * 60 * 1000; // 30 Sekunden (anpassen: 5 * 60 * 1000 für 5 Min)
+const INAKTIV_TIMEOUT = 5 * 60 * 1000; // 5 Minuten
 const COUNTDOWN_START = 10;            // Countdown läuft 10s vor Sperre
 
 // 🔒 Background-Lock
@@ -55,6 +55,13 @@ const MobileLayout = () => {
     const wantsDark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.documentElement.classList.toggle("dark", wantsDark);
     setDarkMode(wantsDark);
+  }, []);
+
+  // ✅ Default-Startansicht einmalig setzen (Standard = "kalender")
+  useEffect(() => {
+    if (!localStorage.getItem("mobile_kalender")) {
+      localStorage.setItem("mobile_kalender", "kalender");
+    }
   }, []);
 
   const gespeicherteId = localStorage.getItem("user_id");
@@ -112,6 +119,34 @@ const MobileLayout = () => {
       await supabase.from("DB_User").update({ theme_mobile: newMode }).eq("user_id", gespeicherteId);
     }
   };
+
+  // 🗂️ Ansicht (Kalender/Liste) setzen + persistieren + broadcasten
+  const setMobileAnsicht = async (wert /* 'kalender' | 'liste' */) => {
+    localStorage.setItem("mobile_kalender", wert);
+    if (gespeicherteId) {
+      await supabase.from("DB_User").update({ mobile_kalender: wert }).eq("user_id", gespeicherteId);
+    }
+    window.dispatchEvent(
+      new CustomEvent("schichtpilot:prefchange", {
+        detail: { key: "mobile_kalender", value: wert },
+      })
+    );
+  };
+// Aktuelle Dienste-Ansicht lokal puffern (Default = "kalender")
+const [ansicht, setAnsicht] = useState(
+  (localStorage.getItem("mobile_kalender") ?? "kalender")
+);
+
+// Auf externe Änderungen reagieren (falls eine andere Seite die Ansicht umstellt)
+useEffect(() => {
+  const onPrefChange = (e) => {
+    if (e.detail?.key === "mobile_kalender") {
+      setAnsicht(e.detail.value);
+    }
+  };
+  window.addEventListener("schichtpilot:prefchange", onPrefChange);
+  return () => window.removeEventListener("schichtpilot:prefchange", onPrefChange);
+}, []);
 
   // 🛡️ Einwilligung widerrufen
   const widerrufeEinwilligung = async () => {
@@ -176,54 +211,53 @@ const MobileLayout = () => {
     clearSession("/mobile/pin", { keepPin: true, signOut: false });
   };
 
-// ⏲️ Inaktivitätsüberwachung mit Countdown (auf Login/PIN aus)
-const stopTimers = () => {
-  if (timerRef.current) clearTimeout(timerRef.current);
-  if (countdownRef.current) clearInterval(countdownRef.current);
-};
+  // ⏲️ Inaktivitätsüberwachung mit Countdown (auf Login/PIN aus)
+  const stopTimers = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+  };
 
-const resetTimer = () => {
-  if (isAuthScreen) {
+  const resetTimer = () => {
+    if (isAuthScreen) {
+      stopTimers();
+      setShowCountdown(false);
+      return;
+    }
+
     stopTimers();
     setShowCountdown(false);
-    return;
-  }
+    setCountdown(COUNTDOWN_START);
 
-  stopTimers();
-  setShowCountdown(false);
-  setCountdown(COUNTDOWN_START);
-
-  timerRef.current = setTimeout(() => {
-    setShowCountdown(true);
-    let sec = COUNTDOWN_START;
-    setCountdown(sec);
-
-    countdownRef.current = setInterval(() => {
-      sec--;
+    timerRef.current = setTimeout(() => {
+      setShowCountdown(true);
+      let sec = COUNTDOWN_START;
       setCountdown(sec);
-      if (sec <= 0) {
-        clearInterval(countdownRef.current);
-        clearTimeout(timerRef.current);
-        handleAutoLogout();
-      }
-    }, 1000);
-  }, Math.max(0, INAKTIV_TIMEOUT - COUNTDOWN_START * 1000));
-};
 
-// 🎧 Timer-Events + auf Routenwechsel reagieren
-useEffect(() => {
-  resetTimer();
-  window.addEventListener("mousemove", resetTimer);
-  window.addEventListener("keydown", resetTimer);
-  window.addEventListener("touchstart", resetTimer);
-  return () => {
-    window.removeEventListener("mousemove", resetTimer);
-    window.removeEventListener("keydown", resetTimer);
-    window.removeEventListener("touchstart", resetTimer);
-    stopTimers();
+      countdownRef.current = setInterval(() => {
+        sec--;
+        setCountdown(sec);
+        if (sec <= 0) {
+          clearInterval(countdownRef.current);
+          clearTimeout(timerRef.current);
+          handleAutoLogout();
+        }
+      }, 1000);
+    }, Math.max(0, INAKTIV_TIMEOUT - COUNTDOWN_START * 1000));
   };
-}, [pathname]);
 
+  // 🎧 Timer-Events + auf Routenwechsel reagieren
+  useEffect(() => {
+    resetTimer();
+    window.addEventListener("mousemove", resetTimer);
+    window.addEventListener("keydown", resetTimer);
+    window.addEventListener("touchstart", resetTimer);
+    return () => {
+      window.removeEventListener("mousemove", resetTimer);
+      window.removeEventListener("keydown", resetTimer);
+      window.removeEventListener("touchstart", resetTimer);
+      stopTimers();
+    };
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 🔒 Background-Lock nur bei „echter“ Session; nie auf Login/PIN
   useEffect(() => {
@@ -319,6 +353,37 @@ useEffect(() => {
                 </button>
               </li>
 
+              {/* 🗂️ Startansicht (Kalender/Liste) */}
+<li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
+  <h4 className="font-bold mb-2">🗂️ Dienste Ansicht</h4>
+  <div className="flex gap-2">
+    {["kalender", "liste"].map((opt) => {
+      const istAktiv = ansicht === opt;   // <-- statt localStorage hier den State nutzen
+      return (
+        <button
+        aria-pressed={istAktiv}
+          key={opt}
+          onClick={() => {
+            // sofort visuell umschalten
+            setAnsicht(opt);
+            // dann persistieren + Broadcast (deine Funktion bleibt gleich)
+            setMobileAnsicht(opt);
+          }}
+          className={`px-3 py-1 rounded-lg border ${
+            istAktiv
+              ? "bg-green-900 text-gray-200 border-green-500"
+              : "bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+          }`}
+          title={opt === "kalender" ? "Kalender-Ansicht" : "Listen-Ansicht"}
+        >
+          {opt === "kalender" ? "Kalender" : "Liste"}
+        </button>
+      );
+    })}
+  </div>
+</li>
+
+
               {/* Datenschutzerklärung */}
               <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
                 <h4 className="font-bold mb-2 flex items-center gap-2">
@@ -328,7 +393,7 @@ useEffect(() => {
                   <>
                     <p className="text-green-600 mb-2">
                       ✅ Einwilligung erteilt am:{" "}
-                      {new Date(einwilligungDatum).toLocaleDateString()}
+                      {einwilligungDatum ? new Date(einwilligungDatum).toLocaleDateString() : "-"}
                     </p>
                     <button
                       onClick={widerrufeEinwilligung}
@@ -420,3 +485,4 @@ useEffect(() => {
 };
 
 export default MobileLayout;
+

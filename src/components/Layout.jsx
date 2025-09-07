@@ -6,6 +6,9 @@ import { supabase } from '../supabaseClient';
 import { useRollen } from '../context/RollenContext';
 import AdminPanel from './AdminPanel';
 import AdminPanelWrapper from './AdminPanelWrapper';
+import { Inbox } from 'lucide-react'; // 📬 Briefkasten-Icon
+
+const POLL_MS = 60_000; // 1 Minute Polling für offene Anfragen
 
 const Layout = () => {
   const [eingeloggt, setEingeloggt] = useState(true);
@@ -19,6 +22,10 @@ const Layout = () => {
   const [simulierterUserId, setSimulierterUserId] = useState(null);
   const [firmenName, setFirmenName] = useState('');
   const [unitName, setUnitName] = useState('');
+
+  // 🔔 Offene Anfragen
+  const [offeneAnfragenCount, setOffeneAnfragenCount] = useState(0);
+  const pollerRef = useRef(null);
 
   const {
     rolle,
@@ -130,7 +137,7 @@ const Layout = () => {
       setRolleGeladen(true);
     };
     ladeUser();
-  }, [setNutzerName, setRolle, setIstSuperAdmin]);
+  }, [setNutzerName, setRolle, setIstSuperAdmin, setUserId, setSichtFirma, setSichtUnit]);
 
   // === USERLISTE LADEN ===
   useEffect(() => {
@@ -142,6 +149,46 @@ const Layout = () => {
     };
     ladeAlleUser();
   }, []);
+
+  // === OFFENE ANFRAGEN POLLING ===
+  useEffect(() => {
+    if (!rolleGeladen) return;
+
+    const holeOffeneAnfragen = async () => {
+      try {
+        let query = supabase
+          .from('DB_AnfrageMA')
+          .select('id', { count: 'exact', head: true })
+          .is('genehmigt', null);
+
+        if (rolle === 'Employee') {
+          if (!userId) {
+            setOffeneAnfragenCount(0);
+            return;
+          }
+          query = query.eq('created_by', userId);
+        } else {
+          if (sichtFirma) query = query.eq('firma_id', sichtFirma);
+          if (sichtUnit) query = query.eq('unit_id', sichtUnit);
+        }
+
+        const { count, error } = await query;
+        if (error) {
+          setOffeneAnfragenCount(0);
+          return;
+        }
+        setOffeneAnfragenCount(count ?? 0);
+      } catch {
+        setOffeneAnfragenCount(0);
+      }
+    };
+
+    holeOffeneAnfragen();
+    pollerRef.current = setInterval(holeOffeneAnfragen, POLL_MS);
+    return () => {
+      if (pollerRef.current) clearInterval(pollerRef.current);
+    };
+  }, [rolleGeladen, rolle, userId, sichtFirma, sichtUnit]);
 
   // === USER WECHSELN (Admin Panel) ===
   const handleChangeUser = async () => {
@@ -155,7 +202,6 @@ const Layout = () => {
       if (userDaten.rolle) setRolle(userDaten.rolle);
       setSimulierterUserId(selectedUser);
 
-      // Firma laden
       if (userDaten.firma_id) {
         const { data: firma } = await supabase
           .from('DB_Kunden')
@@ -169,7 +215,6 @@ const Layout = () => {
         setSichtFirma(null);
       }
 
-      // Unit laden
       if (userDaten.unit_id) {
         const { data: unit } = await supabase
           .from('DB_Unit')
@@ -209,7 +254,6 @@ const Layout = () => {
         setIstSuperAdmin(originalUserDaten.rolle === 'SuperAdmin');
         setDarkMode(originalUserDaten.theme === 'dark');
 
-        // Firma + Unit zurücksetzen
         if (originalUserDaten.firma_id) {
           const { data: firma } = await supabase
             .from('DB_Kunden')
@@ -283,6 +327,23 @@ const Layout = () => {
             </div>
           )}
 
+          {/* 📬 Briefkasten mit Badge */}
+          <div className="relative">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="rounded-full p-2 bg-gray-700 hover:bg-gray-600 transition"
+              title="Offene Anfragen"
+              aria-label="Offene Anfragen"
+            >
+              <Inbox size={18} />
+            </button>
+            {offeneAnfragenCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] leading-[18px] text-white bg-red-600 rounded-full text-center font-bold">
+                {offeneAnfragenCount > 99 ? '99+' : offeneAnfragenCount}
+              </span>
+            )}
+          </div>
+
           {eingeloggt && (
             <button
               onClick={handleLogout}
@@ -315,6 +376,15 @@ const Layout = () => {
         <Navigation darkMode={darkMode} setDarkMode={setDarkMode} />
       </div>
 
+      {/* Erfolgsmeldung nach Ummelden (kurz) */}
+      {meldung && (
+        <div className="px-8">
+          <div className="mt-2 mb-2 rounded-xl border border-emerald-500 bg-emerald-100 text-emerald-900 dark:bg-emerald-200 dark:text-emerald-900 px-4 py-2">
+            <div className="text-sm font-semibold">{meldung}</div>
+          </div>
+        </div>
+      )}
+
       <main className="pt-2 px-4 pb-8 overflow-y-visible">
         <Outlet />
       </main>
@@ -338,4 +408,3 @@ const Layout = () => {
 };
 
 export default Layout;
-

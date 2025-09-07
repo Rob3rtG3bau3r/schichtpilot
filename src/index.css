@@ -1,3 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html { scrollbar-gutter: stable both-edges; }
+}
+
+/* Optionaler Fallback für Browser ohne Support (kannst du weglassen):
+   erzwingt immer eine vertikale Scrollbar, damit nichts springt. */
+@supports not (scrollbar-gutter: stable) {
+  body { overflow-y: scroll; }
+}
