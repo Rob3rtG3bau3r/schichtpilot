@@ -304,7 +304,7 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
               return (
                 <div
                   key={userId}
-                  className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!e.user_visible ? 'opacity-20' : ''}`}
+                  className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!e.user_visible ? 'opacity-50' : ''}`}
                 >
                   {tage.map((t) => {
                     const eintragTag = e.tage[t.tag];
