@@ -23,6 +23,7 @@ import Pricing from './pages/Pricing';
 import PasswortVergessen from "./pages/PasswortVergessen";
 import ResetPassword from "./pages/ResetPassword";
 import UnitReports from './pages/UnitReports';
+import UserPflege from './pages/UserPflege';
 
 const App = () => {
   if (window.matchMedia('(display-mode: standalone)').matches && !window.location.pathname.startsWith('/mobile')) {
@@ -134,6 +135,14 @@ const App = () => {
           element={
             <RollenCheckRoute erlaubteRollen={['Admin_Dev', 'Planner', 'SuperAdmin']}>
               <Schichtzuweisen />
+            </RollenCheckRoute>
+          }
+        />
+          <Route
+          path="userpflege"
+          element={
+            <RollenCheckRoute erlaubteRollen={['Admin_Dev', 'Planner', 'SuperAdmin']}>
+              <UserPflege />
             </RollenCheckRoute>
           }
         />

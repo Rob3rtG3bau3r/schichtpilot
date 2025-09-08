@@ -216,7 +216,7 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
                   </div>
                 )}
               </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">
+              <div className="text-sm text-gray-500 dark:text-gray-400 pr-6">
                 Gruppenposition: {member.position_ingruppe || '–'}
               </div>
             </div>

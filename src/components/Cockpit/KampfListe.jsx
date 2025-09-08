@@ -1,19 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
-import { Crown, User } from 'lucide-react';
+import { Crown, User } from 'lucide-react'; // User bleibt als Fallback importiert
 import { useRollen } from '../../context/RollenContext';
 import QualiModal from '../Cockpit/QualiModal';
 import SchichtDienstAendernForm from './SchichtDienstAendernForm';
 
 const currentUserId = localStorage.getItem('user_id');
 
-// Maskierung: Employer sieht K/KO bei anderen als "-"
+// --- Helper: K/KO maskieren ---
 const maskKuerzelForEmployer = (kuerzel, cellUserId, role, me) => {
   if (role === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO') && String(cellUserId) !== String(me)) {
     return '-';
   }
   return kuerzel || '-';
+};
+
+// --- Helper: 1..10 → I..X (0 → '–', >10 → 'X') ---
+const toRoman = (num) => {
+  if (!num || num <= 0) return '–';
+  if (num >= 10) return 'X';
+  const map = ['','I','II','III','IV','V','VI','VII','VIII','IX'];
+  return map[num];
 };
 
 const KampfListe = ({
@@ -24,28 +32,30 @@ const KampfListe = ({
   reloadkey,
   sichtbareGruppen,
   setGruppenZähler,
-  onRefreshMitarbeiterBedarf, 
+  onRefreshMitarbeiterBedarf,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
+
   const [eintraege, setEintraege] = useState([]);
   const [tage, setTage] = useState([]);
   const [popupEintrag, setPopupEintrag] = useState(null);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
+
   const [qualiModalOffen, setQualiModalOffen] = useState(false);
   const [modalUser, setModalUser] = useState({ id: null, name: '' });
-  const [refreshMitarbeiterKey, setRefreshMitarbeiterKey] = useState(0);
+
+  // 👇 neu: Map userId -> betriebsrelevante Quali-Anzahl
+  const [qualiCountMap, setQualiCountMap] = useState({});
 
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
     const neueTage = [];
-
     for (let tag = 1; tag <= tageImMonat; tag++) {
       const datum = new Date(jahr, monat, tag);
       const wochentag = datum.toLocaleDateString('de-DE', { weekday: 'short' });
       neueTage.push({ tag, wochentag });
     }
-
     setTage(neueTage);
   }, [jahr, monat]);
 
@@ -63,7 +73,6 @@ const KampfListe = ({
       const ladeKampflisteBatchweise = async () => {
         let alleEintraege = [];
         const batchSize = 1000;
-
         for (let i = 0; i < 5; i++) {
           const { data, error } = await supabase
             .from('DB_Kampfliste')
@@ -78,12 +87,9 @@ const KampfListe = ({
             console.error(`❌ Fehler in Batch ${i}:`, error.message || error);
             continue;
           }
-
           alleEintraege = [...alleEintraege, ...data];
-
           if (data.length < batchSize) break;
         }
-
         return alleEintraege;
       };
 
@@ -95,6 +101,7 @@ const KampfListe = ({
 
       if (alleUserIds.length === 0) return;
 
+      // --- Userinfos laden ---
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle, position_ingruppe, user_visible')
@@ -104,62 +111,69 @@ const KampfListe = ({
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
         return;
       }
+// letzter Tag des angezeigten Monats, 23:59:59 (lokal → ISO)
+const cutoffIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
 
+const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
+setQualiCountMap(qualiMap);
+
+      // --- Gruppieren wie gehabt ---
       const gruppiert = {};
 
-      for (const eintrag of kampfData) {
-        const tag = dayjs(eintrag.datum).date();
-        const userId = String(eintrag.user);
-        const creatorId = String(eintrag.created_by);
+      for (const k of kampfData) {
+        const tag = dayjs(k.datum).date();
+        const userId = String(k.user);
+        const creatorId = String(k.created_by);
 
         const userInfo = userInfos.find(u => u.user_id === userId);
         const creatorInfo = userInfos.find(u => u.user_id === creatorId);
-
         if (!userInfo) continue;
 
         if (!gruppiert[userId]) {
-  gruppiert[userId] = {
-    schichtgruppe: eintrag.schichtgruppe,
-    position: userInfo.position_ingruppe || 999,
-    rolle: userInfo.rolle,
-    user_visible: userInfo.user_visible || false, // 👈 NEU
-    name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
-    vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
-    tage: {},
-  };
-}
-
+          gruppiert[userId] = {
+            schichtgruppe: k.schichtgruppe,
+            position: userInfo.position_ingruppe || 999,
+            rolle: userInfo.rolle,
+            user_visible: userInfo.user_visible || false,
+            name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
+            vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
+            tage: {},
+            // 👇 neu: Quali-Count mitschleppen
+            qualiCount: qualiMap[userId] || 0,
+          };
+        }
 
         gruppiert[userId].tage[tag] = {
-          kuerzel: eintrag.ist_schicht?.kuerzel || '-',
-          bg: eintrag.ist_schicht?.farbe_bg || '',
-          text: eintrag.ist_schicht?.farbe_text || '',
+          kuerzel: k.ist_schicht?.kuerzel || '-',
+          bg: k.ist_schicht?.farbe_bg || '',
+          text: k.ist_schicht?.farbe_text || '',
           created_by: creatorId,
-          created_by_name: creatorInfo
-            ? `${creatorInfo.vorname} ${creatorInfo.nachname} (${creatorInfo.rolle})`
-            : 'Unbekannt',
-          created_at: eintrag.created_at || null,
-          ist_schicht_id: eintrag.ist_schicht?.id || null,
-          beginn: eintrag.startzeit_ist || '',
-          ende: eintrag.endzeit_ist || '',
-          aenderung: eintrag.aenderung || false,
-          kommentar: eintrag.kommentar || null,
+          created_by_name: creatorInfo ? `${creatorInfo.vorname} ${creatorInfo.nachname} (${creatorInfo.rolle})` : 'Unbekannt',
+          created_at: k.created_at || null,
+          ist_schicht_id: k.ist_schicht?.id || null,
+          beginn: k.startzeit_ist || '',
+          ende: k.endzeit_ist || '',
+          aenderung: k.aenderung || false,
+          kommentar: k.kommentar || null,
         };
       }
 
+      // Zähler pro Schichtgruppe
       const zaehler = {};
-      for (const [, eintrag] of Object.entries(gruppiert)) {
-        const gruppe = eintrag.schichtgruppe || 'Unbekannt';
+      for (const [, e] of Object.entries(gruppiert)) {
+        const gruppe = e.schichtgruppe || 'Unbekannt';
         zaehler[gruppe] = (zaehler[gruppe] || 0) + 1;
       }
       setGruppenZähler(zaehler);
 
+      // Nur sichtbare Gruppen behalten
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
           delete gruppiert[key];
         }
       });
 
+      // Sortierung
       const sortiert = Object.entries(gruppiert).sort(([, a], [, b]) => {
         const schichtSort = (a.schichtgruppe || '').localeCompare(b.schichtgruppe || '');
         return schichtSort !== 0 ? schichtSort : a.position - b.position;
@@ -171,46 +185,109 @@ const KampfListe = ({
     ladeKampfliste();
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen]);
 
+// --- Hilfsfunktion: Quali-Counts laden (gültig bis einschließlich cutoff) ---
+const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
+  if (!userIds?.length) return {};
+  try {
+    // userIds als Strings (schlüssel-konsistent zur Verwendung in gruppiert/qualiCountMap)
+    const ids = userIds.map(String);
+
+    const { data, error } = await supabase
+      .from('DB_Qualifikation')
+      .select(`
+        user_id,
+        quali,
+        created_at,
+        matrix:DB_Qualifikationsmatrix!inner(
+          id,
+          quali_kuerzel,
+          betriebs_relevant,
+          aktiv,
+          firma_id,
+          unit_id
+        )
+      `)
+      .in('user_id', ids)
+      .eq('matrix.firma_id', firmaId)
+      .eq('matrix.unit_id', unitId)
+      .eq('matrix.betriebs_relevant', true)
+      .eq('matrix.aktiv', true)
+      // ✅ zählt im selben Monat bereits mit (created_at ≤ Monatsende)
+      .lte('created_at', cutoffIso);
+
+    if (error) {
+      console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
+      return {};
+    }
+
+    const map = {};
+    for (const row of data || []) {
+      const uid = String(row.user_id);
+      map[uid] = (map[uid] || 0) + 1;
+    }
+    return map;
+  } catch (e) {
+    console.error('❌ Fehler beim Laden der Quali-Counts:', e);
+    return {};
+  }
+};
+
+
   return (
     <div className="bg-gray-00 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
       <div className="overflow-x-auto w-full">
         <div className="flex min-w-fit">
+          {/* --- linke Namensspalte --- */}
           <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0">
-            {eintraege.map(([userId, eintrag], index) => {
+            {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
-              const neueGruppe = vorherige?.schichtgruppe !== eintrag.schichtgruppe;
+              const neueGruppe = vorherige?.schichtgruppe !== e.schichtgruppe;
 
               let kroneFarbe = '';
-              if (eintrag.rolle === 'Team_Leader') {
-                if (eintrag.position === 1) kroneFarbe = 'text-yellow-400';
-                else if (eintrag.position === 2) kroneFarbe = 'text-gray-400';
+              if (e.rolle === 'Team_Leader') {
+                if (e.position === 1) kroneFarbe = 'text-yellow-400';
+                else if (e.position === 2) kroneFarbe = 'text-gray-400';
                 else kroneFarbe = 'text-amber-600';
               }
+
+              const count = e.qualiCount ?? qualiCountMap[userId] ?? 0;
+              const roman = toRoman(count);
 
               return (
                 <div
                   key={userId}
-className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-default
-  ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
-  ${neueGruppe ? 'mt-2' : ''}
-  border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
-  ${!eintrag.user_visible ? 'opacity-50' : ''}`}
-                  title={eintrag.vollName}
+                  className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-default
+                    ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
+                    ${neueGruppe ? 'mt-2' : ''}
+                    border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
+                    ${!e.user_visible ? 'opacity-50' : ''}`}
+                  title={e.vollName}
                 >
                   <span
-  className="flex-1 hover:underline cursor-pointer"
-  onClick={() => {
-    setModalUser({ id: userId, name: eintrag.vollName });
-    setQualiModalOffen(true);
-  }}
->
-  {eintrag.name}
-</span>
+                    className="flex-1 hover:underline cursor-pointer"
+                    onClick={() => {
+                      setModalUser({ id: userId, name: e.vollName });
+                      setQualiModalOffen(true);
+                    }}
+                  >
+                    {e.name}
+                  </span>
+
+                  {/* Rechts vom Namen: Team_Leader = Krone, sonst römisches Badge */}
                   <span className="ml-1">
-                    {eintrag.rolle === 'Team_Leader' ? (
-                      <Crown size={14} className={kroneFarbe} />
+                    {e.rolle === 'Team_Leader' ? (
+                      <Crown size={14} className={kroneFarbe} title="Team-Leader" />
                     ) : (
-                      <User size={14} className="text-gray-400" />
+                      <span
+                        className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-[2px]
+                                   text-[10px] leading-none rounded-sm border
+                                   bg-white text-gray-800 border-gray-300
+                                   dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+                        title={`betriebsrelevante Qualifikationen: ${count}`}
+                        style={{ fontVariantNumeric: 'normal' }}
+                      >
+                        {roman}
+                      </span>
                     )}
                   </span>
                 </div>
@@ -218,18 +295,19 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
             })}
           </div>
 
+          {/* --- rechte Kalenderspalten (unverändert, nur formatiert) --- */}
           <div className="flex flex-col gap-[2px]">
-            {eintraege.map(([userId, eintrag], index) => {
+            {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
-              const neueGruppe = vorherige?.schichtgruppe !== eintrag.schichtgruppe;
+              const neueGruppe = vorherige?.schichtgruppe !== e.schichtgruppe;
 
               return (
                 <div
-  key={userId}
-  className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!eintrag.user_visible ? 'opacity-20' : ''}`}
->
+                  key={userId}
+                  className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!e.user_visible ? 'opacity-20' : ''}`}
+                >
                   {tage.map((t) => {
-                    const eintragTag = eintrag.tage[t.tag];
+                    const eintragTag = e.tage[t.tag];
                     const zellenDatum = `${jahr}-${String(monat + 1).padStart(2, '0')}-${String(t.tag).padStart(2, '0')}`;
                     const istHeute = zellenDatum === heutigesDatum;
 
@@ -245,88 +323,52 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
                         }}
                         onClick={() => {
                           if (istNurLesend) return;
-                          const eintragObjekt = {                            
+                          const eintragObjekt = {
                             user: userId,
-                            name: eintrag.vollName,
+                            name: e.vollName,
                             datum: zellenDatum,
                             soll_schicht: null,
                             ist_schicht: maskKuerzelForEmployer(eintragTag?.kuerzel, userId, rolle, currentUserId),
                             ist_schicht_id: eintragTag?.ist_schicht_id || null,
                             beginn: eintragTag?.beginn || '',
                             ende: eintragTag?.ende || '',
-                            schichtgruppe: eintrag.schichtgruppe,
+                            schichtgruppe: e.schichtgruppe,
                             created_by: eintragTag?.created_by,
                             created_by_name: eintragTag?.created_by_name,
                             created_at: eintragTag?.created_at,
                             kommentar: eintragTag?.kommentar || '',
                           };
-
                           setPopupEintrag(eintragObjekt);
                           setAusgewählterDienst(eintragObjekt);
                           setPopupOffen(true);
                         }}
                       >
-                       {eintragTag?.aenderung && (
-  <>
-    {/* Weißes Dreieck unten als Rahmen */}
-    <div
-      className="absolute top-0 right-0 w-0 h-0"
-      style={{
-        borderTop: '13px solid white',
-        borderLeft: '13px solid transparent',
-        zIndex: 5,
-      }}
-    />
-    {/* Kleineres farbiges Dreieck oben drauf */}
-    <div
-      className="absolute top-0 right-0 w-0 h-0"
-      style={{
-        borderTop: '10px solid #ed0606f7', // Tailwind yellow-400
-        borderLeft: '10px solid transparent',
-        zIndex: 10,
-      }}
-      title="Geändert"
-    />
-  </>
-)}
+                        {eintragTag?.aenderung && (
+                          <>
+                            <div className="absolute top-0 right-0 w-0 h-0" style={{ borderTop: '13px solid white', borderLeft: '13px solid transparent', zIndex: 5 }} />
+                            <div className="absolute top-0 right-0 w-0 h-0" style={{ borderTop: '10px solid #ed0606f7', borderLeft: '10px solid transparent', zIndex: 10 }} title="Geändert" />
+                          </>
+                        )}
 
-{eintragTag?.kommentar && (
-  <>
-    {/* Weißes Dreieck als Hintergrund/Umrandung */}
-    <div
-      className="absolute top-0 left-0 w-0 h-0"
-      style={{
-        borderTop: '13px solid white',
-        borderRight: '13px solid transparent',
-        zIndex: 5,
-      }}
-    />
-    {/* Kleineres farbiges Dreieck oben drauf */}
-    <div
-      className="absolute top-0 left-0 w-0 h-0"
-      style={{
-        borderTop: '10px solid #d64a04ff', // Tailwind sky-400
-        borderRight: '10px solid transparent',
-        zIndex: 10,
-      }}
-      title="Kommentar vorhanden"
-    />
-  </>
-)}
+                        {eintragTag?.kommentar && (
+                          <>
+                            <div className="absolute top-0 left-0 w-0 h-0" style={{ borderTop: '13px solid white', borderRight: '13px solid transparent', zIndex: 5 }} />
+                            <div className="absolute top-0 left-0 w-0 h-0" style={{ borderTop: '10px solid #d64a04ff', borderRight: '10px solid transparent', zIndex: 10 }} title="Kommentar vorhanden" />
+                          </>
+                        )}
 
                         {eintragTag?.beginn && eintragTag?.ende && (
                           <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white dark:text-black bg-black dark:bg-white rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap z-20 pointer-events-none text-left shadow-lg border dark:border-gray-400">
                             <div>{eintragTag.beginn} – {eintragTag.ende}</div>
-                            {eintragTag.kommentar && (
-                              <div className="mt-1 max-w-[200px] break-words">{eintragTag.kommentar}</div>
-                            )}
+                            {eintragTag.kommentar && <div className="mt-1 max-w-[200px] break-words">{eintragTag.kommentar}</div>}
                           </div>
                         )}
+
                         {eintragTag ? (
                           <span className="text-xs font-medium">
                             {maskKuerzelForEmployer(eintragTag.kuerzel, userId, rolle, currentUserId)}
                           </span>
-                          ) : (
+                        ) : (
                           <span className="text-gray-500">–</span>
                         )}
                       </div>
@@ -338,27 +380,27 @@ className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-
           </div>
         </div>
       </div>
-    <QualiModal
-  offen={qualiModalOffen}
-  onClose={() => setQualiModalOffen(false)}
-  userId={modalUser.id}
-  userName={modalUser.name}
-/>  
-{popupEintrag && !istNurLesend && (
-  <SchichtDienstAendernForm
-    eintrag={popupEintrag}
-    onClose={() => {
-      setPopupOffen(false);
-      setPopupEintrag(null);
-    }}
-    onRefresh={() => {
-      if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();
-    }}
-  />
-)}
 
+      <QualiModal
+        offen={qualiModalOffen}
+        onClose={() => setQualiModalOffen(false)}
+        userId={modalUser.id}
+        userName={modalUser.name}
+      />
+
+      {popupEintrag && !istNurLesend && (
+        <SchichtDienstAendernForm
+          eintrag={popupEintrag}
+          onClose={() => {
+            setPopupOffen(false);
+            setPopupEintrag(null);
+          }}
+          onRefresh={() => {
+            if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();
+          }}
+        />
+      )}
     </div>
-    
   );
 };
 

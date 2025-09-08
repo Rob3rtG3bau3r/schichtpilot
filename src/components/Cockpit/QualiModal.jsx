@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
+import dayjs from 'dayjs';
+import 'dayjs/locale/de';
 
 const QualiModal = ({ offen, onClose, userId, userName }) => {
   const [qualis, setQualis] = useState([]);
@@ -8,10 +10,10 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
     const ladeQualifikationen = async () => {
       if (!userId) return;
 
-      // 1. Hole alle Qualifikationszuweisungen des Users
+      // 1. Hole alle Qualifikationszuweisungen des Users inkl. created_at
       const { data: zuweisungen, error: errorZuweisung } = await supabase
         .from('DB_Qualifikation')
-        .select('quali')
+        .select('quali, created_at')
         .eq('user_id', userId);
 
       if (errorZuweisung) {
@@ -19,12 +21,12 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
         return;
       }
 
-      const qualiIds = zuweisungen.map((q) => q.quali);
-
-      if (qualiIds.length === 0) {
+      if (!zuweisungen || zuweisungen.length === 0) {
         setQualis([]);
         return;
       }
+
+      const qualiIds = zuweisungen.map((q) => q.quali);
 
       // 2. Hole die Qualifikationsdetails aus der Matrix
       const { data: qualifikationen, error: errorMatrix } = await supabase
@@ -37,8 +39,17 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
         return;
       }
 
-      // 3. Sortieren nach Position (null ans Ende)
-      const sortiert = qualifikationen.sort((a, b) => {
+      // 3. Mappe Details + created_at zusammen
+      const kombiniert = zuweisungen.map((z) => {
+        const matrix = qualifikationen.find((m) => m.id === z.quali);
+        return {
+          ...matrix,
+          created_at: z.created_at,
+        };
+      });
+
+      // 4. Sortieren nach Position (null ans Ende)
+      const sortiert = kombiniert.sort((a, b) => {
         if (a.position == null) return 1;
         if (b.position == null) return -1;
         return a.position - b.position;
@@ -73,8 +84,11 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
           <ul className="list-disc list-inside space-y-1 text-sm">
             {qualis.map((q) => (
               <li key={q.id}>
-                {q.qualifikation || 'Unbekannt'}
-                              </li>
+                <span className="font-medium">{q.qualifikation || 'Unbekannt'}</span>{' '}
+                <span className="text-gray-500 text-xs pl-2">
+                  (seit {dayjs(q.created_at).locale('de').format('MMMM YYYY')})
+                </span>
+              </li>
             ))}
           </ul>
         )}
@@ -93,4 +107,3 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
 };
 
 export default QualiModal;
-

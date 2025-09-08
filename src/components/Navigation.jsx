@@ -55,6 +55,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/termineverwaltung': 'Termine',
     '/system-tools': 'System-Tools', 
     '/unit-reports': 'Unit Reports',
+    '/userpflege': 'UserPflege',
   };
 
   const aktuellerTitel = pfadZuTitel[location.pathname] || '';
@@ -95,6 +96,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
                 <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikation einpflegen</Link>
                 <Link to="/qualifikationenverwalten" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikationen zuweisen</Link>
                 <Link to="/schichtzuweisen" className="hover:bg-gray-700 rounded px-2 py-1">Schicht zuweisen</Link>
+                <Link to="/userpflege" className="hover:bg-gray-700 rounded px-2 py-1">User Pflegen</Link>
                 <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit Reports</Link>
               </div>
             )}

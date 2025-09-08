@@ -181,36 +181,35 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         }
 
         // ===== Bewertung: Fehlbedarf/Überdeckung =====
-        let statusfarbe = 'bg-green-500';
-        let maxAbweichung = 0;
+// ===== Bewertung: Fehlbedarf/Überdeckung =====
+let statusfarbe = 'bg-green-500';
+let totalMissing = 0;          // bleibt wie gehabt
+const fehlend = [];            // bleibt wie gehabt
+let topMissingKuerzel = null;  // bleibt wie gehabt
 
-        let totalMissing = 0;          // fehlende Personen gesamt
-        let topMissingKuerzel = null;  // höchste fehlende Quali (Kürzel)
-        const fehlend = [];            // Liste fehlender Quali (für Tooltip/Modal)
+for (const b of bedarfSortiert) {
+  const gedeckt = abdeckung[b.quali_id]?.length || 0;
+  const benoetigt = b.anzahl || 0;
 
-        for (const b of bedarfSortiert) {
-          const gedeckt = abdeckung[b.quali_id]?.length || 0;
-          const benoetigt = b.anzahl || 0;
+  if (gedeckt < benoetigt) {
+    const missing = benoetigt - gedeckt;
+    totalMissing += missing;
+    if (!topMissingKuerzel) topMissingKuerzel = matrixMap[b.quali_id]?.kuerzel || b.kuerzel;
+    if (!fehlend.includes(b.kuerzel)) fehlend.push(b.kuerzel);
+    statusfarbe = 'bg-red-500';
+  }
+}
 
-          if (gedeckt < benoetigt) {
-            const missing = benoetigt - gedeckt;
-            totalMissing += missing;
+// 👉 NEU: Überschuss gesamt (qualifikationsunabhängig)
+let topRight = null;
+if (totalMissing === 0 && bedarfSortiert.length > 0) {
+  const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
+  const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
 
-            if (!topMissingKuerzel) topMissingKuerzel = matrixMap[b.quali_id]?.kuerzel || b.kuerzel;
-            if (!fehlend.includes(b.kuerzel)) fehlend.push(b.kuerzel);
+  if (ueberschussGesamt === 1) topRight = 'blau-1';
+  else if (ueberschussGesamt >= 2) topRight = 'blau-2';
+}
 
-            statusfarbe = 'bg-red-500';
-          } else {
-            const ueberschuss = gedeckt - benoetigt;
-            if (ueberschuss > maxAbweichung) maxAbweichung = ueberschuss;
-          }
-        }
-
-        let topRight = null;
-        if (totalMissing === 0) {
-          if (maxAbweichung === 1) topRight = 'blau-1';
-          else if (maxAbweichung >= 2) topRight = 'blau-2';
-        }
 
         // Zusatz-Qualifikationen (nicht betriebsrelevant) prüfen
         const zusatzFehlt = [];
