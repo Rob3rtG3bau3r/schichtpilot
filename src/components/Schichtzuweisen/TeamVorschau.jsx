@@ -201,7 +201,7 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
               onDragStart={() => handleDragStart(index)}
               onDragOver={handleDragOver}
               onDrop={() => handleDrop(index)}
-              className="bg-gray-100 dark:bg-gray-800 p-2 rounded flex justify-between items-center cursor-move"
+              className="bg-gray-100 dark:bg-gray-900 p-2 rounded-2xl border border-gray-500 flex justify-between items-center cursor-move"
             >
               <div>
                 <span className="font-semibold">
