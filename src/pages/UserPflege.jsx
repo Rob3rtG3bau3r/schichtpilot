@@ -1,6 +1,6 @@
 'use client';
 import React, { useState } from 'react';
-import Personalliste from '../components/UserPflege/Personalliste';
+import Personalliste from '../components/UserPflege/PersonalListe';
 import Stammdaten from '../components/UserPflege/Stammdaten';
 
 export default function UserPflegen() {
