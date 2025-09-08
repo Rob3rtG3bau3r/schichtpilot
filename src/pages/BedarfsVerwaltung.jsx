@@ -31,11 +31,11 @@ const BedarfsVerwaltung = () => {
         </div>
 
         {/* Rechts: Tabellen + Bearbeiten */}
-        <div className="col-span-5 flex flex-col gap-4">
-          <div className="bg-gray-200 dark:bg-gray-800 p-2">
+        <div className="col-span-5 flex flex-col">
+          <div className="bg-gray-200 dark:bg-gray-800 p-1">
             <NormalbetriebAnzeige refreshKey={refreshKey} />
           </div>
-          <div className="bg-gray-200 dark:bg-gray-800 p-2">
+          <div className="bg-gray-200 dark:bg-gray-800 p-1">
 <ZeitlichBegrenzteListe
   refreshKey={refreshKey}
   onAuswahl={(eintrag) => {
@@ -49,7 +49,7 @@ const BedarfsVerwaltung = () => {
   }}
 />
           </div>
-          <div className="bg-gray-200 dark:bg-gray-800 p-4">
+          <div className="bg-gray-200 dark:bg-gray-800 p-1">
 <ZeitlichBegrenztBearbeiten
   eintrag={ausgewaehlterZeitEintrag}
   refreshKey={refreshKey}
