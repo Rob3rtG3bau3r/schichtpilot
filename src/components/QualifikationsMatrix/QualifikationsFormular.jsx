@@ -129,6 +129,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
           <label className="block text-sm font-medium">Kürzel *</label>
           <input
             type="text"
+            placeholder="Kürzel (max. 3 Zeichen)"
             value={kuerzel}
             onChange={(e) => setKuerzel(e.target.value.slice(0, 3))}
             className={`w-full border px-3 py-1 rounded bg-white dark:bg-gray-800 ${fehlerKuerzel ? 'border-red-500' : ''}`}
@@ -138,6 +139,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
           <label className="block text-sm font-medium">Qualifikation *</label>
           <input
             type="text"
+            placeholder="Bezeichnung"
             value={qualifikation}
             onChange={(e) => setQualifikation(e.target.value)}
             className={`w-full border px-3 py-1 rounded bg-white dark:bg-gray-800 ${fehlerQuali ? 'border-red-500' : ''}`}
@@ -147,6 +149,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
           <label className="block text-sm font-medium">Beschreibung</label>
           <textarea
             value={beschreibung}
+            placeholder="Beschreibung"
             onChange={(e) => setBeschreibung(e.target.value.slice(0, 100))}
             rows={2}
             className="w-full border px-3 py-1 rounded bg-white dark:bg-gray-800"
