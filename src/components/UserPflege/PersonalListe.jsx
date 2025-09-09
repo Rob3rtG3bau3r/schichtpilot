@@ -10,7 +10,8 @@ const SortIcon = ({ aktiv, richtung }) => {
 };
 
 const Personalliste = ({ onUserClick, refreshKey }) => {
-  const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+  const { sichtFirma: firma, sichtUnit: unit, rolle: eigeneRolle } = useRollen();
+  const isSuperAdmin = eigeneRolle === 'SuperAdmin';
 
   const [personen, setPersonen] = useState([]);
   const [suche, setSuche] = useState('');
@@ -28,19 +29,26 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
   // Mitarbeiter + höchste Quali + Team (heute) laden
   useEffect(() => {
     const ladeDaten = async () => {
-      if (!firma || !unit) {
+      // Für Nicht-SuperAdmin: ohne Firma/Unit keine Daten
+      if (!isSuperAdmin && (!firma || !unit)) {
         setPersonen([]);
         return;
       }
 
-      // 1) Mitarbeitende (aktiv) der Firma/Unit
-      const { data: mitarbeiter, error: error1 } = await supabase
-        .from('DB_User')
-        .select('user_id, vorname, nachname, rolle')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('aktiv', true);
-
+      // 1) Mitarbeitende (aktiv)
+      let mitarbeiterRes;
+      if (isSuperAdmin) {
+        mitarbeiterRes = await supabase
+          .from('DB_User')
+          .select('user_id, vorname, nachname, rolle, firma_id, unit_id')
+      } else {
+        mitarbeiterRes = await supabase
+          .from('DB_User')
+          .select('user_id, vorname, nachname, rolle, firma_id, unit_id')
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+      }
+      const { data: mitarbeiter, error: error1 } = mitarbeiterRes;
       if (error1) {
         console.error('Fehler beim Laden der Mitarbeitenden:', error1);
         setPersonen([]);
@@ -52,40 +60,62 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         return;
       }
 
-      // 2) Quali-Zuweisungen (DB_Qualifikation.quali -> Matrix.id)
+      // 2) Quali-Zuweisungen nur für die geladenen User
       const { data: qualiEintraege, error: error2 } = await supabase
         .from('DB_Qualifikation')
-        .select('user_id, quali');
-      if (error2) console.error('Fehler beim Laden der Qualifikationen:', error2);
+        .select('user_id, quali')
+        .in('user_id', userIds);
+      if (error2) {
+        console.error('Fehler beim Laden der Qualifikationen:', error2);
+      }
 
-      // 3) Matrix (Position & Bezeichnung) der Firma/Unit für die verwendeten IDs
+      // 3) Matrix (Position & Bezeichnung) für die verwendeten Quali-IDs
       const qualiIds = Array.from(new Set((qualiEintraege || []).map((q) => q.quali)));
       let matrixById = new Map();
       if (qualiIds.length > 0) {
-        const { data: matrix, error: error3 } = await supabase
-          .from('DB_Qualifikationsmatrix')
-          .select('id, qualifikation, position')
-          .in('id', qualiIds)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit);
+        let matrixRes;
+        if (isSuperAdmin) {
+          matrixRes = await supabase
+            .from('DB_Qualifikationsmatrix')
+            .select('id, qualifikation, position')
+            .in('id', qualiIds);
+        } else {
+          matrixRes = await supabase
+            .from('DB_Qualifikationsmatrix')
+            .select('id, qualifikation, position')
+            .in('id', qualiIds)
+            .eq('firma_id', firma)
+            .eq('unit_id', unit);
+        }
+        const { data: matrix, error: error3 } = matrixRes;
         if (error3) {
           console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
         } else {
           matrixById = new Map(
-            (matrix || []).map((m) => [m.id, { qualifikation: m.qualifikation, position: Number(m.position) || 999 }])
+            (matrix || []).map((m) => [
+              m.id,
+              { qualifikation: m.qualifikation, position: Number(m.position) || 999 },
+            ])
           );
         }
       }
 
-      // 4) Kampfliste-Einträge für HEUTE (Team)
+      // 4) Kampfliste-Einträge für HEUTE (Team) nur für die geladenen User
       const heute = new Date().toISOString().split('T')[0];
-      const { data: kampfliste, error: errorKampfliste } = await supabase
+      let kampfRes = supabase
         .from('DB_Kampfliste')
-        .select('user, schichtgruppe')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('datum', heute);
-      if (errorKampfliste) console.error('Fehler beim Laden der Kampfliste:', errorKampfliste);
+        .select('user, schichtgruppe, firma_id, unit_id')
+        .eq('datum', heute)
+        .in('user', userIds);
+
+      if (!isSuperAdmin) {
+        kampfRes = kampfRes.eq('firma_id', firma).eq('unit_id', unit);
+      }
+
+      const { data: kampfliste, error: errorKampfliste } = await kampfRes;
+      if (errorKampfliste) {
+        console.error('Fehler beim Laden der Kampfliste:', errorKampfliste);
+      }
 
       // 5) Zusammenbauen
       const qualisByUser = new Map();
@@ -118,6 +148,9 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           rolle: person.rolle,
           schichtgruppe: aktuelleSchichtgruppe,
           hoechste_quali: besteBezeichnung,
+          // nützlich, falls du später Firmen/Units anzeigen willst:
+          firma_id: person.firma_id,
+          unit_id: person.unit_id,
         };
       });
 
@@ -125,7 +158,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     };
 
     ladeDaten();
-  }, [firma, unit, refreshKey]);
+  }, [firma, unit, refreshKey, isSuperAdmin]);
 
   // Filter (nur Suche) + Sort
   const gefiltertePersonen = useMemo(() => {
@@ -154,7 +187,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
   return (
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
       <div className="flex justify-between items-center mb-2">
-        <h2 className="text-md font-bold">Mitarbeiterliste</h2>
+        <h2 className="text-md font-bold">Mitarbeiterliste{isSuperAdmin ? ' (alle Firmen)' : ''}</h2>
         <Info
           className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
           onClick={() => setInfoOffen(true)}
@@ -235,9 +268,9 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           >
             <h3 className="text-xl font-bold mb-2">Informationen</h3>
             <ul className="list-disc pl-6 space-y-1 text-sm">
-              <li>Nur aktive User der aktuellen Firma & Unit werden angezeigt.</li>
+              <li>Nur aktive User werden angezeigt.</li>
+              <li>Als <strong>SuperAdmin</strong> siehst du alle Firmen & Units.</li>
               <li>Pro Person wird die höchste zugewiesene Qualifikation angezeigt (nach Position).</li>
-              <li>Suche nach Namen und Sortierung nach allen Spalten.</li>
               <li>Team wird aus der Kampfliste für <strong>heute</strong> ermittelt.</li>
             </ul>
             <div className="mt-4 text-right">
@@ -256,4 +289,3 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 };
 
 export default Personalliste;
-

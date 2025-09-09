@@ -2,15 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import 'dayjs/locale/de';
+import { ShieldCheck, Info } from 'lucide-react';
 
 const QualiModal = ({ offen, onClose, userId, userName }) => {
   const [qualis, setQualis] = useState([]);
+  const [nurRelevant, setNurRelevant] = useState(false);
 
   useEffect(() => {
     const ladeQualifikationen = async () => {
       if (!userId) return;
 
-      // 1. Hole alle Qualifikationszuweisungen des Users inkl. created_at
+      // 1) User-Qualis (mit Zuweisungszeitpunkt)
       const { data: zuweisungen, error: errorZuweisung } = await supabase
         .from('DB_Qualifikation')
         .select('quali, created_at')
@@ -18,44 +20,52 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
 
       if (errorZuweisung) {
         console.error('❌ Fehler beim Laden der User-Qualifikationen:', errorZuweisung);
+        setQualis([]);
         return;
       }
-
-      if (!zuweisungen || zuweisungen.length === 0) {
+      if (!zuweisungen?.length) {
         setQualis([]);
         return;
       }
 
-      const qualiIds = zuweisungen.map((q) => q.quali);
+      const qualiIds = zuweisungen.map((z) => z.quali);
 
-      // 2. Hole die Qualifikationsdetails aus der Matrix
-      const { data: qualifikationen, error: errorMatrix } = await supabase
+      // 2) Matrix-Details (inkl. betriebs_relevant & Kürzel)
+      const { data: matrix, error: errorMatrix } = await supabase
         .from('DB_Qualifikationsmatrix')
-        .select('id, qualifikation, beschreibung, position')
+        .select('id, qualifikation, beschreibung, position, quali_kuerzel, betriebs_relevant')
         .in('id', qualiIds);
 
       if (errorMatrix) {
-        console.error('❌ Fehler beim Laden der Qualifikationsdetails:', errorMatrix);
+        console.error('❌ Fehler beim Laden der Quali-Matrix:', errorMatrix);
+        setQualis([]);
         return;
       }
 
-      // 3. Mappe Details + created_at zusammen
+      // 3) Mappen + sortieren: zuerst betriebsrelevant, dann Position
       const kombiniert = zuweisungen.map((z) => {
-        const matrix = qualifikationen.find((m) => m.id === z.quali);
-        return {
-          ...matrix,
-          created_at: z.created_at,
-        };
+        const m = matrix.find((mm) => mm.id === z.quali);
+        return m
+          ? {
+              id: m.id,
+              qualifikation: m.qualifikation,
+              quali_kuerzel: m.quali_kuerzel,
+              beschreibung: m.beschreibung,
+              position: m.position,
+              betriebs_relevant: !!m.betriebs_relevant,
+              created_at: z.created_at,
+            }
+          : null;
+      }).filter(Boolean);
+
+      kombiniert.sort((a, b) => {
+        if (a.betriebs_relevant !== b.betriebs_relevant) return a.betriebs_relevant ? -1 : 1;
+        const ap = a.position ?? 9999;
+        const bp = b.position ?? 9999;
+        return ap - bp;
       });
 
-      // 4. Sortieren nach Position (null ans Ende)
-      const sortiert = kombiniert.sort((a, b) => {
-        if (a.position == null) return 1;
-        if (b.position == null) return -1;
-        return a.position - b.position;
-      });
-
-      setQualis(sortiert);
+      setQualis(kombiniert);
     };
 
     if (offen) ladeQualifikationen();
@@ -63,33 +73,91 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
 
   if (!offen) return null;
 
+  const sichtbare = nurRelevant ? qualis.filter(q => q.betriebs_relevant) : qualis;
+
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 flex items-center justify-left pl-4 z-50"
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-900 text-black dark:text-white p-6 rounded-lg max-w-md w-full shadow-xl"
+        className="bg-gray-200 dark:bg-gray-900 text-black dark:text-white border border-gray-700 p-4 rounded-xl max-w-lg w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold mb-4">
-          Qualifikationen von {userName}
-        </h2>
+        <div className="flex items-start justify-between gap-4 mb-2">
+          <h2 className="text-lg font-semibold">
+            Qualifikationen von {userName}
+          </h2>
+          <label className="text-sm inline-flex items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={nurRelevant}
+              onChange={(e) => setNurRelevant(e.target.checked)}
+              className="accent-emerald-600"
+            />
+            Nur betriebsrelevant
+          </label>
+        </div>
 
-        {qualis.length === 0 ? (
+        {sichtbare.length === 0 ? (
           <p className="text-sm italic text-gray-500">
             Keine Qualifikationen vorhanden
           </p>
         ) : (
-          <ul className="list-disc list-inside space-y-1 text-sm">
-            {qualis.map((q) => (
-              <li key={q.id}>
-                <span className="font-medium">{q.qualifikation || 'Unbekannt'}</span>{' '}
-                <span className="text-gray-500 text-xs pl-2">
-                  (seit {dayjs(q.created_at).locale('de').format('MMMM YYYY')})
-                </span>
-              </li>
-            ))}
+          <ul className="space-y-2">
+            {sichtbare.map((q) => {
+              const isRel = q.betriebs_relevant;
+              return (
+                <li
+                  key={q.id}
+                  className={[
+                    "rounded-lg border p-3 flex items-start gap-3",
+                    isRel
+                      ? "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700 shadow-[inset_4px_0_0] shadow-emerald-500"
+                      : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                  ].join(" ")}
+                  title={q.beschreibung || ""}
+                >
+                  <div className="mt-0.5">
+                    {isRel ? (
+                      <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    ) : (
+                      <Info className="w-5 h-5 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center flex-wrap gap-2">
+                      <span className="font-semibold">
+                        {q.qualifikation || 'Unbekannt'}
+                      </span>
+                      {q.quali_kuerzel && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700">
+                          {q.quali_kuerzel}
+                        </span>
+                      )}
+                      {isRel && (
+                        <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                          Betriebsrelevant
+                        </span>
+                      )}
+                    </div>
+
+                    {q.beschreibung && (
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
+                        {q.beschreibung}
+                      </p>
+                    )}
+
+                    <div className="text-xs text-gray-500 mt-1">
+                      seit {dayjs(q.created_at).locale('de').format('MMMM YYYY')}
+                      {typeof q.position === 'number' && (
+                        <> • Priorität {q.position}</>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 

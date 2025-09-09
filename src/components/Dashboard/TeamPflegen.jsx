@@ -195,7 +195,7 @@ const TeamPflegen = () => {
       {offen && (
         <>
           {/* Checkbox-Leiste: "Alle Teams" zuerst, danach sortierte Teams */}
-          <div className="mb-4 flex flex-wrap gap-4 text-sm items-center">
+          <div className="mb-4 flex flex-wrap gap-2 text-sm items-center">
             {teams.length > 0 && (
               <label className="flex items-center gap-1 cursor-pointer font-semibold">
                 <input
@@ -229,7 +229,7 @@ const TeamPflegen = () => {
               .map((m) => (
                 <div
                   key={m.user_id}
-                  className="bg-white dark:bg-gray-800 p-3 rounded-md shadow flex justify-between items-center"
+                  className="bg-gray-300 dark:bg-gray-900 p-4 rounded-md shadow-xl border border-gray-400 dark:border-gray-600 flex justify-between items-center"
                 >
                   <div>
                     <div className="font-medium">

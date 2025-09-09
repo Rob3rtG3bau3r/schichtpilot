@@ -369,10 +369,10 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
                   )}
                   {status?.topRight === 'blau-1' && (
-                    <div className="absolute top-0 right-0 w-0 h-0 border-t-[12px] border-t-blue-400 border-l-[12px] border-l-transparent pointer-events-none" />
+                    <div className="absolute top-0 right-0 w-0 h-0 border-t-[12px] border-t-green-400 border-l-[12px] border-l-transparent pointer-events-none" />
                   )}
                   {status?.topRight === 'blau-2' && (
-                    <div className="absolute top-0 right-0 w-0 h-0 border-t-[12px] border-t-blue-700 border-l-[12px] border-l-transparent pointer-events-none" />
+                    <div className="absolute top-0 right-0 w-0 h-0 border-t-[12px] border-t-green-700 border-l-[12px] border-l-transparent pointer-events-none" />
                   )}
                   {status?.bottom && (
                     <div className="absolute bottom-0 left-0 w-full text-[9px] text-gray-900 dark:text-white">
@@ -401,11 +401,9 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
             <ul className="list-disc list-inside text-sm space-y-1">
               <li><span className="font-bold text-red-500">Rot</span>: Bedarf nicht gedeckt</li>
               <li><span className="font-bold text-green-300">Grün</span>: Bedarf exakt gedeckt</li>
-              <li><span className="font-bold text-green-400">Grün+</span>: +1 Person</li>
-              <li><span className="font-bold text-green-500">Grün++</span>: +2 oder mehr</li>
               <li><span className="font-bold text-yellow-400">Gelbe Ecke</span>: Zusatzquali fehlt</li>
-              <li><span className="font-bold text-blue-400">Blaue Ecke</span>: +1 Besetzung, Qualifikations unabhängig</li>
-              <li><span className="font-bold text-blue-700">Dunkelblau</span>: +2 oder mehr Besetzung, Qualifikations unabhängig</li>
+              <li><span className="font-bold text-green-400">Grüne Ecke</span>: +1 Besetzung, Qualifikations unabhängig</li>
+              <li><span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung, Qualifikations unabhängig</li>
               <li>Hover zeigt fehlende oder erfüllte Qualifikationen</li>
               <li>Im Hover wird auch angezeigt, wer Dienst hat.</li>
             </ul>

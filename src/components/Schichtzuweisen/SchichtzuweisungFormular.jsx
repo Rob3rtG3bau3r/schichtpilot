@@ -255,7 +255,7 @@ const SchichtzuweisungFormular = ({
   return (
     <div className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}>
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold">Soll Schichtplan zuweisen</h2>
+        <h2 className="text-lg font-semibold">Team zuweisen</h2>
         <button onClick={() => setModalOffen(true)} title="Info">
           <Info size={20} className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
         </button>
@@ -319,7 +319,7 @@ const SchichtzuweisungFormular = ({
         )}
         {isLoading ? 'Mitarbeiter wird zugewiesen' : 'Zuweisung durchführen'}
       </button>
-
+      <h2 className="text-xs p-2 text-gray-600 dark:text-gray-500">Das zuweisen eines Teams ist Zeitintensiv!</h2>
       {gesamtAnzahl > 0 && (
         <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 text-center">
           Kopiere {aktuellerFortschritt} von {gesamtAnzahl} Tagen...

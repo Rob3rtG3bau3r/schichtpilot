@@ -17,6 +17,9 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   const [infoOffen, setInfoOffen] = useState(false);
   const [sortierung, setSortierung] = useState({ feld: 'nachname', richtung: 'asc' });
 
+  // 🔎 Namenssuche
+  const [suche, setSuche] = useState('');
+
   const handleSortierung = (feld) => {
     setSortierung((aktuell) => {
       if (aktuell.feld === feld) {
@@ -65,16 +68,16 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         .eq('unit_id', unit);
 
       const gruppeMap = {};
-      for (const eintrag of kampfData) {
+      for (const eintrag of kampfData || []) {
         gruppeMap[eintrag.user] = eintrag.schichtgruppe || null;
       }
 
       const qualiMap = {};
       for (const user of userIds) {
-        const userQualis = qualiData.filter((q) => q.user_id === user);
+        const userQualis = (qualiData || []).filter((q) => q.user_id === user);
         const mitPosition = userQualis
           .map((q) => {
-            const matrix = qualiMatrix.find((m) => m.id === q.quali);
+            const matrix = (qualiMatrix || []).find((m) => m.id === q.quali);
             return matrix && matrix.position != null ? { ...matrix } : null;
           })
           .filter(Boolean);
@@ -84,7 +87,7 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         }
       }
 
-      let finalListe = userData.map((user) => ({
+      let finalListe = (userData || []).map((user) => ({
         ...user,
         schichtgruppe: gruppeMap[user.user_id] || null,
         hauptquali: qualiMap[user.user_id] || null,
@@ -118,6 +121,15 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   useEffect(() => localStorage.setItem('nurOhneGruppe', nurOhneGruppe), [nurOhneGruppe]);
   useEffect(() => localStorage.setItem('sortiereNachGruppe', sortiereNachGruppe), [sortiereNachGruppe]);
 
+  // 🔎 Filter auf Name anwenden (case-insensitive, „Vorname Nachname“ & „Nachname Vorname“)
+  const sichtbareBenutzer = benutzer.filter((u) => {
+    const q = suche.trim().toLowerCase();
+    if (!q) return true;
+    const full1 = `${u.vorname || ''} ${u.nachname || ''}`.toLowerCase();
+    const full2 = `${u.nachname || ''} ${u.vorname || ''}`.toLowerCase();
+    return full1.includes(q) || full2.includes(q);
+  });
+
   return (
     <div className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className || ''}`}>
       <div className="flex justify-between items-center mb-2">
@@ -128,9 +140,16 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         />
       </div>
 
-      {/* Filter */}
-      <div className="flex flex-col text-sm gap-1 mb-2">
-        <label className="flex items-center gap-2">
+      {/* Suche + Filter */}
+      <div className="flex flex-col md:flex-row gap-2 mb-2">
+        <input
+          type="text"
+          placeholder="🔍 Namen suchen"
+          value={suche}
+          onChange={(e) => setSuche(e.target.value)}
+          className="border px-2 py-1 rounded w-full md:w-1/2 bg-gray-200 dark:bg-gray-800"
+        />
+        <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={nurOhneGruppe}
@@ -138,15 +157,6 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
             className="accent-blue-500"
           />
           nicht zugewiesen
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={sortiereNachGruppe}
-            onChange={(e) => setSortiereNachGruppe(e.target.checked)}
-            className="accent-blue-500"
-          />
-          nach Schichten sortieren
         </label>
       </div>
 
@@ -182,7 +192,7 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
             </tr>
           </thead>
           <tbody>
-            {benutzer.map((user) => (
+            {sichtbareBenutzer.map((user) => (
               <tr
                 key={user.user_id}
                 className="hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
@@ -194,9 +204,14 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
                 <td className="p-2 text-xs">{user.schichtgruppe || '–'}</td>
               </tr>
             ))}
+            {benutzer.length > 0 && sichtbareBenutzer.length === 0 && (
+              <tr>
+                <td colSpan={4} className="text-gray-400 italic p-2">Keine Ergebnisse gefunden.</td>
+              </tr>
+            )}
             {benutzer.length === 0 && (
               <tr>
-                <td colSpan="4" className="text-gray-400 italic p-2">Keine aktiven Benutzer gefunden</td>
+                <td colSpan={4} className="text-gray-400 italic p-2">Keine aktiven Benutzer gefunden.</td>
               </tr>
             )}
           </tbody>
@@ -218,7 +233,8 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
               <li>Nur aktive Benutzer aus der aktuellen Unit werden angezeigt.</li>
               <li>Die Liste kann nach Name, Rolle, Qualifikation und Team sortiert werden.</li>
               <li>Es wird die höchste Qualifikation des Benutzers angezeigt.</li>
-              <li>Checkboxen filtern nach nicht zugewiesenen oder sortieren nach Schichtgruppen.</li>
+              <li>Checkboxen filtern nach nicht zugewiesenen.</li>
+              <li>Namenssuche oben – tippe Vor- oder Nachname.</li>
             </ul>
             <div className="mt-4 text-right">
               <button
@@ -236,3 +252,4 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
 };
 
 export default PersonalListe;
+

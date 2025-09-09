@@ -215,7 +215,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
         <div className='flex items-center gap-2'>
           <SelectYear value={year} onChange={setYear} years={years} />
           <Button onClick={()=>loadYear(year)}><RefreshCw className='w-4 h-4'/>Aktualisieren</Button>
-          <Button onClick={exportCSVYear} disabled={!atLeastOneReady || !ytdRow}><Download className='w-4 h-4'/>CSV</Button>
+          <Button onClick={exportCSVYear} disabled={!atLeastOneReady || !ytdRow}><Download className='w-4 h-4'/>CSV Export</Button>
         </div>
       </div>
 
@@ -254,37 +254,38 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
               {monthRow && (
                 <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
                   {typeof monthRow.soll_stunden_sum === 'number' && (
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-xs text-gray-600'>Soll-Stunden</div>
-                      <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
-                    </div>
-                  )}
+
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Ist-Stunden</div>
+                    <div className='text-sm text-gray-400'>Ist-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
                   </div>
+                  )}
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Soll-Stunden</div>
+                      <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
+                    </div>
                   {monthDiff != null && (
                     <div className='rounded-xl border p-3'>
-                      <div className='text-xs text-gray-600'>Differenz (Ist−Soll)</div>
+                      <div className='text-sm text-gray-400'>Differenz (Ist−Soll)</div>
                       <div className={`text-lg font-semibold ${colorBySign(monthDiff)}`}>
                         {monthDiff >= 0 ? '+' : '-'}{deNumber(Math.abs(monthDiff))}
                       </div>
                     </div>
                   )}
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Urlaubstage</div>
+                    <div className='text-sm text-gray-400'>Urlaubstage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.urlaubstage_sum,0)}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Krank-Stunden</div>
-                    <div className='text-lg font-semibold'>{deNumber(monthRow.krank_stunden_sum)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Kranktage</div>
+                    <div className='text-sm text-gray-400'>Kranktage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.kranktage_count,0)}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Krank-% (Stundenbasis)</div>
+                    <div className='text-sm text-gray-400'>Krank-Stunden</div>
+                    <div className='text-lg font-semibold'>{deNumber(monthRow.krank_stunden_sum)}</div>
+                  </div>
+                  <div className='rounded-xl border p-3'>
+                    <div className='text-sm text-gray-400'>Krank-% (Stundenbasis)</div>
                     <div className='text-lg font-semibold'>
                       {dePercent(
                         (monthRow.ist_stunden_sum ?? 0) > 0
@@ -294,11 +295,11 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     </div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>10/11/12 Std Einsätze</div>
+                    <div className='text-sm text-gray-400'>10/11/12 Std Einsätze</div>
                     <div className='text-lg font-semibold'>
                       {(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
                     </div>
-                    <div className='text-xs text-gray-600 mt-1'>
+                    <div className='text-xs text-gray-500 mt-1'>
                       10h {monthRow.dauer10_count ?? 0} · 11h {monthRow.dauer11_count ?? 0} · 12h {monthRow.dauer12_count ?? 0}
                     </div>
                   </div>
@@ -333,15 +334,15 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Ist-Stunden (YTD)</div>
+                    <div className='text-sm text-gray-400'>Ist-Stunden (YTD)</div>
                     <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_ist ?? 0)}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Soll-Stunden (YTD)</div>
+                    <div className='text-sm text-gray-400'>Soll-Stunden (YTD)</div>
                     <div className='text-lg font-semibold'>{ytdRow?.ytd_soll != null ? deNumber(ytdRow.ytd_soll) : '–'}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Differenz (Ist−Soll, YTD)</div>
+                    <div className='text-sm text-gray-400'>Differenz (Ist−Soll, YTD)</div>
                     <div className={`text-lg font-semibold ${colorBySign(ytdRow?.ytd_diff ?? 0)}`}>
                       {ytdRow?.ytd_diff == null ? '–'
                         : (ytdRow.ytd_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.ytd_diff))}
@@ -351,15 +352,15 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                   {/* Stunden – Jahr gesamt */}
                   <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Stunden · gesamtes Jahr</div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Ist-Stunden (Jahr)</div>
+                    <div className='text-sm text-gray-400'>Ist-Stunden (Jahr)</div>
                     <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_ist ?? 0)}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Soll-Stunden (Jahr)</div>
+                    <div className='text-sm text-gray-400'>Soll-Stunden (Jahr)</div>
                     <div className='text-lg font-semibold'>{ytdRow?.year_soll != null ? deNumber(ytdRow.year_soll) : '–'}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Differenz (Ist−Soll, Jahr)</div>
+                    <div className='text-sm text-gray-400'>Differenz (Ist−Soll, Jahr)</div>
                     <div className={`text-lg font-semibold ${colorBySign(ytdRow?.year_diff ?? 0)}`}>
                       {ytdRow?.year_diff == null ? '–'
                         : (ytdRow.year_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.year_diff))}
@@ -371,39 +372,39 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     Urlaub · bis Monat {ytdRow?.bis_monat ?? '–'}
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Urlaubstage (YTD)</div>
+                    <div className='text-sm text-gray-400'>Urlaubstage (YTD)</div>
                     <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_urlaub ?? 0, 0)}</div>
                   </div>
 
                   {/* Urlaub – Jahr gesamt */}
                   <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Urlaub · gesamtes Jahr</div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Urlaubstage (Jahr)</div>
+                    <div className='text-sm text-gray-400'>Urlaubstage (Jahr)</div>
                     <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_urlaub ?? 0, 0)}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Urlaubstage-Soll (Jahr)</div>
+                    <div className='text-sm text-gray-400'>Urlaubstage-Soll (Jahr)</div>
                     <div className='text-lg font-semibold'>{ytdRow?.year_urlaub_soll != null ? deNumber(ytdRow.year_urlaub_soll, 0) : '–'}</div>
                   </div>
 
                   {/* Krank (YTD) */}
                   <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Krank · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Kranktage (YTD)</div>
+                    <div className='text-sm text-gray-400'>Kranktage (YTD)</div>
                     <div className='text-lg font-semibold'>{deNumber(ytdRow?.kranktage_ytd ?? 0, 0)}</div>
                   </div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Krank-Stunden (YTD)</div>
+                    <div className='text-sm text-gray-400'>Krank-Stunden (YTD)</div>
                     <div className='text-lg font-semibold'>{deNumber(ytdRow?.krank_stunden_ytd ?? 0)}</div>
                   </div>                  
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>Krank-% (Stundenbasis, YTD)</div>
+                    <div className='text-sm text-gray-400'>Krank-% (Stundenbasis, YTD)</div>
                     <div className='text-lg font-semibold'>{dePercent(ytdKrankQuote)}</div>
                   </div>
                   {/* >10 Stunden (YTD) */}
                   <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Einsätze über 10 Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
                   <div className='rounded-xl border p-3'>
-                    <div className='text-xs text-gray-600'>10/11/12 Std Einsätze (YTD)</div>
+                    <div className='text-sm text-gray-400'>10/11/12 Std Einsätze (YTD)</div>
                     <div className='text-lg font-semibold'>
                       {(ytdRow?.dauer10_ytd ?? 0) + (ytdRow?.dauer11_ytd ?? 0) + (ytdRow?.dauer12_ytd ?? 0)}
                     </div>
