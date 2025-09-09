@@ -50,7 +50,6 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
               id: m.id,
               qualifikation: m.qualifikation,
               quali_kuerzel: m.quali_kuerzel,
-              beschreibung: m.beschreibung,
               position: m.position,
               betriebs_relevant: !!m.betriebs_relevant,
               created_at: z.created_at,
@@ -141,12 +140,6 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
                         </span>
                       )}
                     </div>
-
-                    {q.beschreibung && (
-                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
-                        {q.beschreibung}
-                      </p>
-                    )}
 
                     <div className="text-xs text-gray-500 mt-1">
                       seit {dayjs(q.created_at).locale('de').format('MMMM YYYY')}
