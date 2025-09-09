@@ -6,10 +6,12 @@ import { Sun, Moon } from 'lucide-react';
 const Navigation = ({ darkMode, setDarkMode }) => {
   const location = useLocation();
   const [verwaltungOpen, setVerwaltungOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [plannungOpen, setPlannungOpen] = useState(false);
   const { rolle } = useRollen();
   const verwaltungTimeout = useRef(null);
+  const reportTimeout = useRef(null);
   const adminTimeout = useRef(null);
   const plannungTimeout = useRef(null);
   const delay = 300;
@@ -20,6 +22,14 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   };
   const closeVerwaltung = () => {
     verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay);
+  };
+
+    const openReport = () => {
+    clearTimeout(verwaltungTimeout.current);
+    setReportOpen(true);
+  };
+  const closeReport = () => {
+    reportTimeout.current = setTimeout(() => setReportOpen(false), delay);
   };
 
   const openPlannung = () => {
@@ -102,7 +112,17 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             )}
           </div>
         )}
-
+        {/* Reports-Menü: Nur SuperAdmin, Admin_Dev */}
+        {['SuperAdmin', 'Admin_Dev'].includes(rolle) && (
+          <div className="relative" onMouseEnter={openReport} onMouseLeave={closeReport}>
+            <span className="cursor-pointer">Berichte ▾</span>
+            {reportOpen && (
+              <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
+                <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit Bericht</Link>
+              </div>
+            )}
+          </div>
+        )}
         {/* Admin-Menü: Nur SuperAdmin */}
         {rolle === 'SuperAdmin' && (
           <div className="relative" onMouseEnter={openAdmin} onMouseLeave={closeAdmin}>
