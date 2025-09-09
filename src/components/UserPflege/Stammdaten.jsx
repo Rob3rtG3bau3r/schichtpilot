@@ -136,7 +136,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
 
       setQualis((qData||[]).map(q=>{
         const m = byId.get(q.quali);
-        const label = m?.quali_kuerzel || m?.qualifikation || `#${q.quali}`;
+        const label = m?.qualifikation ||m?.quali_kuerzel || `#${q.quali}`;
         return { label, seit: q.created_at ? dayjs(q.created_at).format('DD.MM.YYYY') : '—' };
       }));
     })();
