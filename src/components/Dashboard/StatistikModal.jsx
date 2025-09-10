@@ -41,9 +41,9 @@ const StatistikModal = ({ user, onClose }) => {
   }, [user, jahr]);
 
   const summeIst = Array.from({ length: 12 }, (_, i) => stunden[`m${i + 1}`] || 0).reduce((a, b) => a + b, 0);
-  const restStd = summeIst - (stunden.vorgabe_stunden || 0);
+  const restStd = summeIst - (stunden.stunden_gesamt || 0);
   const urlaubSumme = Array.from({ length: 12 }, (_, i) => urlaub[`m${i + 1}`] || 0).reduce((a, b) => a + b, 0);
-  const urlaubUebrig = (urlaub.urlaub_soll || 0) + (urlaub.uebernahme_vorjahr || 0) - urlaubSumme;
+  const urlaubUebrig = (urlaub.urlaub_gesamt || 0) - urlaubSumme;
 
   let kumIst = 0;
   let kumSoll = 0;
@@ -55,7 +55,7 @@ const StatistikModal = ({ user, onClose }) => {
     kumIst += ist;
     kumSoll += soll;
     kumUrlaub += urlaubM;
-    return { name, ist: kumIst, soll: kumSoll, ziel: (stunden.vorgabe_stunden || 0) / 12 * (i + 1), urlaub: kumUrlaub };
+    return { name, ist: kumIst, soll: kumSoll, ziel: (stunden.stunden_gesamt || 0) / 12 * (i + 1), urlaub: kumUrlaub };
   });
 
   return (
@@ -71,14 +71,12 @@ const StatistikModal = ({ user, onClose }) => {
           <div className="flex flex-wrap gap-4 mb-2">
             <span>Std. Jahres zum Ende: <b>{restStd}</b></span>
             <span>Geleistete Std.: <b>{summeIst}</b></span>
-            <span>Zu erbringende Std.: <b>{stunden.vorgabe_stunden || 0}</b></span>
-            <span>Aus Vorjahr: <b>{stunden.uebernahme_vorjahr || 0}</b></span>
+            <span>Zu erbringende Std.: <b>{stunden.stunden_gesamt || 0}</b></span>
           </div>
           <div className="flex flex-wrap gap-4">
             <span>Urlaub übrig: <b>{urlaubUebrig}</b></span>
             <span>Urlaub eingetragen: <b>{urlaubSumme}</b></span>
-            <span>Urlaub Soll: <b>{urlaub.urlaub_soll || 0}</b></span>
-            <span>Urlaub Vorjahr: <b>{urlaub.uebernahme_vorjahr || 0}</b></span>
+            <span>Urlaub Gesamt: <b>{urlaub.urlaub_gesamt || 0}</b></span>
           </div>
         </div>
 

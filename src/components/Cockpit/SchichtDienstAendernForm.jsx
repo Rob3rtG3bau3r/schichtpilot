@@ -8,6 +8,17 @@ import { berechneUndSpeichereStunden, berechneUndSpeichereUrlaub } from '../../u
 
 dayjs.extend(duration);
 
+/**
+ * ⚙️ Performance-Flag:
+ * - true  => Recalcs (Stunden/Urlaub) komplett überspringen (für Tests)
+ * - false => Recalcs laufen normal
+ * Optional via Env (Vite): VITE_SP_SKIP_RECALC=1
+ */
+const PERF_SKIP_RECALC =
+  (typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.VITE_SP_SKIP_RECALC === '1') || false;
+
 const SchichtDienstAendernForm = ({
   offen,
   onClose,
@@ -18,25 +29,50 @@ const SchichtDienstAendernForm = ({
   onRefreshMitarbeiterBedarf,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
+
   const [schichtarten, setSchichtarten] = useState([]);
   const [auswahl, setAuswahl] = useState({ kuerzel: '', start: '', ende: '', ignoriertarbeitszeit: false });
   const [sollKuerzel, setSollKuerzel] = useState('');
   const [kommentar, setKommentar] = useState('');
-  const [erstellerName, setErstellerName] = useState('Unbekannt');
   const [saveMessage, setSaveMessage] = useState('');
   const [mehrereTage, setMehrereTage] = useState(false);
-  const [tageAnzahl, setTageAnzahl] = useState(1);
   const [enddatum, setEnddatum] = useState('');
   const [infoOffen, setInfoOffen] = useState(false);
   const [verlaufOffen, setVerlaufOffen] = useState(false);
   const [verlaufDaten, setVerlaufDaten] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // ⏱ Laufzeit-Zähler (Sekunden:Millisekunden)
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const timerRef = useRef(null);
+  const startRef = useRef(0);
+  useEffect(() => {
+    if (loading) {
+      startRef.current = performance.now();
+      timerRef.current = setInterval(() => {
+        setElapsedMs(performance.now() - startRef.current);
+      }, 50);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+      setElapsedMs(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [loading]);
+
+  const formatElapsed = (ms) => {
+    const s = Math.floor(ms / 1000);
+    const msec = String(Math.floor(ms % 1000)).padStart(3, '0');
+    return `${s}:${msec}`;
+  };
+
   // 👉 Drag & Dock
   const modalRef = useRef(null);
   const [dock, setDock] = useState(null); // 'left' | 'right' | null
   const [dragging, setDragging] = useState(false);
-  const [pos, setPos] = useState({ left: 0, top: 0 }); // absolute Position (px)
+  const [pos, setPos] = useState({ left: 0, top: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   // Beim Öffnen/Wechsel zentrieren
@@ -53,7 +89,7 @@ const SchichtDienstAendernForm = ({
   }, [offen]);
 
   const startDrag = (e) => {
-    if (dock) return; // beim Docken nicht ziehen
+    if (dock) return;
     const clientX = e.clientX ?? e.touches?.[0]?.clientX;
     const clientY = e.clientY ?? e.touches?.[0]?.clientY;
     const rect = modalRef.current.getBoundingClientRect();
@@ -100,6 +136,7 @@ const SchichtDienstAendernForm = ({
     };
   }, [dragging, dock, dragOffset]);
 
+  // Schichtarten laden
   useEffect(() => {
     const ladeSchichtarten = async () => {
       const { data, error } = await supabase
@@ -107,8 +144,9 @@ const SchichtDienstAendernForm = ({
         .select('*')
         .eq('firma_id', firma)
         .eq('unit_id', unit);
-      if (error) console.error(error);
-      else {
+      if (error) {
+        console.error(error);
+      } else {
         const sortiert = data.sort((a, b) => {
           if (a.sollplan_relevant && !b.sollplan_relevant) return -1;
           if (!a.sollplan_relevant && b.sollplan_relevant) return 1;
@@ -117,10 +155,10 @@ const SchichtDienstAendernForm = ({
         setSchichtarten(sortiert);
       }
     };
-
     if (offen) ladeSchichtarten();
   }, [offen, firma, unit]);
 
+  // Eintrag in Formular übernehmen
   useEffect(() => {
     if (eintrag && schichtarten.length > 0) {
       const schicht = schichtarten.find((s) => s.kuerzel === eintrag.ist_schicht);
@@ -133,6 +171,7 @@ const SchichtDienstAendernForm = ({
         ende: eintrag.ende || '14:00',
         ignoriertarbeitszeit: ignoriert,
       });
+
       const holeSollSchicht = async () => {
         const { data: sollEintrag, error } = await supabase
           .from('DB_Kampfliste')
@@ -153,7 +192,7 @@ const SchichtDienstAendernForm = ({
       holeSollSchicht();
       setKommentar(eintrag.kommentar || '');
     }
-  }, [eintrag, schichtarten]);
+  }, [eintrag, schichtarten, firma, unit]);
 
   const handleSchichtwahl = (kuerzel, start, ende, ignoriertArbeitszeit) => {
     setAuswahl((prev) => ({
@@ -211,6 +250,10 @@ const SchichtDienstAendernForm = ({
     const startDatum = dayjs(eintrag.datum);
     const endDatum = mehrereTage && enddatum ? dayjs(enddatum) : startDatum;
 
+    // 🧠 Sammeln statt sofort rechnen: einmal pro (User,Jahr,Monat) bzw. (User,Jahr)
+    const dirtyStunden = new Set(); // JSON.stringify({ user,jahr,monat,firma,unit })
+    const dirtyUrlaub = new Set();  // JSON.stringify({ user,jahr,firma,unit })
+
     for (let datum = startDatum; datum.isSameOrBefore(endDatum); datum = datum.add(1, 'day')) {
       const datumStr = datum.format('YYYY-MM-DD');
       let aktuelleStart = auswahl.start;
@@ -228,8 +271,8 @@ const SchichtDienstAendernForm = ({
       const soll = sollEintrag?.soll_schicht;
       const dauerSoll = sollEintrag?.dauer_soll || null;
 
+      // U auf freien Tagen überspringen
       if ((soll === null || soll === '-') && auswahl.kuerzel === 'U') {
-        console.log(`⏩ ${datumStr} wird übersprungen (Frei-Tag & Kürzel = U)`);
         continue;
       }
 
@@ -240,20 +283,42 @@ const SchichtDienstAendernForm = ({
 
       const startZeit = dayjs(`2024-01-01T${aktuelleStart}`);
       let endeZeit = dayjs(`2024-01-01T${aktuelleEnde}`);
-      if (endeZeit.isBefore(startZeit)) {
-        endeZeit = endeZeit.add(1, 'day');
-      }
-      const aktuelleDauer = aktuelleStart && aktuelleEnde ? dayjs.duration(endeZeit.diff(startZeit)).asHours() : null;
+      if (endeZeit.isBefore(startZeit)) endeZeit = endeZeit.add(1, 'day');
+      const aktuelleDauer = (aktuelleStart && aktuelleEnde)
+        ? dayjs.duration(endeZeit.diff(startZeit)).asHours()
+        : null;
 
       const alterDauerIst = sollEintrag?.dauer_ist || null;
       const jahr = datum.year();
-      const neuerMonat = datum.month() + 1;
+      const monat = datum.month() + 1;
 
-      if (alterDauerIst !== aktuelleDauer) {
-        await berechneUndSpeichereStunden(eintrag.user, jahr, neuerMonat, aktuelleFirma, aktuelleUnit);
+      // Statt sofort zu rechnen: nur markieren
+      if (!PERF_SKIP_RECALC && alterDauerIst !== aktuelleDauer) {
+        dirtyStunden.add(JSON.stringify({
+          user: eintrag.user,
+          jahr,
+          monat,
+          firma: aktuelleFirma,
+          unit: aktuelleUnit
+        }));
+      }
+      if (!PERF_SKIP_RECALC && (auswahl.kuerzel === 'U' || eintrag.ist_schicht === 'U')) {
+        dirtyUrlaub.add(JSON.stringify({
+          user: eintrag.user,
+          jahr,
+          firma: aktuelleFirma,
+          unit: aktuelleUnit
+        }));
       }
 
-      await supabase.from('DB_Kampfliste').delete().eq('user', eintrag.user).eq('datum', datumStr).eq('firma_id', aktuelleFirma).eq('unit_id', aktuelleUnit);
+      // Replace & Insert
+      await supabase
+        .from('DB_Kampfliste')
+        .delete()
+        .eq('user', eintrag.user)
+        .eq('datum', datumStr)
+        .eq('firma_id', aktuelleFirma)
+        .eq('unit_id', aktuelleUnit);
 
       await supabase.from('DB_Kampfliste').insert({
         user: eintrag.user,
@@ -261,7 +326,7 @@ const SchichtDienstAendernForm = ({
         firma_id: aktuelleFirma,
         unit_id: aktuelleUnit,
         soll_schicht: soll,
-        ist_schicht: schichtDef?.id,
+        ist_schicht: schichtDef?.id, // wir speichern die ID
         startzeit_ist: aktuelleStart,
         endzeit_ist: aktuelleEnde,
         dauer_ist: aktuelleDauer,
@@ -275,10 +340,6 @@ const SchichtDienstAendernForm = ({
         schichtgruppe: eintrag.schichtgruppe,
         kommentar,
       });
-
-      if (auswahl.kuerzel === 'U' || eintrag.ist_schicht === 'U') {
-        await berechneUndSpeichereUrlaub(eintrag.user, jahr, aktuelleFirma, aktuelleUnit);
-      }
 
       await supabase.from('DB_KampflisteVerlauf').insert({
         user: eintrag.user,
@@ -297,6 +358,18 @@ const SchichtDienstAendernForm = ({
         created_at: eintrag.created_at || now,
         schichtgruppe: eintrag.schichtgruppe,
       });
+    }
+
+    // 🔁 Recalcs jetzt gebatcht ausführen
+    if (!PERF_SKIP_RECALC) {
+      for (const k of dirtyStunden) {
+        const { user, jahr, monat, firma: f, unit: u } = JSON.parse(k);
+        await berechneUndSpeichereStunden(user, jahr, monat, f, u);
+      }
+      for (const k of dirtyUrlaub) {
+        const { user, jahr, firma: f, unit: u } = JSON.parse(k);
+        await berechneUndSpeichereUrlaub(user, jahr, f, u);
+      }
     }
 
     setSaveMessage(`${startDatum.format('DD.MM.YYYY')} Erfolgreich gespeichert`);
@@ -341,6 +414,7 @@ const SchichtDienstAendernForm = ({
   };
 
   if (!offen || !eintrag) return null;
+
   const farbeAktuelleSchicht = schichtarten.find((s) => s.kuerzel === auswahl.kuerzel);
 
   const ladeNeuenTag = (richtung) => {
@@ -540,96 +614,88 @@ const SchichtDienstAendernForm = ({
             </button>
           </div>
 
-          <div className="flex gap-3 mt-1 items-center">
-            {loading && <div className="w-5 h-5 border-2 border-t-transparent border-blue-400 rounded-full animate-spin"></div>}
-            <button onClick={onClose} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded transition" disabled={loading}>
-              Schließen
-            </button>
-            <button
-              onClick={() => handleSpeichern(false)}
-              disabled={loading || speichernGesperrt}
-              className={`bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition ${
-                loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              Speichern
-            </button>
-            <button
-              onClick={() => handleSpeichern(true)}
-              disabled={loading || speichernGesperrt}
-              className={`bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded transition ${
-                loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              Speichern & Schließen
-            </button>
+          <div className="flex flex-col items-end gap-1 mt-1">
+            {/* ⏱ Laufzeit-Anzeige oberhalb der Speichern-Buttons */}
+            {loading && (
+              <div className="text-xs text-gray-500 dark:text-gray-300">⏱ Laufzeit: {formatElapsed(elapsedMs)} s</div>
+            )}
+
+            <div className="flex gap-3 items-center">
+              {loading && <div className="w-5 h-5 border-2 border-t-transparent border-blue-400 rounded-full animate-spin"></div>}
+              <button onClick={onClose} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded transition" disabled={loading}>
+                Schließen
+              </button>
+              <button
+                onClick={() => handleSpeichern(false)}
+                disabled={loading || speichernGesperrt}
+                className={`bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition ${
+                  loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Speichern
+              </button>
+              <button
+                onClick={() => handleSpeichern(true)}
+                disabled={loading || speichernGesperrt}
+                className={`bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded transition ${
+                  loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Speichern & Schließen
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Info-Modal */}
-{infoOffen && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
-    <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-xl p-6 w-[520px] relative">
-      <h2 className="text-lg font-bold mb-3">Infos zu diesem Modul</h2>
+      {infoOffen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
+          <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-xl p-6 w-[520px] relative">
+            <h2 className="text-lg font-bold mb-3">Infos zu diesem Modul</h2>
 
-      {/* Bestehende Punkte */}
-      <ul className="text-sm list-disc pl-5 space-y-2 mb-4">
-        <li>Du kannst einzelne Dienste für Mitarbeiter ändern.</li>
-        <li>Schichtzeiten und Schichtarten sind anpassbar.</li>
-        <li>Die Dauer der Schicht wird automatisch berechnet.</li>
-        <li>Wenn eine Schicht die Arbeitszeit überschreitet, erfolgt ein Hinweis.</li>
-        <li>Urlaub oder andere mehrtägige Dienste kannst du über mehrere Tage eintragen.</li>
-        <li>Das System berücksichtigt automatisch die Arbeitszeit-Regelung bei Urlaub.</li>
-        <li>Kommentare zu Änderungen kannst du optional hinzufügen.</li>
-        <li>Der komplette Änderungsverlauf wird dokumentiert.</li>
-        <li>Mit ← / → kannst du zwischen Tagen blättern.</li>
-      </ul>
+            <ul className="text-sm list-disc pl-5 space-y-2 mb-4">
+              <li>Du kannst einzelne Dienste für Mitarbeiter ändern.</li>
+              <li>Schichtzeiten und Schichtarten sind anpassbar.</li>
+              <li>Die Dauer der Schicht wird automatisch berechnet.</li>
+              <li>Wenn eine Schicht die Arbeitszeit überschreitet, erfolgt ein Hinweis.</li>
+              <li>Urlaub oder andere mehrtägige Dienste kannst du über mehrere Tage eintragen.</li>
+              <li>Kommentare zu Änderungen kannst du optional hinzufügen.</li>
+              <li>Der komplette Änderungsverlauf wird dokumentiert.</li>
+              <li>Mit ← / → kannst du zwischen Tagen blättern.</li>
+            </ul>
 
-      {/* Neue Funktionen: Drag & Dock */}
-      <div className="text-sm space-y-2">
-        <div className="font-semibold text-gray-700 dark:text-gray-300">Neue Funktionen</div>
-        <ul className="space-y-2">
-          <li className="flex items-start gap-2">
-            <GripVertical className="w-4 h-4 mt-0.5 text-gray-500" />
-            <span>
-              <b>Verschieben:</b> Halte den <i>Griff</i> links im Kopfbereich gedrückt und ziehe das Fenster, um es frei
-              zu platzieren. Die Position bleibt immer im sichtbaren Bereich.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <PanelLeftOpen className="w-4 h-4 mt-0.5 text-gray-500" />
-            <span>
-              <b>Links andocken:</b> Klick auf das Panel-Symbol, um das Fenster am linken Rand zu fixieren (volle Höhe,
-              ideal wenn Inhalte verdeckt werden).
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <PanelRightOpen className="w-4 h-4 mt-0.5 text-gray-500" />
-            <span>
-              <b>Rechts andocken:</b> Gleiches wie links – nur am rechten Rand.
-            </span>
-          </li>
-          <li className="flex items-start gap-2 text-xs text-gray-500">
-            <span className="mt-0.5">💡</span>
-            <span>
-              Beim Andocken ist Verschieben deaktiviert. Klicke das jeweilige Panel-Icon erneut, um das Andocken zu lösen und das
-              Fenster wieder frei zu bewegen.
-            </span>
-          </li>
-        </ul>
-      </div>
+            <div className="text-sm space-y-2">
+              <div className="font-semibold text-gray-700 dark:text-gray-300">Neue Funktionen</div>
+              <ul className="space-y-2">
+                <li className="flex items-start gap-2">
+                  <GripVertical className="w-4 h-4 mt-0.5 text-gray-500" />
+                  <span><b>Verschieben:</b> Griff gedrückt halten und Fenster frei platzieren.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <PanelLeftOpen className="w-4 h-4 mt-0.5 text-gray-500" />
+                  <span><b>Links andocken</b> – volle Höhe, ideal wenn Inhalte verdeckt werden.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <PanelRightOpen className="w-4 h-4 mt-0.5 text-gray-500" />
+                  <span><b>Rechts andocken</b> – identisch, nur am rechten Rand.</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <span className="mt-0.5">💡</span>
+                  <span>Beim Andocken ist Verschieben deaktiviert. Icon erneut klicken, um zu lösen.</span>
+                </li>
+              </ul>
+            </div>
 
-      <button
-        onClick={() => setInfoOffen(false)}
-        className="absolute top-2 right-3 text-gray-400 hover:text-white"
-      >
-        ✕
-      </button>
-    </div>
-  </div>
-)}
-
+            <button
+              onClick={() => setInfoOffen(false)}
+              className="absolute top-2 right-3 text-gray-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Verlauf-Modal */}
       {verlaufOffen && (
