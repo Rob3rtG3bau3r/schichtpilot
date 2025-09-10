@@ -117,7 +117,7 @@ const TeamPflegen = () => {
 
       const { data: stundenData } = await supabase
         .from("DB_Stunden")
-        .select("user_id, jahr, summe_jahr, vorgabe_stunden")
+        .select("user_id, jahr, summe_jahr, vorgabe_stunden, stunden_gesamt")
         .in("user_id", userIds)
         .eq("jahr", aktuellesJahr)
         .eq("firma_id", firma)
@@ -125,7 +125,7 @@ const TeamPflegen = () => {
 
       const { data: urlaubData } = await supabase
         .from("DB_Urlaub")
-        .select("user_id, jahr, summe_jahr, urlaub_soll")
+        .select("user_id, jahr, summe_jahr, urlaub_gesamt")
         .in("user_id", userIds)
         .eq("jahr", aktuellesJahr)
         .eq("firma_id", firma)
@@ -136,16 +136,16 @@ const TeamPflegen = () => {
           const stunden = stundenData?.find((s) => s.user_id === u.user_id);
           const urlaub = urlaubData?.find((r) => r.user_id === u.user_id);
 
-          const abw = (stunden?.summe_jahr ?? 0) - (stunden?.vorgabe_stunden ?? 0);
+          const abw = (stunden?.summe_jahr ?? 0) - (stunden?.stunden_gesamt ?? 0);
 
           return {
             ...u,
             schichtgruppe: gruppenMap[u.user_id] || "—",
             abweichung: abw,
             summe_ist: stunden?.summe_jahr ?? 0,
-            summe_soll: stunden?.vorgabe_stunden ?? 0,
+            summe_soll: stunden?.stunden_gesamt ?? 0,
             resturlaub: urlaub?.summe_jahr ?? 0,
-            urlaub_soll: urlaub?.urlaub_soll ?? 0,
+            urlaub_gesamt: urlaub?.urlaub_gesamt ?? 0,
           };
         })
         .sort((a, b) => (a.position_ingruppe || 0) - (b.position_ingruppe || 0));
@@ -244,7 +244,7 @@ const TeamPflegen = () => {
                         | Std.: {m.summe_ist} / {m.summe_soll}
                       </span>
                       <span>
-                        | Urlaub: {m.resturlaub} / {m.urlaub_soll}
+                        | Urlaub: {m.resturlaub} / {m.urlaub_gesamt}
                       </span>
                     </div>
                   </div>

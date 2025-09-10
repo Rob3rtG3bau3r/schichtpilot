@@ -73,21 +73,22 @@ const MeineUebersicht = () => {
   ];
 
   // Berechnungen
-  const vorgabe_stunden = stunden.vorgabe_stunden || 0;
+  const stunden_gesamt = stunden.stunden_gesamt || 0;
   const summeIst = stunden.summe_jahr || 0;
-  const restStd = summeIst - vorgabe_stunden;
+  const restStd = summeIst - stunden_gesamt;
+  const uebernahme_vorjahr = stunden.uebernahme_vorjahr
 
-  const urlaub_soll = urlaub.urlaub_soll || 0;
+  const urlaub_gesamt = urlaub.urlaub_gesamt || 0;
   const urlaub_vorjahr = urlaub.uebernahme_vorjahr || 0;
   const urlaubSumme = urlaub.summe_jahr || 0;
 
-  const urlaubUebrig = (urlaub_soll + urlaub_vorjahr - urlaubSumme);
+  const urlaubUebrig = (urlaub_gesamt + urlaub_vorjahr - urlaubSumme);
 
   // Chartdaten
   let kumIst = 0;
   let kumSoll = 0;
   let kumUrlaub = 0;
-  const vorgabeProMonat = vorgabe_stunden / 12;
+  const vorgabeProMonat = stunden_gesamt / 12;
 
   const chartData = monate.map((name, i) => {
     const m = i + 1;
@@ -144,11 +145,11 @@ const MeineUebersicht = () => {
     </div>
     <div className="flex items-center gap-1">
       <span className="text-orange-500">🎯</span>
-      <span>Zu erbringende Std.:</span> <b>{vorgabe_stunden} h</b>
+      <span>Zu erbringende Std.:</span> <b>{stunden_gesamt} h</b>
     </div>
     <div className="flex items-center gap-1">
       <span className="text-purple-500">↩</span>
-      <span>Aus Vorjahr:</span> <b>{urlaub_vorjahr} h</b>
+      <span>Aus Vorjahr:</span> <b>{uebernahme_vorjahr} h</b>
     </div>
   </div>
 
@@ -164,7 +165,7 @@ const MeineUebersicht = () => {
     </div>
     <div className="flex items-center gap-1">
       <span className="text-orange-500">📅</span>
-      <span>Urlaub Soll:</span> <b>{urlaub_soll}</b>
+      <span>Urlaub Gesamt:</span> <b>{urlaub_gesamt}</b>
     </div>
     <div className="flex items-center gap-1">
       <span className="text-purple-500">↩</span>
@@ -235,7 +236,7 @@ const MeineUebersicht = () => {
                     <YAxis
                       yAxisId="right"
                       orientation="right"
-                      domain={[0, (urlaub.urlaub_soll || 0) + (urlaub.uebernahme_vorjahr || 0)]}
+                      domain={[0, (urlaub.urlaub_gesamt || 0) + (urlaub.uebernahme_vorjahr || 0)]}
                       label={{ value: "Urlaubstage", angle: 90, position: 'insideRight' }}
                     />
                     <Tooltip />
