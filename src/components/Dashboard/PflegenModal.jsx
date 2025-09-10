@@ -48,6 +48,15 @@ const PflegenModal = ({ user, onClose, onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // 🔢 Formatter
+  const fmtInt = (n) =>
+    (Number(n) || 0).toLocaleString("de-DE", { maximumFractionDigits: 0 });
+  const fmtStunden = (n) =>
+    (Number(n) || 0).toLocaleString("de-DE", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2, // max. 2 Nachkommastellen
+    });
+
   // Live-Summen berechnen
   const stundenSumme = useMemo(
     () =>
@@ -86,7 +95,6 @@ const PflegenModal = ({ user, onClose, onRefresh }) => {
           .eq("user_id", user.user_id)
           .eq("jahr", jahr)
           .maybeSingle();
-
         if (stundenError) throw stundenError;
 
         const { data: urlaubData, error: urlaubError } = await supabase
@@ -95,7 +103,6 @@ const PflegenModal = ({ user, onClose, onRefresh }) => {
           .eq("user_id", user.user_id)
           .eq("jahr", jahr)
           .maybeSingle();
-
         if (urlaubError) throw urlaubError;
 
         setStunden(
@@ -213,10 +220,11 @@ const PflegenModal = ({ user, onClose, onRefresh }) => {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm flex items-center justify-center">
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl w-[min(440px,92vw)] shadow-2xl border border-gray-200 dark:border-gray-700 relative">
+      {/* Modal (schmal) */}
+      <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl w-[min(540px,92vw)] shadow-2xl border border-gray-200 dark:border-gray-700 relative">
         {/* Header */}
         <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-lg font-semibold">
             Daten pflegen: {user?.vorname} {user?.nachname} · {jahr}
           </h2>
           <button
@@ -229,11 +237,11 @@ const PflegenModal = ({ user, onClose, onRefresh }) => {
         </div>
 
         {/* Content */}
-        <div className="px-2 py-2 space-y-6">
+        <div className="px-5 py-5 space-y-6">
           {/* STUNDEN */}
-          <section className="rounded-2xl border border-gray-200 dark:border-gray-700 p-2 bg-gray-200 dark:bg-gray-900">
-            <h3 className="font-semibold mb-2">Stunden</h3>
-            <ReadonlySum label="Stunden gesamt" value={stunden.stunden_gesamt} />
+          <section className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-900">
+            <h3 className="font-semibold mb-3">Stunden</h3>
+            <ReadonlySum label="Stunden gesamt" value={fmtStunden(stunden.stunden_gesamt)} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
               <ZahlInput
                 label="Vorgabe"
@@ -260,7 +268,7 @@ const PflegenModal = ({ user, onClose, onRefresh }) => {
           {/* URLAUB */}
           <section className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-900">
             <h3 className="font-semibold mb-3">Urlaub</h3>
-            <ReadonlySum label="Urlaub gesamt" value={urlaub.urlaub_gesamt} />
+            <ReadonlySum label="Urlaub gesamt" value={fmtInt(urlaub.urlaub_gesamt)} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
               <ZahlInput
                 label="Vorgabe"
