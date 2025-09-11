@@ -80,7 +80,7 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
       onClick={onClose}
     >
       <div
-        className="bg-gray-200 dark:bg-gray-900 text-black dark:text-white border border-gray-700 p-4 rounded-xl max-w-lg w-full shadow-2xl"
+        className="bg-gray-200 dark:bg-gray-900 text-black dark:text-white border border-gray-700 p-4 rounded-xl max-w-md w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 mb-2">
@@ -112,8 +112,8 @@ const QualiModal = ({ offen, onClose, userId, userName }) => {
                   className={[
                     "rounded-lg border p-3 flex items-start gap-3",
                     isRel
-                      ? "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700 shadow-[inset_4px_0_0] shadow-emerald-500"
-                      : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                      ? "bg-gray-300 dark:bg-gray-500/30 border-gray-500 dark:border-gray-500 shadow-[inset_4px_0_0] shadow-gray-500"
+                      : "bg-gray-300/40 dark:bg-gray-500/30 border-gray-400 dark:border-gray-700 shadow-[inset_4px_0_0] shadow-gray-400"
                   ].join(" ")}
                   title={q.beschreibung || ""}
                 >
