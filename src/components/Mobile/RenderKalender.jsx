@@ -46,12 +46,32 @@ const RenderKalender = ({
     const istVergangenheit = dayjs(datum).isBefore(dayjs(), 'day');
     const status = bedarfStatus?.[datum] || {};
 
+    // --- NEU: Nachbar-Tage prüfen (für F/N-Regel) ---
+    const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
+    const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
+    const prevEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum);
+    const nextEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum);
+    const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
+    const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
+
+    const hideFrueh = prevKuerzel === 'N'; // Keine F anzeigen, wenn vorher N
+    const hideNacht = nextKuerzel === 'F'; // Keine N anzeigen, wenn nachher F
+
+    // Gefilterte Fehlstände für Icon-Logik
+    const fehlend = status?.fehlendProSchicht || {};
+    const gefiltertFehlend = {
+      F: hideFrueh ? 0 : fehlend.F,
+      S: fehlend.S,
+      N: hideNacht ? 0 : fehlend.N,
+    };
+
     const hatUnterbesetzung =
       !istVergangenheit &&
-      status?.fehlendProSchicht &&
-      Object.values(status.fehlendProSchicht).some(
+      gefiltertFehlend &&
+      Object.values(gefiltertFehlend).some(
         (v) => v === true || (typeof v === 'number' && v > 0)
       );
+
     const hatUeberbesetzung =
       !istVergangenheit && kuerzel !== '-' && status?.ueber?.includes(kuerzel);
 
@@ -79,9 +99,9 @@ const RenderKalender = ({
           </div>
         )}
         {start && ende && (
-          <div className="text-gray-700 dark:text-gray-400 text-[10px]">{`${start.format('HH:mm')} - ${ende.format(
-            'HH:mm'
-          )}`}</div>
+          <div className="text-gray-700 dark:text-gray-400 text-[10px]">
+            {`${start.format('HH:mm')} - ${ende.format('HH:mm')}`}
+          </div>
         )}
       </div>
     );
@@ -125,6 +145,21 @@ const RenderKalender = ({
               const status = bedarfStatus[datum];
               const istVergangenheit = dayjs(datum).isBefore(dayjs(), 'day');
 
+              // --- NEU: Nachbar-Tage prüfen (für F/N-Regel im Modal) ---
+              const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
+              const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
+              const prevEintrag = eintraege.find(
+                (e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum
+              );
+              const nextEintrag = eintraege.find(
+                (e) => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum
+              );
+              const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
+              const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
+
+              const hideFrueh = prevKuerzel === 'N'; // Keine F anzeigen, wenn vorher N
+              const hideNacht = nextKuerzel === 'F'; // Keine N anzeigen, wenn nachher F
+
               return (
                 <>
                   <h2 className="text-sm font-bold mb-2 text-gray-800 dark:text-gray-200">
@@ -146,30 +181,34 @@ const RenderKalender = ({
                     <strong>Dauer:</strong> {dauerMin > 0 ? `${stunden}h ${minuten}min` : '–'}
                   </div>
 
-                  {/* Unterbesetzung */}
+                  {/* Unterbesetzung (gefiltert nach F/N-Regel) */}
                   {status?.fehlendProSchicht && !istVergangenheit && (
                     <div className="mt-2">
-                      {[{ name: 'Früh', key: 'F' }, { name: 'Spät', key: 'S' }, { name: 'Nacht', key: 'N' }]
-                        .map(({ name, key }) => {
-                          const fehlt = status.fehlendProSchicht[key];
-                          if (!fehlt) return null;
-                          return (
-                            <div
-                              key={key}
-                              className="cursor-pointer bg-gray-300 dark:bg-gray-500 text-black shadow-xl opacity-90 border-2 border-red-500 dark:border-red-400 rounded-xl px-2 py-1 mb-1"
-                              onClick={() =>
-                                setHilfeModal({
-                                  offen: true,
-                                  tag: wochenTagKurz[woTag],
-                                  datum,
-                                  schicht: key,
-                                })
-                              }
-                            >
-                              {name}: Fehlt {typeof fehlt === 'number' ? `${fehlt} Person(en)` : ''}
-                            </div>
-                          );
-                        })}
+                      {[
+                        { name: 'Früh', key: 'F', hidden: hideFrueh },
+                        { name: 'Spät', key: 'S', hidden: false },
+                        { name: 'Nacht', key: 'N', hidden: hideNacht },
+                      ].map(({ name, key, hidden }) => {
+                        if (hidden) return null;
+                        const fehlt = status.fehlendProSchicht[key];
+                        if (!fehlt) return null;
+                        return (
+                          <div
+                            key={key}
+                            className="cursor-pointer bg-gray-300 dark:bg-gray-500 text-black shadow-xl opacity-90 border-2 border-red-500 dark:border-red-400 rounded-xl px-2 py-1 mb-1"
+                            onClick={() =>
+                              setHilfeModal({
+                                offen: true,
+                                tag: wochenTagKurz[woTag],
+                                datum,
+                                schicht: key,
+                              })
+                            }
+                          >
+                            {name}: Fehlt {typeof fehlt === 'number' ? `${fehlt} Person(en)` : ''}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -212,3 +251,4 @@ const RenderKalender = ({
 };
 
 export default RenderKalender;
+
