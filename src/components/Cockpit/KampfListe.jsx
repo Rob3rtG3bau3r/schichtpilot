@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
-import { Crown, User } from 'lucide-react'; // User bleibt als Fallback importiert
+import { Crown } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 import QualiModal from '../Cockpit/QualiModal';
 import SchichtDienstAendernForm from './SchichtDienstAendernForm';
@@ -22,6 +22,12 @@ const toRoman = (num) => {
   if (num >= 10) return 'X';
   const map = ['','I','II','III','IV','V','VI','VII','VIII','IX'];
   return map[num];
+};
+
+// --- Helper: Zahlen hübsch formatieren ---
+const fmt2 = (n) => {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toFixed(2) : '–';
 };
 
 const KampfListe = ({
@@ -45,8 +51,24 @@ const KampfListe = ({
   const [qualiModalOffen, setQualiModalOffen] = useState(false);
   const [modalUser, setModalUser] = useState({ id: null, name: '' });
 
-  // 👇 neu: Map userId -> betriebsrelevante Quali-Anzahl
+  // Map userId -> betriebsrelevante Quali-Anzahl
   const [qualiCountMap, setQualiCountMap] = useState({});
+
+  // Urlaub & Stunden (gesamt/summe/rest)
+  const [urlaubInfoMap, setUrlaubInfoMap] = useState({});
+  const [stundenInfoMap, setStundenInfoMap] = useState({});
+
+  // 🔒 Stabiler Tooltip: gesteuert per State + Timeout
+  const [hoveredUserId, setHoveredUserId] = useState(null);
+  const hideTimerRef = useRef(null);
+  const showTipFor = (id) => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setHoveredUserId(id);
+  };
+  const scheduleHideTip = () => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setHoveredUserId(null), 120);
+  };
 
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
@@ -97,7 +119,8 @@ const KampfListe = ({
 
       const userIds = kampfData.map(e => e.user).filter(Boolean);
       const createdByIds = kampfData.map(e => e.created_by).filter(Boolean);
-      const alleUserIds = [...new Set([...userIds, ...createdByIds])];
+      const alleUserIds = [...new Set([...userIds, ...createdByIds])].map(String);
+      const idsSet = new Set(alleUserIds);
 
       if (alleUserIds.length === 0) return;
 
@@ -111,13 +134,56 @@ const KampfListe = ({
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
         return;
       }
-// letzter Tag des angezeigten Monats, 23:59:59 (lokal → ISO)
-const cutoffIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
 
-const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
-setQualiCountMap(qualiMap);
+      // --- Quali-Counts laden (gültig bis inklusive Monatsende) ---
+      const cutoffIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
+      const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
+      setQualiCountMap(qualiMap);
 
-      // --- Gruppieren wie gehabt ---
+      // --- Urlaub & Stunden laden (exakt deine Felder) ---
+      const jahrNum = Number(jahr) || new Date().getFullYear();
+
+      const [urlaubRes, stundenRes] = await Promise.all([
+        supabase
+          .from('DB_Urlaub')
+          .select('user_id, jahr, urlaub_gesamt, summe_jahr')
+          .eq('jahr', jahrNum)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .in('user_id', alleUserIds),
+        supabase
+          .from('DB_Stunden')
+          .select('user_id, jahr, stunden_gesamt, summe_jahr')
+          .eq('jahr', jahrNum)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .in('user_id', alleUserIds),
+      ]);
+
+      if (urlaubRes.error) console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
+      if (stundenRes.error) console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
+
+      const urlaubInfo = {};
+      for (const r of (urlaubRes.data || [])) {
+        const uid = String(r.user_id);
+        if (!idsSet.has(uid)) continue;
+        const gesamt = Number(r.urlaub_gesamt) || 0;
+        const summe  = Number(r.summe_jahr) || 0;
+        urlaubInfo[uid] = { gesamt, summe, rest: gesamt - summe };
+      }
+      setUrlaubInfoMap(urlaubInfo);
+
+      const stundenInfo = {};
+      for (const r of (stundenRes.data || [])) {
+        const uid = String(r.user_id);
+        if (!idsSet.has(uid)) continue;
+        const gesamt = Number(r.stunden_gesamt) || 0;
+        const summe  = Number(r.summe_jahr) || 0;
+        stundenInfo[uid] = { gesamt, summe, rest: gesamt - summe };
+      }
+      setStundenInfoMap(stundenInfo);
+
+      // --- Gruppieren ---
       const gruppiert = {};
 
       for (const k of kampfData) {
@@ -138,7 +204,6 @@ setQualiCountMap(qualiMap);
             name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
             vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
             tage: {},
-            // 👇 neu: Quali-Count mitschleppen
             qualiCount: qualiMap[userId] || 0,
           };
         }
@@ -185,60 +250,58 @@ setQualiCountMap(qualiMap);
     ladeKampfliste();
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen]);
 
-// --- Hilfsfunktion: Quali-Counts laden (gültig bis einschließlich cutoff) ---
-const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
-  if (!userIds?.length) return {};
-  try {
-    // userIds als Strings (schlüssel-konsistent zur Verwendung in gruppiert/qualiCountMap)
-    const ids = userIds.map(String);
+  // --- Quali-Counts laden (gültig bis einschließlich cutoff) ---
+  const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
+    if (!userIds?.length) return {};
+    try {
+      const ids = userIds.map(String);
 
-    const { data, error } = await supabase
-      .from('DB_Qualifikation')
-      .select(`
-        user_id,
-        quali,
-        created_at,
-        matrix:DB_Qualifikationsmatrix!inner(
-          id,
-          quali_kuerzel,
-          betriebs_relevant,
-          aktiv,
-          firma_id,
-          unit_id
-        )
-      `)
-      .in('user_id', ids)
-      .eq('matrix.firma_id', firmaId)
-      .eq('matrix.unit_id', unitId)
-      .eq('matrix.betriebs_relevant', true)
-      .eq('matrix.aktiv', true)
-      // ✅ zählt im selben Monat bereits mit (created_at ≤ Monatsende)
-      .lte('created_at', cutoffIso);
+      const { data, error } = await supabase
+        .from('DB_Qualifikation')
+        .select(`
+          user_id,
+          quali,
+          created_at,
+          matrix:DB_Qualifikationsmatrix!inner(
+            id,
+            quali_kuerzel,
+            betriebs_relevant,
+            aktiv,
+            firma_id,
+            unit_id
+          )
+        `)
+        .in('user_id', ids)
+        .eq('matrix.firma_id', firmaId)
+        .eq('matrix.unit_id', unitId)
+        .eq('matrix.betriebs_relevant', true)
+        .eq('matrix.aktiv', true)
+        .lte('created_at', cutoffIso);
 
-    if (error) {
-      console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
+      if (error) {
+        console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
+        return {};
+      }
+
+      const map = {};
+      for (const row of data || []) {
+        const uid = String(row.user_id);
+        map[uid] = (map[uid] || 0) + 1;
+      }
+      return map;
+    } catch (e) {
+      console.error('❌ Fehler beim Laden der Quali-Counts:', e);
       return {};
     }
-
-    const map = {};
-    for (const row of data || []) {
-      const uid = String(row.user_id);
-      map[uid] = (map[uid] || 0) + 1;
-    }
-    return map;
-  } catch (e) {
-    console.error('❌ Fehler beim Laden der Quali-Counts:', e);
-    return {};
-  }
-};
-
+  };
 
   return (
     <div className="bg-gray-00 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
-      <div className="overflow-x-auto w-full">
-        <div className="flex min-w-fit">
+      {/* nur horizontal scrollen; Y soll sichtbar bleiben */}
+<div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
+  <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
           {/* --- linke Namensspalte --- */}
-          <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0">
+          <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
               const neueGruppe = vorherige?.schichtgruppe !== e.schichtgruppe;
@@ -253,24 +316,69 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
               const count = e.qualiCount ?? qualiCountMap[userId] ?? 0;
               const roman = toRoman(count);
 
+              const urlaub = urlaubInfoMap[userId] || { gesamt: null, summe: null, rest: null };
+              const stunden = stundenInfoMap[userId] || { gesamt: null, summe: null, rest: null };
+
+              const darfTooltipSehen =
+                rolle !== 'Employee' || String(userId) === String(currentUserId);
+
+              const showTip = darfTooltipSehen && hoveredUserId === userId;
+
               return (
-                <div
-                  key={userId}
-                  className={`h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-default
-                    ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
-                    ${neueGruppe ? 'mt-2' : ''}
-                    border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
-                    ${!e.user_visible ? 'opacity-50' : ''}`}
-                  title={e.vollName}
-                >
+<div
+  key={userId}
+  className={`relative h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-default
+    ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
+    ${neueGruppe ? 'mt-2' : ''}
+    border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
+    ${!e.user_visible ? 'opacity-50' : ''} hover:z-[9999]`}
+  style={{ overflow: 'visible' }}
+>
                   <span
-                    className="flex-1 hover:underline cursor-pointer"
+                    className="flex-1 relative hover:underline cursor-pointer"
                     onClick={() => {
                       setModalUser({ id: userId, name: e.vollName });
                       setQualiModalOffen(true);
                     }}
+                    onMouseEnter={() => showTipFor(userId)}
+                    onMouseLeave={scheduleHideTip}
+                    style={{ fontVariantNumeric: 'tabular-nums' }}
                   >
                     {e.name}
+
+                    {/* Tooltip (seitlich) */}
+                    {showTip && (
+                      <div
+                        className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"
+                        onMouseEnter={() => showTipFor(userId)}
+                        onMouseLeave={scheduleHideTip}
+                        style={{ pointerEvents: 'auto' }}
+                      >
+                        <div className="relative w-[240px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
+                                        bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 font-mono text-xs">
+                          {/* Pfeil */}
+                          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
+                                          bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
+                          <div className="font-sans font-semibold mb-1 truncate">{e.vollName}</div>
+
+                          <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-1 items-baseline">
+                            {/* Urlaub */}
+                            <div className="font-sans text-gray-500 dark:text-gray-400">Urlaub</div>
+                            <div className="text-right text-gray-500 dark:text-gray-400">[{fmt2(urlaub.gesamt)} – {fmt2(urlaub.summe)}]</div>
+                            <div className={`text-right font-semibold ${ (urlaub.rest ?? 0) < 0 ? 'text-red-600' : 'text-emerald-500' }`}>
+                              {fmt2(urlaub.rest)}
+                            </div>
+
+                            {/* Stunden */}
+                            <div className="font-sans text-gray-500 dark:text-gray-400">Stunden</div>
+                            <div className="text-right text-gray-500 dark:text-gray-400">[{fmt2(stunden.gesamt)} – {fmt2(stunden.summe)}]</div>
+                            <div className={`text-right font-semibold ${ (stunden.rest ?? 0) < 0 ? 'text-red-600' : 'text-emerald-500' }`}>
+                              {fmt2(stunden.rest)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </span>
 
                   {/* Rechts vom Namen: Team_Leader = Krone, sonst römisches Badge */}
@@ -295,8 +403,8 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
             })}
           </div>
 
-          {/* --- rechte Kalenderspalten (unverändert, nur formatiert) --- */}
-          <div className="flex flex-col gap-[2px]">
+          {/* --- rechte Kalenderspalten --- */}
+          <div className="flex flex-col gap-[2px]" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
               const neueGruppe = vorherige?.schichtgruppe !== e.schichtgruppe;
@@ -305,6 +413,7 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
                 <div
                   key={userId}
                   className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!e.user_visible ? 'opacity-50' : ''}`}
+                  style={{ overflow: 'visible' }}
                 >
                   {tage.map((t) => {
                     const eintragTag = e.tage[t.tag];
@@ -320,6 +429,7 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
                         style={{
                           backgroundColor: eintragTag?.bg || (document.documentElement.classList.contains('dark') ? '#333' : '#eee'),
                           color: eintragTag?.text || (document.documentElement.classList.contains('dark') ? '#ccc' : '#333'),
+                          overflow: 'visible',
                         }}
                         onClick={() => {
                           if (istNurLesend) return;
