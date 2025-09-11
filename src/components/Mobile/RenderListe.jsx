@@ -42,6 +42,28 @@ const RenderListe = ({
         const minuten = dauerMin % 60;
         const status = bedarfStatus[datum] || {};
 
+        // --- NEU: Nachbar-Tage prüfen (F/N-Regel) ---
+        const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
+        const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
+        const prevEintrag = eintraege.find(e => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum);
+        const nextEintrag = eintraege.find(e => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum);
+        const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
+        const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
+
+        const hideFrueh = prevKuerzel === 'N'; // Keine F, wenn Vortag Nacht
+        const hideNacht = nextKuerzel === 'F'; // Keine N, wenn Folgetag Früh
+
+        // Fehlstände filtern für Icon- und Detail-Logik
+        const fehlendOriginal = status?.fehlendProSchicht || {};
+        const fehlendGefiltert = {
+          F: hideFrueh ? 0 : fehlendOriginal.F,
+          S: fehlendOriginal.S,
+          N: hideNacht ? 0 : fehlendOriginal.N,
+        };
+        const hatUnterbesetzungGefiltert =
+          !istVergangenheit &&
+          Object.values(fehlendGefiltert).some(v => v === true || (typeof v === 'number' && v > 0));
+
         return (
           <div
             key={idx}
@@ -63,16 +85,17 @@ const RenderListe = ({
                 {status?.ueber?.length > 0 && kuerzel !== '-' && !istVergangenheit && (
                   <button className="text-green-600" title="Überdeckung – Urlaub möglich">🌿</button>
                 )}
-                {status?.fehlendProSchicht &&
-                  !istVergangenheit &&
-                  Object.values(status.fehlendProSchicht).some((wert) => wert === true)
-                  && (
-                    <button
-                      className="text-red-600 animate-pulse"
-                      title="Unterbesetzung anzeigen"
-                      onClick={() => setInfoOffenIndex(idx)}
-                    >❗</button>
-                  )}
+
+                {hatUnterbesetzungGefiltert && (
+                  <button
+                    className="text-red-600 animate-pulse"
+                    title="Unterbesetzung anzeigen"
+                    onClick={() => setInfoOffenIndex(idx)}
+                  >
+                    ❗
+                  </button>
+                )}
+
                 <button
                   onClick={() => setInfoOffenIndex(infoOffenIndex === idx ? null : idx)}
                   title={infoOffenIndex === idx ? 'Details schließen' : 'Details anzeigen'}
@@ -93,18 +116,25 @@ const RenderListe = ({
                 <div><strong>Von-Bis:</strong> {start?.format('HH:mm')} - {ende?.format('HH:mm')}</div>
                 <div><strong>Dauer:</strong> {dauerMin > 0 ? `${stunden}h ${minuten}min` : '–'}</div>
                 {eintrag?.kommentar && <div><strong>Kommentar:</strong> {eintrag.kommentar}</div>}
-                {/* Unter-/Überbesetzung */}
+
+                {/* Unterbesetzung (gefiltert nach F/N-Regel) */}
                 {status?.fehlendProSchicht && (
                   <>
-                    {[{ name: 'Früh', key: 'F' }, { name: 'Spät', key: 'S' }, { name: 'Nacht', key: 'N' }].map(({ name, key }) => {
-                      const fehlt = status.fehlendProSchicht[key];
+                    {[
+                      { name: 'Früh', key: 'F', hidden: hideFrueh },
+                      { name: 'Spät', key: 'S', hidden: false },
+                      { name: 'Nacht', key: 'N', hidden: hideNacht },
+                    ].map(({ name, key, hidden }) => {
+                      if (hidden) return null;
+                      const fehlt = fehlendGefiltert[key];
                       if (!fehlt) return null;
                       return (
                         <div
                           key={key}
                           className="cursor-pointer bg-gray-300 dark:bg-gray-500 text-black shadow-xl opacity-90 border-2 border-red-500 dark:border-red-400 rounded-xl px-2 py-1 mb-1"
                           onClick={() =>
-                            !istVergangenheit && setHilfeModal({ offen: true, tag: wochenTagKurz[woTag], datum: datum, schicht: key })
+                            !istVergangenheit &&
+                            setHilfeModal({ offen: true, tag: wochenTagKurz[woTag], datum, schicht: key })
                           }
                         >
                           <span className="font-medium">{name}:</span>{' '}
@@ -114,21 +144,29 @@ const RenderListe = ({
                     })}
                   </>
                 )}
+
+                {/* Überdeckung */}
                 {kuerzel !== '-' &&
                   !istVergangenheit &&
                   !status?.fehlendProSchicht?.[kuerzel] &&
                   status?.ueber?.includes(kuerzel) && (
                     <div className="mt-2 border-2 border-green-300 bg-white dark:bg-gray-900 text-green-700 px-3 py-1 rounded-md shadow-sm text-xs">
-                      🌿 <button
-                        onClick={() => setUrlaubModal({ offen: true, tag: wochenTagKurz[woTag], datum: datum, schicht: kuerzel })}
+                      🌿{' '}
+                      <button
+                        onClick={() =>
+                          setUrlaubModal({ offen: true, tag: wochenTagKurz[woTag], datum, schicht: kuerzel })
+                        }
                         className="font-semibold underline text-green-700"
                       >
                         Ich würde gerne Urlaub nehmen
                       </button>
                     </div>
                   )}
+
                 <div className="text-right mt-2">
-                  <button onClick={() => setInfoOffenIndex(null)} className="text-blue-600 hover:underline">Schließen</button>
+                  <button onClick={() => setInfoOffenIndex(null)} className="text-blue-600 hover:underline">
+                    Schließen
+                  </button>
                 </div>
               </div>
             )}
@@ -140,3 +178,4 @@ const RenderListe = ({
 };
 
 export default RenderListe;
+
