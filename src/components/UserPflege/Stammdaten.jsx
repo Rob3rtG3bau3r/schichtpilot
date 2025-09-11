@@ -1,8 +1,8 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
-import { AlertTriangle, Info } from 'lucide-react';
+import { AlertTriangle, Info, CheckCircle } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 
 const ALLOWED_ROLES = ['Employee', 'Team_Leader', 'Planner'];
@@ -29,6 +29,37 @@ function wechselText(wechsel){ if(!wechsel) return 'Kein Wechsel vorgesehen'; co
 // helper: eq nur anwenden, wenn val vorhanden
 const addEq = (q, col, val) => (val === null || val === undefined ? q : q.eq(col, val));
 
+// 🔔 kleine Inline-Notice
+function Notice({ type='info', text, onClose }, ref) {
+  const styles = {
+    success: 'bg-gray-500/30 dark:gray-500/50 text-gray-900 dark:text-gray-100',
+    warning: 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200',
+    error:   'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-200',
+    info:    'bg-sky-50 dark:bg-sky-900/20 border-sky-300 dark:border-sky-700 text-sky-800 dark:text-sky-200',
+  }[type] || '';
+  const Icon = type==='success' ? CheckCircle : type==='error' ? AlertTriangle : Info;
+  return (
+    <div
+      ref={ref}
+      role="status"
+      aria-live="polite"
+      className={`mb-3 rounded-xl border px-3 py-2 flex items-start gap-2 ${styles}`}
+    >
+      <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+      <div className="text-sm flex-1">{text}</div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Meldung schließen"
+        className="text-xs opacity-70 hover:opacity-100"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+const NoticeBar = React.forwardRef(Notice);
+
 export default function Stammdaten({ userId, onSaved, onCancel }) {
   // === WICHTIG: robuste Kontext-Keys ===
   const rollen = useRollen() || {};
@@ -53,11 +84,26 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   const [geplanterWechsel, setGeplanterWechsel] = useState(null);
   const [qualis, setQualis] = useState([]); // {label, seit}
 
+  // 🔔 Notice-State
+  const [notice, setNotice] = useState(null); // { type: 'success'|'warning'|'error'|'info', text: string }
+  const noticeRef = useRef(null);
+  const noticeTimer = useRef(null);
+  const showNotice = (type, text, timeoutMs = 3000) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setNotice({ type, text });
+    // sanft zum Bereich scrollen
+    setTimeout(()=> noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+    if (timeoutMs) {
+      noticeTimer.current = setTimeout(() => setNotice(null), timeoutMs);
+    }
+  };
+
   useEffect(()=>{
     // Reset bei neuer Auswahl
     setUser(null); setNachname(''); setRolle('Employee'); setAusgrauen(false); setAktiv(true);
     setWillLoeschenKampfliste(false); setLoeschDatum(dayjs().format('YYYY-MM-DD'));
     setAktuelleSchicht(null); setGeplanterWechsel(null); setQualis([]);
+    setNotice(null);
 
     if (!userId) return;
 
@@ -151,7 +197,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       if(!aktiv && willLoeschenKampfliste){
         const chosen = dayjs(loeschDatum, 'YYYY-MM-DD');
         if (chosen.isBefore(dayjs().startOf('day'))) {
-          alert('Hinweis: Bitte kein Datum in der Vergangenheit wählen (Dienstplan-Nachvollziehbarkeit).');
+          showNotice('warning', 'Bitte kein Datum in der Vergangenheit wählen (Dienstplan-Nachvollziehbarkeit).', 6000);
           setLoading(false);
           return;
         }
@@ -168,7 +214,12 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       let upd = supabase.from('DB_User').update(payload).eq('user_id', user.user_id);
       upd = addEq(addEq(upd, 'firma_id', firma), 'unit_id', unit);
       const { error: updErr } = await upd;
-      if (updErr) { console.error(updErr); alert('Speichern fehlgeschlagen.'); setLoading(false); return; }
+      if (updErr) {
+        console.error(updErr);
+        showNotice('error', 'Speichern fehlgeschlagen.');
+        setLoading(false);
+        return;
+      }
 
       // Zukünftige Dienste löschen (optional)
       if(!aktiv && willLoeschenKampfliste){
@@ -187,13 +238,13 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
 
         if (delErr) {
           console.error(delErr);
-          alert('Aktualisiert, aber zukünftige Dienste konnten nicht entfernt werden.');
+          showNotice('warning', 'Aktualisiert, aber zukünftige Dienste konnten nicht entfernt werden.', 6000);
         } else {
           const cnt = (delRows||[]).length;
-          alert(`Gespeichert. Ab ${dayjs(loeschDatum).format('DD.MM.YYYY')} ${cnt>0?`wurden ${cnt} zukünftige Dienste entfernt.`:'waren keine zukünftigen Dienste vorhanden.'}`);
+          showNotice('success', `Gespeichert. Ab ${dayjs(loeschDatum).format('DD.MM.YYYY')} ${cnt>0?`wurden ${cnt} zukünftige Dienste entfernt.`:'waren keine zukünftigen Dienste vorhanden.'}`);
         }
       } else {
-        alert('Gespeichert.');
+        showNotice('success', 'Gespeichert.');
       }
 
       onSaved && onSaved();
@@ -203,8 +254,8 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   };
 
   return (
-    <Card className="h-full flex flex-col">
-      <div className="px-4 pt-4 font-bold text-lg text-gray-900 dark:text-gray-200">Stammdaten</div>
+    <Card className="h-full flex flex-col shadow-xl border border-gray-300">
+      <div className="px-4 pt-4 font-bold text-lg text-gray-900 dark:text-gray-200 ">Stammdaten</div>
 
       {!userId ? (
         <div className="p-6 text-gray-500 dark:text-gray-300">Wähle links eine Person aus.</div>
@@ -308,12 +359,48 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
             </div>
           </div>
 
-          {/* Buttons */}
-          <div className="flex items-center gap-2 pt-2">
-            <button className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition bg-transparent hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-700" onClick={onCancel} disabled={disabled}>Abbrechen</button>
-            <div className="flex-1" />
-            <button className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300" onClick={save} disabled={disabled}>Speichern & Übernehmen</button>
-          </div>
+
+
+{/* Buttons + Notice als Grid */}
+<div className="grid grid-cols-[1fr_auto_auto] items-center gap-2 pt-2 pb-5">
+  {/* Spalte 1 = Spacer */}
+  <div />
+
+  {/* Spalte 2 = Abbrechen */}
+  <button
+    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm text-white transition
+               bg-blue-600 hover:bg-blue-500 dark:hover:bg-blue-700 border border-blue-300 dark:border-blue-700"
+    onClick={onCancel}
+    disabled={disabled}
+  >
+    Abbrechen
+  </button>
+
+  {/* Spalte 3 = Speichern */}
+  <button
+    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition
+               bg-green-700 text-white hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700"
+    onClick={save}
+    disabled={disabled}
+  >
+    Speichern &amp; Übernehmen
+  </button>
+
+  {/* Zeile 2: Notice nimmt die beiden Button-Spalten ein → gleiche Breite wie beide Buttons zusammen */}
+  {notice && (
+    <>
+      <div /> {/* Spacer unter Spalte 1 */}
+      <div className="col-span-2">
+        <NoticeBar
+          ref={noticeRef}
+          type={notice.type}
+          text={notice.text}
+          onClose={() => setNotice(null)}
+        />
+      </div>
+    </>
+  )}
+</div>
         </div>
       )}
     </Card>
