@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import { Info } from 'lucide-react';
-import ZeitlichBegrenztBearbeiten from './ZeitlichBegrenztBearbeiten';
 
 const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, onRefresh, vorbelegt }) => {
   const { sichtFirma: firma, sichtUnit: unit, userId } = useRollen();
@@ -17,13 +16,8 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
   const [feedback, setFeedback] = useState('');
   const [infoOffen, setInfoOffen] = useState(false);
 
-  // 🔎 Vorschau-Status für „soeben angelegt“
-  const [zuletztAngelegt, setZuletztAngelegt] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  // ⛑️ Min-Daten für Datepicker
-  const heute = useMemo(() => dayjs().format('YYYY-MM-DD'), []);
-  const minBis = useMemo(() => (von ? dayjs(von).add(1, 'day').format('YYYY-MM-DD') : ''), [von]);
+  const heute = dayjs().format('YYYY-MM-DD');
+  const minBis = von ? dayjs(von).add(1, 'day').format('YYYY-MM-DD') : heute;
 
   useEffect(() => {
     if (vorbelegt) {
@@ -35,7 +29,7 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
     }
   }, [vorbelegt]);
 
-  // 🛠️ Bugfix/Komfort: Beim Setzen von „Von“ → „Bis“ automatisch +1 Tag (und min setzen)
+  // Beim Ändern von "Von" → "Bis" automatisch +1 Tag (falls leer/zu früh)
   const handleChangeVon = (value) => {
     setVon(value);
     const next = dayjs(value).add(1, 'day').format('YYYY-MM-DD');
@@ -50,56 +44,44 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
       return;
     }
 
-    // Werte vor Reset sichern
-    const payload = {
+    // Extra-Schutz: Bis darf nicht vor Von+1 liegen
+    if (!normalbetrieb) {
+      const requiredMinBis = dayjs(von).add(1, 'day');
+      if (dayjs(bis).isBefore(requiredMinBis)) {
+        setFeedback('Das Feld „Bis“ muss mindestens einen Tag nach „Von“ liegen.');
+        return;
+      }
+    }
+
+    const { error } = await supabase.from('DB_Bedarf').insert([{
       quali_id: ausgewaehlteQualiId,
       anzahl: Number(anzahl),
       von: normalbetrieb ? null : von,
       bis: normalbetrieb ? null : bis,
-      namebedarf: normalbetrieb ? 'Normalbetrieb' : (namebedarf || ''),
+      namebedarf: normalbetrieb ? 'Normalbetrieb' : namebedarf,
       normalbetrieb,
       farbe,
       firma_id: firma,
       unit_id: unit,
       created_by: userId,
-    };
-
-    const { error } = await supabase.from('DB_Bedarf').insert([payload]);
+    }]);
 
     if (error) {
       console.error('Fehler beim Speichern:', error.message);
       setFeedback('Fehler beim Speichern.');
-      return;
-    }
-
-    setFeedback('Bedarf erfolgreich gespeichert!');
-
-    // 🔔 Live-Vorschau unter dem Button zeigen
-    if (normalbetrieb) {
-      setZuletztAngelegt({
-        ...payload,
-        ausgewaehlteQualiName,
-      });
     } else {
-      const context = { von, bis, namebedarf: payload.namebedarf, farbe };
-      setZuletztAngelegt({ ...context, normalbetrieb: false });
-      // Event auslösen – deine bestehende ZeitlichBegrenztBearbeiten hört darauf
-      window.dispatchEvent(new CustomEvent('bedarf:new', { detail: context }));
+      setFeedback('Bedarf erfolgreich gespeichert!');
+      setAnzahl(1);
+      if (normalbetrieb) {
+        setNamebedarf('');
+        setVon('');
+        setBis('');
+      }
+      // Parent aktualisieren (rechte Vorschau bleibt wie bei dir umgesetzt)
+      setTimeout(() => {
+        onRefresh?.();
+      }, 50);
     }
-    setRefreshKey((k) => k + 1);
-
-    // Felder teilweise zurücksetzen
-    setAnzahl(1);
-    if (normalbetrieb) {
-      setNamebedarf('');
-      setVon('');
-      setBis('');
-    }
-
-    // kurz warten, dann Parent refreshen
-    setTimeout(() => {
-      onRefresh?.();
-    }, 50);
   };
 
   return (
@@ -198,7 +180,7 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
               type="date"
               className="w-full px-3 py-1 rounded border dark:bg-gray-800"
               value={bis}
-              min={minBis || heute}
+              min={minBis}
               onChange={(e) => setBis(e.target.value)}
             />
           </div>
