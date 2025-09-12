@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
@@ -15,6 +16,44 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const [fehlendeQualis, setFehlendeQualis] = useState([]);
   const [infoOffen, setInfoOffen] = useState(false);
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
+
+  // ===== Portal-Tooltip-State =====
+  const [hoverKey, setHoverKey] = useState(null); // z.B. "F|2025-09-13" oder "BAR|2025-09-13"
+  const [tipData, setTipData] = useState(null);   // { text, top, left, flip, header }
+  const tipTimer = useRef(null);
+
+  const showTipAt = (el, key, text, header, alignTop = false, width = 280) => {
+    if (!el || !text) return;
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+
+    const rect = el.getBoundingClientRect();
+    let left = rect.right + 8;
+    let top  = alignTop ? rect.top + 8 : rect.top + rect.height / 2 - 12;
+    let flip = false;
+
+    const vw = window.innerWidth;
+    if (left + width + 16 > vw) {
+      // nach links flippen, wenn rechts kein Platz
+      left = rect.left - 8 - width;
+      flip = true;
+    }
+
+    // leichte Justage oben/unten, damit nichts am Rand klebt
+    const vh = window.innerHeight;
+    if (top < 8) top = 8;
+    if (top + 140 > vh) top = Math.max(8, vh - 160);
+
+    setHoverKey(key);
+    setTipData({ text, top, left, flip, header, width });
+  };
+
+  const scheduleHide = () => {
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+    tipTimer.current = setTimeout(() => {
+      setHoverKey(null);
+      setTipData(null);
+    }, 120);
+  };
 
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
@@ -165,7 +204,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .sort((a, b) => a.anzahl - b.anzahl || a.posSumme - b.posSumme)
           .map((u) => u.userId);
 
-        // Abdeckung pro Quali (zählt nur, wer Quali wirklich hat)
+        // Abdeckung pro Quali
         const abdeckung = {};
         for (const b of bedarfSortiert) {
           abdeckung[b.quali_id] = [];
@@ -180,38 +219,35 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           }
         }
 
-        // ===== Bewertung: Fehlbedarf/Überdeckung =====
-// ===== Bewertung: Fehlbedarf/Überdeckung =====
-let statusfarbe = 'bg-green-500';
-let totalMissing = 0;          // bleibt wie gehabt
-const fehlend = [];            // bleibt wie gehabt
-let topMissingKuerzel = null;  // bleibt wie gehabt
+        // Bewertung
+        let statusfarbe = 'bg-green-500';
+        let totalMissing = 0;
+        const fehlend = [];
+        let topMissingKuerzel = null;
 
-for (const b of bedarfSortiert) {
-  const gedeckt = abdeckung[b.quali_id]?.length || 0;
-  const benoetigt = b.anzahl || 0;
+        for (const b of bedarfSortiert) {
+          const gedeckt = abdeckung[b.quali_id]?.length || 0;
+          const benoetigt = b.anzahl || 0;
 
-  if (gedeckt < benoetigt) {
-    const missing = benoetigt - gedeckt;
-    totalMissing += missing;
-    if (!topMissingKuerzel) topMissingKuerzel = matrixMap[b.quali_id]?.kuerzel || b.kuerzel;
-    if (!fehlend.includes(b.kuerzel)) fehlend.push(b.kuerzel);
-    statusfarbe = 'bg-red-500';
-  }
-}
+          if (gedeckt < benoetigt) {
+            const missing = benoetigt - gedeckt;
+            totalMissing += missing;
+            if (!topMissingKuerzel) topMissingKuerzel = matrixMap[b.quali_id]?.kuerzel || b.kuerzel;
+            if (!fehlend.includes(b.kuerzel)) fehlend.push(b.kuerzel);
+            statusfarbe = 'bg-red-500';
+          }
+        }
 
-// 👉 NEU: Überschuss gesamt (qualifikationsunabhängig)
-let topRight = null;
-if (totalMissing === 0 && bedarfSortiert.length > 0) {
-  const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
-  const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
+        // Überschuss gesamt
+        let topRight = null;
+        if (totalMissing === 0 && bedarfSortiert.length > 0) {
+          const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
+          const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
+          if (ueberschussGesamt === 1) topRight = 'blau-1';
+          else if (ueberschussGesamt >= 2) topRight = 'blau-2';
+        }
 
-  if (ueberschussGesamt === 1) topRight = 'blau-1';
-  else if (ueberschussGesamt >= 2) topRight = 'blau-2';
-}
-
-
-        // Zusatz-Qualifikationen (nicht betriebsrelevant) prüfen
+        // Zusatz-Qualifikationen (nicht betriebsrelevant)
         const zusatzFehlt = [];
         bedarfHeute
           .filter((b) => !matrixMap[b.quali_id]?.relevant)
@@ -225,7 +261,7 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
             if (vorhanden < (b.anzahl || 0)) zusatzFehlt.push(kurz);
           });
 
-        // Tooltip bauen
+        // Tooltip-Text
         const tooltip = (() => {
           const lines = [];
           lines.push(`👥 Anzahl MA: ${aktiveUser.length}`);
@@ -251,7 +287,6 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
           return lines.join('\n');
         })();
 
-        // Bottom: höchste fehlende Quali + "+" bei > 1 fehlenden Personen gesamt
         const bottom = topMissingKuerzel
           ? `${topMissingKuerzel}${totalMissing > 1 ? '+' : ''}`
           : null;
@@ -323,7 +358,7 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
   };
 
   return (
-    <div className="overflow-x-auto relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700">
+    <div className="overflow-x-auto relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700" style={{ overflowY: 'visible' }}>
       {/* Info-Button */}
       <button
         className="absolute pr-2 pt-2 top-0 right-0 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
@@ -338,12 +373,15 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
         <div className="flex gap-[2px]">
           {tage.map((datum) => {
             const eintrag = bedarfsLeiste[datum];
+            const key = `BAR|${datum}`;
+            const header = `${dayjs(datum).format('DD.MM.YYYY')} · Sonderbedarf`;
             return (
               <div
                 key={datum}
-                className="w-[48px] min-w-[48px] h-[6px] rounded-t"
-                title={eintrag?.tooltip || ''}
+                className="relative w-[48px] min-w-[48px] h-[6px] rounded-t"
                 style={{ background: eintrag?.gradient || (eintrag?.farbe || 'transparent') }}
+                onMouseEnter={(e) => eintrag?.tooltip && showTipAt(e.currentTarget, key, eintrag.tooltip, header, true)}
+                onMouseLeave={scheduleHide}
               />
             );
           })}
@@ -358,12 +396,16 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
           <div className="flex gap-[2px]">
             {tage.map((datum) => {
               const status = bedarfStatus[kuerzel]?.[datum];
+              const key = `${kuerzel}|${datum}`;
+              const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'}`;
+
               return (
                 <div
                   key={datum}
                   onClick={() => handleModalOeffnen(datum, kuerzel)}
+                  onMouseEnter={(e) => status?.tooltip && showTipAt(e.currentTarget, key, status.tooltip, header, kuerzel === 'F')}
+                  onMouseLeave={scheduleHide}
                   className={`relative cursor-pointer w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${status?.farbe || 'bg-gray-200 dark:bg-gray-600'}`}
-                  title={status?.tooltip || 'Keine Daten'}
                 >
                   {status?.topLeft && (
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
@@ -385,6 +427,40 @@ if (totalMissing === 0 && bedarfSortiert.length > 0) {
           </div>
         </div>
       ))}
+
+      {/* Portal-Tooltip */}
+      {tipData && createPortal(
+        <div
+          onMouseEnter={() => {
+            if (tipTimer.current) clearTimeout(tipTimer.current);
+          }}
+          onMouseLeave={scheduleHide}
+          style={{ position: 'fixed', top: tipData.top, left: tipData.left, zIndex: 100000, pointerEvents: 'auto' }}
+        >
+          <div
+            className="relative px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
+                       bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs"
+            style={{ width: tipData.width || 280 }}
+          >
+            {/* Pfeil */}
+            <div
+              className="absolute w-2 h-2 rotate-45 ring-1 ring-black/10 dark:ring-white/10"
+              style={{
+                top: '12px',
+                ...(tipData.flip
+                  ? { right: '-4px', background: 'rgba(17,24,39,0.95)' }   // dark:bg-gray-900/95
+                  : { left: '-4px',  background: 'rgba(255,255,255,0.95)' } // bg-white/95
+                )
+              }}
+            />
+            {/* Header */}
+            {tipData.header && <div className="font-sans font-semibold mb-1">{tipData.header}</div>}
+            {/* Inhalt */}
+            <pre className="whitespace-pre-wrap font-mono">{tipData.text}</pre>
+          </div>
+        </div>,
+        document.body
+      )}
 
       <BedarfsAnalyseModal
         offen={modalOffen}

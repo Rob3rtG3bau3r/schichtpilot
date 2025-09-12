@@ -76,7 +76,7 @@ const [modalFrei, setModalFrei] = useState([]);
   };
 
   return (
-    <div className="px-6 pb-1 text-white overflow-x-hidden">
+    <div className="px-6 pb-1 text-white overflow-x-visible overflow-y-visible relative isolate">
 
       <CockpitMenue
         sollPlanAktiv={sollPlanAktiv}

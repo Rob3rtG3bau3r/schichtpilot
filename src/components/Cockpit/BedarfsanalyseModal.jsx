@@ -183,47 +183,119 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
     ladeDaten();
   }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis]);
 
-  // ===== Bewertungs-Logik (unverändert) =====
+  // ===== Bewertungs-Logik =====
   const getBewertungsStufe = (f) => {
+    const frei = (v) => v === '-';
     const freiOderF = (v) => v === '-' || v === 'F';
+    const nichtFrei = (v) => v !== '-';
 
     // FRÜH
     if (modalSchicht === 'F') {
+      // Rot (harte Kollisionen / No-Gos)
       if (f.nachher === 'U' || f.vorvortag === 'U' || f.vorher === 'N' || f.vorher === 'U') return 'rot';
+
+      // Grün (beste Kombinationen)
       if (
         (f.vorher === '-' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
-        (f.vorher === 'F' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F')
+        (f.vorher === 'F' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
+        // NEU (deine F-Regeln)
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === '-') ||
+        (f.vorvortag === 'K' && f.vorher === 'K' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === 'S' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F')
       ) return 'grün';
+
+      // Gelb
       if (f.vorher === '-' && f.vorvortag === 'N') return 'gelb';
+      // NEU (deine F-Regeln)
+      if (
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === 'F')
+      ) return 'gelb';
+
+      // Amber
       if (f.vorher === 'S') return 'amber';
+      // NEU (deine F-Regeln)
+      if (nichtFrei(f.vorvortag) && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') return 'amber';
     }
 
     // NACHT
     if (modalSchicht === 'N') {
-      if (['KO', 'K', 'U', 'F'].includes(f.nachher)) return 'rot';
+      // Rot (harte No-Gos)
       if (f.vorher === 'U') return 'rot';
+      if (['KO', 'K', 'U', 'F'].includes(f.nachher)) return 'rot';
+      // N – NEUE REGELN (Rot)
+      if (
+        (f.vorvortag === 'N' && f.vorher === 'N' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === '-' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && frei(f.folgetagplus)) // Regel: N,- | nicht- | -
+      ) return 'rot';
+
+      // Grün (Top-Kombis)
       if (
         (f.vorher === 'N' && f.nachher === 'N') ||
-        (f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-')
+        (f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-') ||
+        // N – NEUE REGELN (Grün)
+        (f.vorvortag === 'N' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
       ) return 'grün';
-      if (f.nachher === '-' && f.folgetagplus === 'F') return 'gelb';
-      if (f.nachher === 'S') return 'amber';
+
+      // Amber
+      if (
+        f.nachher === 'S' || // bestehend
+        // N – NEUE REGELN (Amber)
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
+        (f.vorvortag === 'U' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
+      ) return 'amber';
+
+      // Gelb
+      if (
+        (f.nachher === '-' && f.folgetagplus === 'F') || // bestehend
+        // N – NEUE REGELN (Gelb)
+        (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === 'K' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === '-' && nichtFrei(f.folgetagplus))
+      ) return 'gelb';
     }
 
     // SPÄT
     if (modalSchicht === 'S') {
+      // Rot
       if (f.vorher === 'U') return 'rot';
+
+      // Amber (bestehende + NEU)
       if (
+        // bestehende Amber-Fälle
         (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === '-') ||
         (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
         (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-') ||
         (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
         (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-')
+        (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-') ||
+        // S – NEUE REGELN (Amber)
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'U' && f.folgetagplus === 'U') ||
+        (f.vorvortag === 'N' && f.vorher === 'N' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === 'S' && f.vorher === 'S' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === '-' && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F')
       ) return 'amber';
-      if (f.vorher === '-' && f.vorvortag === 'U') return 'gelb';
-      if (f.nachher === '-' && f.folgetagplus === 'F') return 'gelb';
-      if ((f.vorher === '-' && f.vorvortag === 'N') || (f.vorher === '-' && f.nachher === '-')) return 'grün';
+
+      // Gelb (bestehende + NEU)
+      if (
+        (f.vorher === '-' && f.vorvortag === 'U') ||
+        // S – NEUE REGELN (Gelb)
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'U' && f.folgetagplus === 'F') ||
+        (f.nachher === '-' && f.folgetagplus === 'F')
+      ) return 'gelb';
+
+      // Grün (bestehende + NEU)
+      if (
+        (f.vorher === '-' && f.vorvortag === 'N') ||
+        (f.vorher === '-' && f.nachher === '-') ||
+        // S – NEUE REGELN (Grün)
+        (f.vorvortag === 'F' && f.vorher === 'F' && f.nachher === 'S' && f.folgetagplus === 'N')
+      ) return 'grün';
     }
 
     return null;
@@ -312,7 +384,6 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
                     const bewertung = getBewertungsStufe(f);
 
                     const istKollisionRot = bewertung === 'rot';
-
                     if (!kollidiertAktiv && istKollisionRot) return null;
 
                     let rowStyle = '';
