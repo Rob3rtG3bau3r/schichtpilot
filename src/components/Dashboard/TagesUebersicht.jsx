@@ -82,7 +82,27 @@ export default function TagesUebersicht() {
   const { rolle, sichtUnit: unit } = useRollen();
 
   // === NEU: Gesamt-Klappmechanismus wie in TeamPflegen.jsx ===
-  const [offen, setOffen] = useState(false);
+  const mainStorageKey = `sp_tages_offen_${unit || 'none'}`;
+  const [offen, setOffen] = useState(() => {
+    // Standard: offen, nur bei gespeicherter '0' zu
+    try {
+      return localStorage.getItem(mainStorageKey) !== '0';
+    } catch {
+      return true;
+    }
+  });
+    useEffect(() => {
+    try {
+      localStorage.setItem(mainStorageKey, offen ? '1' : '0');
+    } catch {}
+  }, [offen, mainStorageKey]);
+  useEffect(() => {
+    try {
+      setOffen(localStorage.getItem(mainStorageKey) !== '0');
+    } catch {
+      setOffen(true);
+    }
+  }, [unit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
