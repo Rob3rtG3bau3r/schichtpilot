@@ -23,6 +23,7 @@ import Pricing from './pages/Pricing';
 import PasswortVergessen from "./pages/PasswortVergessen";
 import ResetPassword from "./pages/ResetPassword";
 import UnitReports from './pages/UnitReports';
+import TopReport from './pages/TopReport';
 import UserPflege from './pages/UserPflege';
 
 const App = () => {
@@ -151,6 +152,14 @@ const App = () => {
        element={
        <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
          <UnitReports />
+       </RollenCheckRoute>
+        }
+       />
+        <Route
+      path="top-report"
+       element={
+       <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
+         <TopReport />
        </RollenCheckRoute>
         }
        />

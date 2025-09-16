@@ -1,3 +1,4 @@
+// src/components/Dashboard/MitarbeiterBedarf.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
@@ -6,23 +7,36 @@ import dayjs from 'dayjs';
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
 import { Info } from 'lucide-react';
 
+const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
+const FEATURE_ANALYSE = 'bedarf_analyse';
+
 const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+
   const [tage, setTage] = useState([]);
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
+  const [bedarfsLeiste, setBedarfsLeiste] = useState({});
+
+  // Feature-Flags
+  const [allowTooltip, setAllowTooltip] = useState(false);
+  const [allowAnalyse, setAllowAnalyse] = useState(false);
+
+  // Modal
   const [modalOffen, setModalOffen] = useState(false);
   const [modalDatum, setModalDatum] = useState('');
   const [modalSchicht, setModalSchicht] = useState('');
   const [fehlendeQualis, setFehlendeQualis] = useState([]);
-  const [infoOffen, setInfoOffen] = useState(false);
-  const [bedarfsLeiste, setBedarfsLeiste] = useState({});
 
-  // ===== Portal-Tooltip-State =====
+  // Info
+  const [infoOffen, setInfoOffen] = useState(false);
+
+  // ===== Portal-Tooltip =====
   const [hoverKey, setHoverKey] = useState(null); // z.B. "F|2025-09-13" oder "BAR|2025-09-13"
-  const [tipData, setTipData] = useState(null);   // { text, top, left, flip, header }
+  const [tipData, setTipData] = useState(null);   // { text, top, left, flip, header, width }
   const tipTimer = useRef(null);
 
   const showTipAt = (el, key, text, header, alignTop = false, width = 280) => {
+    if (!allowTooltip) return; // Feature-Gate
     if (!el || !text) return;
     if (tipTimer.current) clearTimeout(tipTimer.current);
 
@@ -33,12 +47,10 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
     const vw = window.innerWidth;
     if (left + width + 16 > vw) {
-      // nach links flippen, wenn rechts kein Platz
       left = rect.left - 8 - width;
       flip = true;
     }
 
-    // leichte Justage oben/unten, damit nichts am Rand klebt
     const vh = window.innerHeight;
     if (top < 8) top = 8;
     if (top + 140 > vh) top = Math.max(8, vh - 160);
@@ -55,6 +67,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     }, 120);
   };
 
+  // Tage aufbauen
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
     const neueTage = [];
@@ -65,6 +78,39 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     setTage(neueTage);
   }, [jahr, monat]);
 
+  // Feature-Flags laden
+  useEffect(() => {
+    let alive = true;
+    const loadFlags = async () => {
+      if (!firma || !unit) return;
+      try {
+        const [{ data: tip }, { data: ana }] = await Promise.all([
+          supabase.rpc('feature_enabled_for_unit', {
+            p_kunden_id: firma,
+            p_unit_id: unit,
+            p_feature_key: FEATURE_TOOLTIP,
+          }),
+          supabase.rpc('feature_enabled_for_unit', {
+            p_kunden_id: firma,
+            p_unit_id: unit,
+            p_feature_key: FEATURE_ANALYSE,
+          }),
+        ]);
+        if (!alive) return;
+        setAllowTooltip(!!tip);
+        setAllowAnalyse(!!ana);
+      } catch (e) {
+        console.error('Feature-Flags laden fehlgeschlagen', e);
+        if (!alive) return;
+        setAllowTooltip(false);
+        setAllowAnalyse(false);
+      }
+    };
+    loadFlags();
+    return () => { alive = false; };
+  }, [firma, unit]);
+
+  // Daten laden
   const ladeMitarbeiterBedarf = async () => {
     if (!firma || !unit || tage.length === 0) return;
 
@@ -77,7 +123,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         const end = alleTage[Math.min(i + batchSize - 1, alleTage.length - 1)];
         batches.push({ start, end });
       }
-
       let gesamtDienste = [];
       for (const batch of batches) {
         const { data } = await supabase
@@ -139,7 +184,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .in('user_id', batch);
         userDaten?.forEach((u) => {
           userNameMap[u.user_id] = u.nachname || `User ${u.user_id}`;
-          userVisibleMap[u.user_id] = (u.user_visible ?? true); // default sichtbar
+          userVisibleMap[u.user_id] = (u.user_visible ?? true);
         });
       }
     }
@@ -168,7 +213,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .forEach((q) => {
             const gueltigAb = dayjs(q.created_at);
             const tag = dayjs(datum);
-            if (tag.isBefore(gueltigAb, 'day')) return; // am Tag noch nicht gültig
+            if (tag.isBefore(gueltigAb, 'day')) return;
             if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
             userQualiMap[q.user_id].push(q.quali);
           });
@@ -184,7 +229,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .filter((b) => b.relevant)
           .sort((a, b) => a.position - b.position);
 
-        // User-Reihenfolge (wenig relevante Qualis zuerst)
+        // User-Reihenfolge
         const verwendeteUser = new Set();
         const userSortMap = aktiveUser.map((userId) => {
           const userQualis = userQualiMap[userId] || [];
@@ -228,7 +273,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         for (const b of bedarfSortiert) {
           const gedeckt = abdeckung[b.quali_id]?.length || 0;
           const benoetigt = b.anzahl || 0;
-
           if (gedeckt < benoetigt) {
             const missing = benoetigt - gedeckt;
             totalMissing += missing;
@@ -347,9 +391,12 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
   useEffect(() => {
     ladeMitarbeiterBedarf();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tage, firma, unit, refreshKey]);
 
+  // Modal öffnen (Feature-Gate)
   const handleModalOeffnen = (datum, kuerzel) => {
+    if (!allowAnalyse) return;
     const status = bedarfStatus[kuerzel]?.[datum];
     setModalDatum(datum);
     setModalSchicht(kuerzel);
@@ -358,11 +405,15 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   };
 
   return (
-    <div className="overflow-x-auto relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700" style={{ overflowY: 'visible' }}>
+    <div
+      className="overflow-x-auto relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700"
+      style={{ overflowY: 'visible' }}
+    >
       {/* Info-Button */}
       <button
         className="absolute pr-2 pt-2 top-0 right-0 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
         onClick={() => setInfoOffen(true)}
+        title="Legende"
       >
         <Info size={20} />
       </button>
@@ -380,8 +431,12 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
                 key={datum}
                 className="relative w-[48px] min-w-[48px] h-[6px] rounded-t"
                 style={{ background: eintrag?.gradient || (eintrag?.farbe || 'transparent') }}
-                onMouseEnter={(e) => eintrag?.tooltip && showTipAt(e.currentTarget, key, eintrag.tooltip, header, true)}
-                onMouseLeave={scheduleHide}
+                onMouseEnter={(e) =>
+                  allowTooltip &&
+                  eintrag?.tooltip &&
+                  showTipAt(e.currentTarget, key, eintrag.tooltip, header, true)
+                }
+                onMouseLeave={allowTooltip ? scheduleHide : undefined}
               />
             );
           })}
@@ -397,15 +452,25 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
             {tage.map((datum) => {
               const status = bedarfStatus[kuerzel]?.[datum];
               const key = `${kuerzel}|${datum}`;
-              const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'}`;
+              const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${
+                kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'
+              }`;
 
               return (
                 <div
                   key={datum}
-                  onClick={() => handleModalOeffnen(datum, kuerzel)}
-                  onMouseEnter={(e) => status?.tooltip && showTipAt(e.currentTarget, key, status.tooltip, header, kuerzel === 'F')}
-                  onMouseLeave={scheduleHide}
-                  className={`relative cursor-pointer w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${status?.farbe || 'bg-gray-200 dark:bg-gray-600'}`}
+                  onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
+                  onMouseEnter={(e) =>
+                    allowTooltip &&
+                    status?.tooltip &&
+                    showTipAt(e.currentTarget, key, status.tooltip, header, kuerzel === 'F')
+                  }
+                  onMouseLeave={allowTooltip ? scheduleHide : undefined}
+                  className={`relative ${
+                    allowAnalyse ? 'cursor-pointer' : 'cursor-default'
+                  } w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${
+                    status?.farbe || 'bg-gray-200 dark:bg-gray-600'
+                  }`}
                 >
                   {status?.topLeft && (
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
@@ -428,48 +493,53 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         </div>
       ))}
 
-      {/* Portal-Tooltip */}
-      {tipData && createPortal(
-        <div
-          onMouseEnter={() => {
-            if (tipTimer.current) clearTimeout(tipTimer.current);
-          }}
-          onMouseLeave={scheduleHide}
-          style={{ position: 'fixed', top: tipData.top, left: tipData.left, zIndex: 100000, pointerEvents: 'auto' }}
-        >
+      {/* Tooltip-Portal nur, wenn Feature aktiv */}
+      {allowTooltip &&
+        tipData &&
+        createPortal(
           <div
-            className="relative px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
-                       bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs"
-            style={{ width: tipData.width || 280 }}
+            onMouseEnter={() => {
+              if (tipTimer.current) clearTimeout(tipTimer.current);
+            }}
+            onMouseLeave={scheduleHide}
+            style={{ position: 'fixed', top: tipData.top, left: tipData.left, zIndex: 100000, pointerEvents: 'auto' }}
           >
-            {/* Pfeil */}
             <div
-              className="absolute w-2 h-2 rotate-45 ring-1 ring-black/10 dark:ring-white/10"
-              style={{
-                top: '12px',
-                ...(tipData.flip
-                  ? { right: '-4px', background: 'rgba(17,24,39,0.95)' }   // dark:bg-gray-900/95
-                  : { left: '-4px',  background: 'rgba(255,255,255,0.95)' } // bg-white/95
-                )
-              }}
-            />
-            {/* Header */}
-            {tipData.header && <div className="font-sans font-semibold mb-1">{tipData.header}</div>}
-            {/* Inhalt */}
-            <pre className="whitespace-pre-wrap font-mono">{tipData.text}</pre>
-          </div>
-        </div>,
-        document.body
+              className="relative px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
+                         bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs"
+              style={{ width: tipData.width || 280 }}
+            >
+              {/* Pfeil */}
+              <div
+                className="absolute w-2 h-2 rotate-45 ring-1 ring-black/10 dark:ring-white/10"
+                style={{
+                  top: '12px',
+                  ...(tipData.flip
+                    ? { right: '-4px', background: 'rgba(17,24,39,0.95)' }
+                    : { left: '-4px', background: 'rgba(255,255,255,0.95)' }),
+                }}
+              />
+              {/* Header */}
+              {tipData.header && <div className="font-sans font-semibold mb-1">{tipData.header}</div>}
+              {/* Inhalt */}
+              <pre className="whitespace-pre-wrap font-mono">{tipData.text}</pre>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Analyse-Modal nur, wenn Feature aktiv */}
+      {allowAnalyse && (
+        <BedarfsAnalyseModal
+          offen={modalOffen}
+          onClose={() => setModalOffen(false)}
+          modalDatum={modalDatum}
+          modalSchicht={modalSchicht}
+          fehlendeQualis={fehlendeQualis}
+        />
       )}
 
-      <BedarfsAnalyseModal
-        offen={modalOffen}
-        onClose={() => setModalOffen(false)}
-        modalDatum={modalDatum}
-        modalSchicht={modalSchicht}
-        fehlendeQualis={fehlendeQualis}
-      />
-
+      {/* Legende */}
       {infoOffen && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-900 text-black dark:text-white p-6 rounded-lg max-w-lg w-full shadow-xl">
@@ -478,10 +548,9 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
               <li><span className="font-bold text-red-500">Rot</span>: Bedarf nicht gedeckt</li>
               <li><span className="font-bold text-green-300">Grün</span>: Bedarf exakt gedeckt</li>
               <li><span className="font-bold text-yellow-400">Gelbe Ecke</span>: Zusatzquali fehlt</li>
-              <li><span className="font-bold text-green-300">Grüne Ecke</span>: +1 Besetzung, Qualifikations unabhängig</li>
-              <li><span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung, Qualifikations unabhängig</li>
-              <li>Hover zeigt fehlende oder erfüllte Qualifikationen</li>
-              <li>Im Hover wird auch angezeigt, wer Dienst hat.</li>
+              <li><span className="font-bold text-green-300">Grüne Ecke</span>: +1 Besetzung (qualifikationsunabhängig)</li>
+              <li><span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung (qualifikationsunabhängig)</li>
+              <li>Hover zeigt fehlende/erfüllte Qualifikationen sowie eingesetzte Personen.</li>
             </ul>
             <div className="text-right mt-4">
               <button
@@ -499,3 +568,4 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 };
 
 export default MitarbeiterBedarf;
+

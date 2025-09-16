@@ -24,20 +24,20 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay);
   };
 
-    const openReport = () => {
-    clearTimeout(verwaltungTimeout.current);
-    setReportOpen(true);
-  };
-  const closeReport = () => {
-    reportTimeout.current = setTimeout(() => setReportOpen(false), delay);
-  };
-
   const openPlannung = () => {
     clearTimeout(plannungTimeout.current);
     setPlannungOpen(true);
   };
   const closePlannung = () => {
     plannungTimeout.current = setTimeout(() => setPlannungOpen(false), delay);
+  };
+
+      const openReport = () => {
+    clearTimeout(reportTimeout.current);
+    setReportOpen(true);
+  };
+  const closeReport = () => {
+    reportTimeout.current = setTimeout(() => setReportOpen(false), delay);
   };
 
   const openAdmin = () => {
@@ -64,8 +64,9 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/ferienundfeiertage': 'Ferien & Feiertage',
     '/termineverwaltung': 'Termine',
     '/system-tools': 'System-Tools', 
-    '/unit-reports': 'Unit Reports',
+    '/unit-reports': 'Unit bericht',
     '/userpflege': 'UserPflege',
+    '/top-report': 'Top bericht',
   };
 
   const aktuellerTitel = pfadZuTitel[location.pathname] || '';
@@ -117,7 +118,8 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             <span className="cursor-pointer">Berichte ▾</span>
             {reportOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-                <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit Bericht</Link>
+                <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit bericht</Link>
+                <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">Top bericht</Link>
               </div>
             )}
           </div>
