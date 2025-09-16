@@ -1,72 +1,45 @@
-import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
+// src/pages/SystemTools.jsx
+import React, { useEffect, useState } from 'react';
+import { Wrench, Users, Settings } from 'lucide-react';
 
-const SystemTools = () => {
-  const [loadingStunden, setLoadingStunden] = useState(false);
-  const [loadingUrlaub, setLoadingUrlaub] = useState(false);
-  const [message, setMessage] = useState('');
+// Tabs aus deinem components-Ordner
+import SystemTab from '../components/SystemTools/SystemTab';
+import KundenTab from '../components/SystemTools/KundenTab';
+import FeaturesTab from '../components/SystemTools/FeaturesTab';
 
-  const handleStunden = async () => {
-    setLoadingStunden(true);
-    setMessage('');
-    try {
-      const { error } = await supabase.rpc('berechne_stunden'); // NEUE FUNCTION
-      if (error) throw error;
-      setMessage('✅ Stunden erfolgreich berechnet!');
-    } catch (err) {
-      console.error('Fehler (Stunden):', err);
-      setMessage('❌ Fehler bei der Stunden-Berechnung!');
-    } finally {
-      setLoadingStunden(false);
-    }
-  };
+const TabButton = ({ active, onClick, icon: Icon, children, edge }) => (
+  <button
+    onClick={onClick}
+    className={[
+      'px-3 py-2 border border-gray-700 text-sm',
+      active ? 'bg-gray-700 text-white' : 'bg-gray-900 text-gray-200 hover:bg-gray-800',
+      edge === 'left' ? 'rounded-l' : edge === 'right' ? 'rounded-r' : '',
+    ].join(' ')}
+  >
+    <Icon size={16} className="inline -mt-0.5 mr-1" />
+    {children}
+  </button>
+);
 
-  const handleUrlaub = async () => {
-    setLoadingUrlaub(true);
-    setMessage('');
-    try {
-      const { error } = await supabase.rpc('berechne_urlaub'); // NEUE FUNCTION
-      if (error) throw error;
-      setMessage('✅ Urlaub erfolgreich berechnet!');
-    } catch (err) {
-      console.error('Fehler (Urlaub):', err);
-      setMessage('❌ Fehler bei der Urlaubs-Berechnung!');
-    } finally {
-      setLoadingUrlaub(false);
-    }
-  };
+export default function SystemTools() {
+  // Tab-Auswahl (persistiert in localStorage)
+  const [tab, setTab] = useState(() => localStorage.getItem('sys_tools_tab') || 'system');
+  useEffect(() => { localStorage.setItem('sys_tools_tab', tab); }, [tab]);
 
   return (
-    <div className="min-h-screen bg-gray-800 text-white p-6">
-      <h1 className="text-2xl font-bold mb-6">System-Tools (Admin)</h1>
-
-      <div className="flex flex-col gap-4 max-w-sm">
-        <button
-          onClick={handleStunden}
-          disabled={loadingStunden}
-          className={`px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 transition ${
-            loadingStunden ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-        >
-          {loadingStunden ? 'Berechne...' : 'Stunden neu berechnen'}
-        </button>
-
-        <button
-          onClick={handleUrlaub}
-          disabled={loadingUrlaub}
-          className={`px-4 py-2 rounded bg-green-600 hover:bg-green-700 transition ${
-            loadingUrlaub ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-        >
-          {loadingUrlaub ? 'Berechne...' : 'Urlaub neu berechnen'}
-        </button>
+    <div className="min-h-screen bg-gray-800 text-white p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold">System-Tools</h1>
+        <div className="flex">
+          <TabButton edge="left"  active={tab==='system'}   onClick={() => setTab('system')}   icon={Wrench}>System</TabButton>
+          <TabButton               active={tab==='kunden'}   onClick={() => setTab('kunden')}   icon={Users}>Kunden</TabButton>
+          <TabButton edge="right" active={tab==='features'} onClick={() => setTab('features')} icon={Settings}>Features</TabButton>
+        </div>
       </div>
 
-      {message && <p className="mt-4 text-sm">{message}</p>}
+      {tab === 'system'   && <SystemTab />}
+      {tab === 'kunden'   && <KundenTab />}
+      {tab === 'features' && <FeaturesTab />}
     </div>
   );
-};
-
-export default SystemTools;
-
-
+}
