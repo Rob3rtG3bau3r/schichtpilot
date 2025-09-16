@@ -159,11 +159,11 @@ export default function TopReport() {
             <Card title="Top Frühschicht-Tage (User)" items={payload?.top_days_users?.F} topN={limit} />
             <Card title="Top Spätschicht-Tage (User)" items={payload?.top_days_users?.S} topN={limit} />
             <Card title="Top Nachtschicht-Tage (User)" items={payload?.top_days_users?.N} topN={limit} />
-
-            {/* NEU */}
             <Card title="Top Kürzel (Tage)" items={payload?.top_codes} topN={limit} />
             <Card title="Monate mit den meisten Stunden" items={payload?.top_months_hours_high} topN={limit} />
             <Card title="Monate mit den wenigsten Stunden" items={payload?.top_months_hours_low} topN={limit} />
+            <Card title="Monate mit dem meisten Urlaub" items={payload?.top_months_leave_high} topN={limit} />
+            <Card title="Monate mit dem wenigsten Urlaub" items={payload?.top_months_leave_low} topN={limit} />
           </div>
         )}
       </Panel>
