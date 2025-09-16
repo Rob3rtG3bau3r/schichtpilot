@@ -1,10 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
+import 'dayjs/locale/de';
 import { Crown } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 import QualiModal from '../Cockpit/QualiModal';
 import SchichtDienstAendernForm from './SchichtDienstAendernForm';
+
+dayjs.locale('de');
 
 const currentUserId = localStorage.getItem('user_id');
 
@@ -58,7 +61,7 @@ const KampfListe = ({
   const [urlaubInfoMap, setUrlaubInfoMap] = useState({});
   const [stundenInfoMap, setStundenInfoMap] = useState({});
 
-  // 🔒 Stabiler Tooltip: gesteuert per State + Timeout
+  // 🔒 Stabiler Tooltip: Name-Spalte
   const [hoveredUserId, setHoveredUserId] = useState(null);
   const hideTimerRef = useRef(null);
   const showTipFor = (id) => {
@@ -68,6 +71,18 @@ const KampfListe = ({
   const scheduleHideTip = () => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => setHoveredUserId(null), 120);
+  };
+
+  // 🔒 Stabiler Tooltip: Zellen (Datum/Zeit/Kommentar)
+  const [hoveredCellKey, setHoveredCellKey] = useState(null); // `${userId}|${datum}`
+  const cellHideTimerRef = useRef(null);
+  const showCellTip = (key) => {
+    if (cellHideTimerRef.current) clearTimeout(cellHideTimerRef.current);
+    setHoveredCellKey(key);
+  };
+  const scheduleHideCellTip = () => {
+    if (cellHideTimerRef.current) clearTimeout(cellHideTimerRef.current);
+    cellHideTimerRef.current = setTimeout(() => setHoveredCellKey(null), 120);
   };
 
   useEffect(() => {
@@ -298,8 +313,8 @@ const KampfListe = ({
   return (
     <div className="bg-gray-00 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
       {/* nur horizontal scrollen; Y soll sichtbar bleiben */}
-<div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
-  <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
+      <div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
+        <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
           {/* --- linke Namensspalte --- */}
           <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
@@ -325,15 +340,15 @@ const KampfListe = ({
               const showTip = darfTooltipSehen && hoveredUserId === userId;
 
               return (
-<div
-  key={userId}
-  className={`relative h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-default
-    ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
-    ${neueGruppe ? 'mt-2' : ''}
-    border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
-    ${!e.user_visible ? 'opacity-50' : ''} hover:z-[9999]`}
-  style={{ overflow: 'visible' }}
->
+                <div
+                  key={userId}
+                  className={`relative h-[20px] flex items-center px-2 border-b truncate rounded-md cursor-default
+                    ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
+                    ${neueGruppe ? 'mt-2' : ''}
+                    border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
+                    ${!e.user_visible ? 'opacity-50' : ''} hover:z-[9999]`}
+                  style={{ overflow: 'visible' }}
+                >
                   <span
                     className="flex-1 relative hover:underline cursor-pointer"
                     onClick={() => {
@@ -431,6 +446,13 @@ const KampfListe = ({
                           color: eintragTag?.text || (document.documentElement.classList.contains('dark') ? '#ccc' : '#333'),
                           overflow: 'visible',
                         }}
+                        onMouseEnter={() => {
+                          if (eintragTag?.beginn || eintragTag?.ende || eintragTag?.kommentar) {
+                            const key = `${userId}|${zellenDatum}`;
+                            showCellTip(key);
+                          }
+                        }}
+                        onMouseLeave={scheduleHideCellTip}
                         onClick={() => {
                           if (istNurLesend) return;
                           const eintragObjekt = {
@@ -467,12 +489,42 @@ const KampfListe = ({
                           </>
                         )}
 
-                        {eintragTag?.beginn && eintragTag?.ende && (
-                          <div className="absolute top-full mt-1 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white dark:text-black bg-black dark:bg-white rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap z-20 pointer-events-none text-left shadow-lg border dark:border-gray-400">
-                            <div>{eintragTag.beginn} – {eintragTag.ende}</div>
-                            {eintragTag.kommentar && <div className="mt-1 max-w-[200px] break-words">{eintragTag.kommentar}</div>}
-                          </div>
-                        )}
+                        {/* Neuer „Notice“-Tooltip seitlich mit Datum/Zeit/Kommentar */}
+                        {(() => {
+                          const key = `${userId}|${zellenDatum}`;
+                          const show = hoveredCellKey === key && (eintragTag?.beginn || eintragTag?.ende || eintragTag?.kommentar);
+                          if (!show) return null;
+                          const datumLabel = dayjs(zellenDatum).format('dddd DD.MM.YYYY');
+                          return (
+                            <div
+                              className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"
+                              onMouseEnter={() => showCellTip(key)}
+                              onMouseLeave={scheduleHideCellTip}
+                              style={{ pointerEvents: 'auto' }}
+                            >
+                              <div className="relative w-[260px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
+                                              bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs">
+                                {/* Pfeil */}
+                                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
+                                                bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
+                                {/* Header: Datum */}
+                                <div className="font-sans font-semibold mb-1">{datumLabel}</div>
+                                {/* Zeiten */}
+                                {(eintragTag?.beginn || eintragTag?.ende) && (
+                                  <div className="font-mono">
+                                    {(eintragTag?.beginn || '–')} – {(eintragTag?.ende || '–')}
+                                  </div>
+                                )}
+                                {/* Kommentar */}
+                                {eintragTag?.kommentar && (
+                                  <div className="mt-1 whitespace-pre-wrap break-words">
+                                    {eintragTag.kommentar}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {eintragTag ? (
                           <span className="text-xs font-medium">
