@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useRollen } from '../context/RollenContext';
 import { Sun, Moon } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // ✨ NEU
 
 const Navigation = ({ darkMode, setDarkMode }) => {
   const location = useLocation();
@@ -9,44 +10,58 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   const [reportOpen, setReportOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [plannungOpen, setPlannungOpen] = useState(false);
-  const { rolle } = useRollen();
+
+  const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen(); // ✨ firma & unit hinzu
   const verwaltungTimeout = useRef(null);
   const reportTimeout = useRef(null);
   const adminTimeout = useRef(null);
   const plannungTimeout = useRef(null);
   const delay = 300;
 
-  const openVerwaltung = () => {
-    clearTimeout(verwaltungTimeout.current);
-    setVerwaltungOpen(true);
-  };
-  const closeVerwaltung = () => {
-    verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay);
-  };
+  // ---------- Feature Gate: top_report (nur für Linkanzeige) ----------
+  const [canSeeTopReport, setCanSeeTopReport] = useState(false);
 
-  const openPlannung = () => {
-    clearTimeout(plannungTimeout.current);
-    setPlannungOpen(true);
-  };
-  const closePlannung = () => {
-    plannungTimeout.current = setTimeout(() => setPlannungOpen(false), delay);
-  };
+  useEffect(() => {
+    // Nur für Rollen mit Reports-Menü prüfen
+    if (!['SuperAdmin', 'Admin_Dev'].includes(rolle) || !unit) {
+      setCanSeeTopReport(false);
+      return;
+    }
+    // leichte, schnelle Abfrage: rufe top_report mit Mini-Zeitraum auf und lese "enabled"
+    const today = new Date().toISOString().slice(0, 10);
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc('top_report', {
+          p_unit_id: unit,
+          p_from: today,
+          p_to: today,
+          p_limit: 1,
+        });
+        if (error) {
+          console.error('feature gate (top_report) check error:', error);
+          setCanSeeTopReport(false);
+        } else {
+          setCanSeeTopReport(!!data?.enabled);
+        }
+      } catch (e) {
+        console.error('feature gate (top_report) check ex:', e);
+        setCanSeeTopReport(false);
+      }
+    })();
+  }, [rolle, unit]);
+  // -------------------------------------------------------------------
 
-      const openReport = () => {
-    clearTimeout(reportTimeout.current);
-    setReportOpen(true);
-  };
-  const closeReport = () => {
-    reportTimeout.current = setTimeout(() => setReportOpen(false), delay);
-  };
+  const openVerwaltung = () => { clearTimeout(verwaltungTimeout.current); setVerwaltungOpen(true); };
+  const closeVerwaltung = () => { verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay); };
 
-  const openAdmin = () => {
-    clearTimeout(adminTimeout.current);
-    setAdminOpen(true);
-  };
-  const closeAdmin = () => {
-    adminTimeout.current = setTimeout(() => setAdminOpen(false), delay);
-  };
+  const openPlannung = () => { clearTimeout(plannungTimeout.current); setPlannungOpen(true); };
+  const closePlannung = () => { plannungTimeout.current = setTimeout(() => setPlannungOpen(false), delay); };
+
+  const openReport = () => { clearTimeout(reportTimeout.current); setReportOpen(true); };
+  const closeReport = () => { reportTimeout.current = setTimeout(() => setReportOpen(false), delay); };
+
+  const openAdmin = () => { clearTimeout(adminTimeout.current); setAdminOpen(true); };
+  const closeAdmin = () => { adminTimeout.current = setTimeout(() => setAdminOpen(false), delay); };
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
@@ -63,7 +78,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/qualifikationsmatrix': 'Qualifikationen einpflegen',
     '/ferienundfeiertage': 'Ferien & Feiertage',
     '/termineverwaltung': 'Termine',
-    '/system-tools': 'System-Tools', 
+    '/system-tools': 'System-Tools',
     '/unit-reports': 'Unit bericht',
     '/userpflege': 'UserPflege',
     '/top-report': 'Top bericht',
@@ -112,6 +127,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             )}
           </div>
         )}
+
         {/* Reports-Menü: Nur SuperAdmin, Admin_Dev */}
         {['SuperAdmin', 'Admin_Dev'].includes(rolle) && (
           <div className="relative" onMouseEnter={openReport} onMouseLeave={closeReport}>
@@ -119,11 +135,15 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             {reportOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
                 <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit bericht</Link>
-                <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">Top bericht</Link>
+                {/* ✨ Nur anzeigen, wenn Feature wirklich aktiv */}
+                {canSeeTopReport && (
+                  <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">Top bericht</Link>
+                )}
               </div>
             )}
           </div>
         )}
+
         {/* Admin-Menü: Nur SuperAdmin */}
         {rolle === 'SuperAdmin' && (
           <div className="relative" onMouseEnter={openAdmin} onMouseLeave={closeAdmin}>
@@ -157,7 +177,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
           className="flex items-center gap-1 bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
           title="Dark / Light Mode"
         >
-          {darkMode ? <Moon size={18} /> : <Sun size={18} />}
+        {darkMode ? <Moon size={18} /> : <Sun size={18} />}
           <span>{darkMode ? 'Dark' : 'Light'}</span>
         </button>
       </div>
@@ -166,3 +186,4 @@ const Navigation = ({ darkMode, setDarkMode }) => {
 };
 
 export default Navigation;
+
