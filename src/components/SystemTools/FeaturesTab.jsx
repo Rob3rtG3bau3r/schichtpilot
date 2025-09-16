@@ -44,24 +44,33 @@ const SortHeader = ({ label, sortKey, current, setCurrent }) => {
 };
 
 const FeaturesTab = () => {
+  const DEFAULT_PLANS = ['basic', 'pro', 'enterprise'];
+
   const [features, setFeatures] = useState([]);
   const [plaene, setPlaene] = useState([]);
   const [selPlan, setSelPlan] = useState('');
   const [planMap, setPlanMap] = useState({}); // feature_key -> enabled
 
   const loadFeatureAndPlans = async () => {
-    const [{ data: feat }, { data: planRows }] = await Promise.all([
+    const [{ data: feat, error: featErr }, { data: planRows, error: planErr }] = await Promise.all([
       supabase.from('DB_Features').select('key,beschreibung,active,created_at').order('key', { ascending: true }),
       supabase.from('DB_PlanFeatures').select('plan'),
     ]);
+    if (featErr) console.error(featErr);
+    if (planErr) console.error(planErr);
+
     setFeatures(feat || []);
-    setPlaene(Array.from(new Set((planRows || []).map((p) => p.plan))).sort());
+    const existingPlans = Array.from(new Set((planRows || []).map((p) => p.plan)));
+    // Standard-Pläne immer anzeigen (auch wenn noch keine Zeilen existieren)
+    const merged = Array.from(new Set([...(DEFAULT_PLANS), ...existingPlans])).sort();
+    setPlaene(merged);
   };
   useEffect(() => { loadFeatureAndPlans(); }, []);
 
   const loadPlanMap = async (plan) => {
     if (!plan) { setPlanMap({}); return; }
-    const { data } = await supabase.from('DB_PlanFeatures').select('feature_key,enabled').eq('plan', plan);
+    const { data, error } = await supabase.from('DB_PlanFeatures').select('feature_key,enabled').eq('plan', plan);
+    if (error) console.error(error);
     const map = {};
     (data || []).forEach((r) => { map[r.feature_key] = !!r.enabled; });
     setPlanMap(map);
@@ -96,15 +105,26 @@ const FeaturesTab = () => {
   const [newFeat, setNewFeat] = useState({ key: '', beschreibung: '', active: true });
 
   const addFeature = async () => {
-    if (!newFeat.key.trim()) return;
+    const key = newFeat.key.trim();
+    if (!key) return;
     try {
-      const payload = { key: newFeat.key.trim(), beschreibung: newFeat.beschreibung || null, active: !!newFeat.active };
-      const { error } = await supabase.from('DB_Features').insert(payload);
-      if (error) throw error;
+      // 1) Feature anlegen
+      const payload = { key, beschreibung: newFeat.beschreibung || null, active: !!newFeat.active };
+      const { error: insertErr } = await supabase.from('DB_Features').insert(payload);
+      if (insertErr) throw insertErr;
+
+      // 2) Plan-Mapping für alle Standard-Pläne anlegen (enabled=false)
+      const planRows = DEFAULT_PLANS.map((p) => ({ plan: p, feature_key: key, enabled: false }));
+      const { error: upsertErr } = await supabase
+        .from('DB_PlanFeatures')
+        .upsert(planRows, { onConflict: 'plan,feature_key' });
+      if (upsertErr) throw upsertErr;
+
       setNewFeat({ key: '', beschreibung: '', active: true });
       await loadFeatureAndPlans();
+      if (selPlan) await loadPlanMap(selPlan);
     } catch (e) {
-      console.error(e);
+      console.error('Feature anlegen/upserten fehlgeschlagen:', e);
     }
   };
 
@@ -114,6 +134,7 @@ const FeaturesTab = () => {
       const { error } = await supabase.from('DB_Features').update(payload).eq('key', row.key);
       if (error) throw error;
       await loadFeatureAndPlans();
+      if (selPlan) await loadPlanMap(selPlan);
     } catch (e) {
       console.error(e);
     }
@@ -169,7 +190,11 @@ const FeaturesTab = () => {
               </div>
             </div>
             <div className="col-span-12">
-              <button className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-sm" onClick={addFeature}>
+              <button
+                className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-sm"
+                onClick={addFeature}
+                disabled={!newFeat.key.trim()}
+              >
                 <Plus size={14} className="inline -mt-0.5 mr-1" /> Feature anlegen
               </button>
             </div>
@@ -291,8 +316,9 @@ const FeaturesTab = () => {
         <Panel title="Hinweise">
           <ul className="list-disc ml-5 text-sm space-y-1">
             <li><b>Global inaktiv</b> in DB_Features überschreibt alles (Plan/Overrides).</li>
-            <li>Plan-Zuordnung speichert per <i>upsert</i> auf <code>(plan, feature_key)</code>.</li>
+            <li>Plan-Zuordnung speichert per <i>upsert</i> auf <code>(plan,feature_key)</code>.</li>
             <li>Unit-Overrides in DB_Unit: <b>disabled_features</b> hat Vorrang vor <b>enabled_features</b>, danach Plan.</li>
+            <li>Beim Anlegen eines Features wird automatisch je ein Eintrag für <code>basic</code>, <code>pro</code>, <code>enterprise</code> mit <code>enabled=false</code> erzeugt.</li>
           </ul>
         </Panel>
       </div>
