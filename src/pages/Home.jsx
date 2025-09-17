@@ -237,7 +237,7 @@ const Home = () => {
       <section className="mt-12 px-6 max-w-6xl">
         <h2 className="text-3xl font-bold mb-4 text-center">So sieht SchichtPilot aus</h2>
         <p className="text-gray-300 text-center mb-8">
-          Ein kurzer Einblick in Dashboard, Kampfliste, Mobile-Ansicht & Qualifikationen.
+          Ein kurzer Einblick in das Dashboard, den Dienstplan, die Mobile-Ansicht & die Qualifikations Verwaltung.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
