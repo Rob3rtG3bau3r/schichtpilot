@@ -10,7 +10,7 @@ import { ChevronDown, ChevronRight, Info } from 'lucide-react';
 const Pill = ({ children, title }) => (
   <span
     title={title}
-    className="inline-flex items-center px-2 py-1 shadow-xl rounded-full text-xs bg-gray-300 dark:bg-gray-600 mr-2 mb-2"
+    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-300 dark:bg-gray-600 mr-2 mb-2"
   >
     {children}
   </span>
