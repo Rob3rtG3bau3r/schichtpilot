@@ -5,6 +5,7 @@ import MobilePinEntry from './MobilePinEntry';
 import MobileMeineDienste from './MobileMeineDienste';
 import MobileLayout from './MobileLayout';
 import MobileMeineAnfragen from './MobileMeineAnfragen';
+import MobileMeineUebersicht from "./MobileMeineUebersicht";
 
 const MobileRouter = () => {
   return (
@@ -16,6 +17,7 @@ const MobileRouter = () => {
       <Route path="/" element={<MobileLayout />}>
       <Route index element={<MobileMeineDienste />} />
         <Route path="dienste" element={<MobileMeineDienste />} />
+        <Route path="uebersicht" element={<MobileMeineUebersicht />} />
         <Route path="anfragen" element={<MobileMeineAnfragen />} />
       </Route>
     </Routes>

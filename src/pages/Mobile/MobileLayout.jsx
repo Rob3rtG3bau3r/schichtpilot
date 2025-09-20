@@ -9,6 +9,7 @@ import {
   LogOut,
   KeyRound,
   ShieldCheck,
+   Gauge, 
 } from "lucide-react";
 import { supabase } from "../../supabaseClient";
 import { erstelleDatenschutzPDF } from "../../utils/DatenschutzPDF";
@@ -309,7 +310,17 @@ useEffect(() => {
           >
             <CalendarDays className="w-6 h-6" />
           </button>
-
+ <button
+   onClick={() => navigate("/mobile/uebersicht")}
+   className={`flex items-center gap-2 px-2 py-1 ${
+     pathname.includes("/uebersicht")
+       ? "bg-green-600 bg-opacity-10 border border-green-600 border-opacity-20"
+       : ""
+   }`}
+   title="Meine Übersicht"
+ >
+   <Gauge className="w-6 h-6" />
+</button>
           <button
             onClick={() => navigate("/mobile/anfragen")}
             className={`flex items-center gap-2 px-2 py-1 ${
