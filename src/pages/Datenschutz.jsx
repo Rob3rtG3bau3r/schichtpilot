@@ -1,4 +1,4 @@
-// Datenschutz.jsx
+// src/pages/Datenschutz.jsx
 import React from "react";
 import { useNavigate, Link } from "react-router-dom";
 import logo from "../assets/logo.png";
@@ -38,7 +38,10 @@ const Datenschutz = () => {
           Robert Gebauer<br />
           Kiefernweg 22<br />
           50389 Wesseling<br />
-          E-Mail: <a className="underline" href="mailto:info@schichtpilot.com">info@schichtpilot.com</a>
+          E-Mail:{" "}
+          <a className="underline" href="mailto:info@schichtpilot.com">
+            info@schichtpilot.com
+          </a>
         </p>
 
         <h2 className="text-xl font-semibold mt-6 mb-2">2. Allgemeines zur Datenverarbeitung</h2>
@@ -77,20 +80,46 @@ const Datenschutz = () => {
         <ul className="list-disc list-inside text-gray-300 ml-4 mt-2">
           <li>Nutzungs- und Zugriffsdaten (IP-Adresse, Login-Logs, Browserinformationen, Zeitstempel).</li>
           <li>Stammdaten (Name, E-Mail-Adresse, Benutzerrolle, Firmen- und Unit-Zuordnung).</li>
-          <li>Beschäftigtendaten im Rahmen der Schichtverwaltung (Dienstpläne, Ist-/Soll-Schichten, Abwesenheiten, Urlaubszeiten, Qualifikationen, Bedarfe).</li>
-          <li>Kommunikationsdaten (freiwillige Schichtanfragen, Freiwünsche, optionale Kommentare, Entscheidungen).</li>
+          <li>
+            Beschäftigtendaten im Rahmen der Schichtverwaltung (Dienstpläne, Ist-/Soll-Schichten,
+            Abwesenheiten, Urlaubszeiten, Qualifikationen, Bedarfe).
+          </li>
+          <li>
+            Kommunikationsdaten (freiwillige Schichtanfragen, Freiwünsche, optionale Kommentare,
+            Entscheidungen).
+          </li>
           <li>Organisationsdaten (Teams, Units, aktivierte/gebuchte Features).</li>
+          <li>
+            <strong>Betriebs-/Nutzungsdaten für Reporting &amp; Lizenzverwaltung</strong> (z. B. aggregierte
+            Kennzahlen je Unit/Monat/Jahr aus <code>db_report_ytd</code>, <code>db_report_monthly</code>,
+            <code>db_report_config</code> sowie aktivierte Funktionspakete/Feature-Flags aus{" "}
+            <code>DB_Features</code>, <code>DB_PlanFeatures</code>). Grundsätzlich ohne
+            Mitarbeiter-Einzelbezug; falls ausnahmsweise personenbeziehbar, dann
+            pseudonymisiert/minimiert.
+          </li>
         </ul>
 
         <h2 className="text-xl font-semibold mt-6 mb-2">5. Zweck und Rechtsgrundlagen der Verarbeitung</h2>
         <p>Wir verarbeiten personenbezogene Daten ausschließlich zu festgelegten, eindeutigen und legitimen Zwecken:</p>
         <ul className="list-disc list-inside text-gray-300 ml-4 mt-2">
-          <li>Bereitstellung, Betrieb und Wartung der Plattform SchichtPilot (Art. 6 Abs. 1 lit. b DSGVO Vertragserfüllung).</li>
+          <li>
+            Bereitstellung, Betrieb und Wartung der Plattform SchichtPilot (Art. 6 Abs. 1 lit. b DSGVO
+            Vertragserfüllung).
+          </li>
           <li>Schicht- und Bedarfsplanung, Urlaubs- und Stundenverwaltung (Art. 6 Abs. 1 lit. b DSGVO).</li>
           <li>Wahrung berechtigter Interessen, insbesondere Optimierung, Stabilität und Sicherheit (Art. 6 Abs. 1 lit. f DSGVO).</li>
           <li>Durchführung von Testzugängen/Pilotphasen (Art. 6 Abs. 1 lit. f DSGVO).</li>
-          <li>Verarbeitungen auf Basis Ihrer Einwilligung (z. B. freiwillige Schichtanträge), Art. 6 Abs. 1 lit. a DSGVO – Einwilligungen können jederzeit mit Wirkung für die Zukunft widerrufen werden.</li>
+          <li>
+            Verarbeitungen auf Basis Ihrer Einwilligung (z. B. freiwillige Schichtanträge), Art. 6 Abs. 1 lit. a
+            DSGVO – Einwilligungen können jederzeit mit Wirkung für die Zukunft widerrufen werden.
+          </li>
         </ul>
+        <p className="mt-2">
+          <strong>Interne Berichte/Controlling &amp; Lizenz-/Featureverwaltung:</strong> Zur Erbringung der
+          vertraglichen Leistungen (Anzeige von Kennzahlen, Abrechnung, Funktionsfreischaltungen) und
+          zur Produktstabilität/Optimierung. <em>Rechtsgrundlage:</em> Art. 6 Abs. 1 lit. b DSGVO (Vertrag) und
+          Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse). <strong>Kein Marketing-Tracking.</strong>
+        </p>
 
         <h2 className="text-xl font-semibold mt-6 mb-2">6. Erhobene Daten beim Besuch der Seite</h2>
         <p>Beim Aufrufen unserer Webseite verarbeiten wir automatisch folgende Daten:</p>
@@ -116,6 +145,15 @@ const Datenschutz = () => {
           <li>DB_AnfrageMA (freiwillige Schichtübernahmen/Freiwünsche): Löschung spätestens 3 Monate nach Entscheidung oder Ablauf.</li>
           <li>DB_Testzugang: Automatische Löschung nach 6 Monaten ohne Rückmeldung oder Aktivität.</li>
           <li>DB_FeiertageundFerien: keine personenbezogenen Daten; dauerhafte Speicherung.</li>
+          <li>
+            <strong>Reportdaten (<code>db_report_*</code>):</strong> Speicherung grundsätzlich aggregiert und ohne Personenbezug;
+            Aufbewahrung bis zu 24 Monaten, danach Löschung oder Aggregation auf höherer Ebene.
+          </li>
+          <li>
+            <strong>Feature-/Plan-Konfiguration (<code>DB_Features</code>, <code>DB_PlanFeatures</code>):</strong> Speicherung für die
+            Vertragslaufzeit; Löschung spätestens 12 Monate nach Vertragsende bzw. Umwandlung in nicht
+            personenbezogene Archivdaten.
+          </li>
         </ul>
 
         <h2 className="text-xl font-semibold mt-6 mb-2">8. Empfänger der Daten und Zugriffskontrolle</h2>
@@ -127,7 +165,7 @@ const Datenschutz = () => {
         <p className="mt-2">
           Externe Empfänger sind die in Abschnitt 3 genannten Hosting-/Cloud-Dienstleister (Vercel,
           Supabase). Gegebenenfalls kommen Unterauftragsverarbeiter zum Einsatz, die vertraglich auf
-          DSGVO-Konformität verpflichtet sind. Eine Drittlandübermittlung erfolgt – sofern einschlägig
+          DSGVO-Konformität verpflichtet sind. Eine Drittlandübermittlung erfolgt – sofern einschlägig –
           ausschließlich auf Grundlage geeigneter Garantien (Art. 46 DSGVO).
         </p>
 
@@ -143,7 +181,9 @@ const Datenschutz = () => {
           reguläres Konto erfolgt.
         </p>
 
-        <h2 className="text-xl font-semibold mt-6 mb-2">10. Mitarbeitendenanfragen (freiwillige Schichtübernahmen / Freiwünsche)</h2>
+        <h2 className="text-xl font-semibold mt-6 mb-2">
+          10. Mitarbeitendenanfragen (freiwillige Schichtübernahmen / Freiwünsche)
+        </h2>
         <p>
           Mitarbeitende können über die Plattform freiwillig Schichtübernahmen oder Freiwünsche
           einreichen. Diese Anfragen werden in der DB_AnfrageMA gespeichert und enthalten u. a.
@@ -161,7 +201,10 @@ const Datenschutz = () => {
           <li>TLS/SSL-Verschlüsselung sämtlicher Datenübertragungen.</li>
           <li>Row Level Security (RLS) und rollenbasierte Zugriffskontrolle (RBAC) zur mandantensicheren Trennung.</li>
           <li>Regelmäßige Backups und Wiederherstellungsoptionen.</li>
-          <li>Protokollierung relevanter Zugriffe (z. B. Login-Logs) und laufende technische sowie organisatorische Maßnahmen zur Risikominimierung.</li>
+          <li>
+            Protokollierung relevanter Zugriffe (z. B. Login-Logs) und laufende technische sowie
+            organisatorische Maßnahmen zur Risikominimierung.
+          </li>
         </ul>
 
         <h2 className="text-xl font-semibold mt-6 mb-2">12. Rechte der betroffenen Personen</h2>
@@ -188,7 +231,9 @@ const Datenschutz = () => {
           Sie auf unserer Webseite.
         </p>
 
-        <h2 className="text-xl font-semibold mt-6 mb-2">14. Hinweis für Mitarbeitende von Kunden (Rollenklärung gem. Art. 28 DSGVO)</h2>
+        <h2 className="text-xl font-semibold mt-6 mb-2">
+          14. Hinweis für Mitarbeitende von Kunden (Rollenklärung gem. Art. 28 DSGVO)
+        </h2>
         <p>
           Für personenbezogene Daten, die im Rahmen des Beschäftigungsverhältnisses durch Ihren
           Arbeitgeber in SchichtPilot verarbeitet werden (z. B. Dienstpläne, Qualifikationen, Urlaubs- und
@@ -210,11 +255,10 @@ const Datenschutz = () => {
         <p>
           SchichtPilot kann als Progressive Web App (PWA) genutzt werden. Hierbei werden technische
           Daten und Einstellungen (z. B. Sitzungs-/Rolleninformationen wie <code>user_id</code>,{" "}
-          <code>firma_id</code>, <code>unit_id</code>) in
-          der Local-/Session-Storage Ihres Endgeräts gespeichert, um Anmeldung, korrekte Zuordnung zu
-          Firma/Unit und eine bessere Offline-Nutzung zu ermöglichen. Zudem speichert der Service Worker
-          statische Ressourcen (Caching), um Ladezeiten zu verbessern und eine Nutzung mit
-          eingeschränkter Verbindung zu ermöglichen.
+          <code>firma_id</code>, <code>unit_id</code>) in der Local-/Session-Storage Ihres Endgeräts gespeichert, um Anmeldung,
+          korrekte Zuordnung zu Firma/Unit und eine bessere Offline-Nutzung zu ermöglichen. Zudem
+          speichert der Service Worker statische Ressourcen (Caching), um Ladezeiten zu verbessern und
+          eine Nutzung mit eingeschränkter Verbindung zu ermöglichen.
         </p>
         <p className="mt-2">
           Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung) für funktional erforderliche
@@ -257,7 +301,8 @@ const Datenschutz = () => {
           Es findet keine ausschließlich automatisierte Entscheidungsfindung im Sinne von Art. 22 DSGVO
           statt, die Ihnen gegenüber eine rechtliche Wirkung entfaltet oder Sie in ähnlicher Weise erheblich
           beeinträchtigt. Analysen zur Dienst-/Bedarfsplanung dienen ausschließlich der planerischen
-          Unterstützung.
+          Unterstützung. Report-/Nutzungsdaten werden ausschließlich aggregiert ausgewertet; kein
+          individuelles Profiling von Mitarbeitenden.
         </p>
 
         <h2 className="text-xl font-semibold mt-6 mb-2">21. Datenschutzbeauftragte*r</h2>
@@ -275,7 +320,7 @@ const Datenschutz = () => {
           Anfrage bereitgestellt werden [oder: wird unter <code>/subprozessoren</code> veröffentlicht].
         </p>
 
-        <p className="mt-10 text-sm text-gray-400">Stand: 26.8.2025</p>
+        <p className="mt-10 text-sm text-gray-400">Stand: 21.09.2025</p>
 
         <button
           onClick={erstelleDatenschutzPDF}
@@ -288,8 +333,13 @@ const Datenschutz = () => {
       {/* Footer */}
       <footer className="text-center text-gray-500 text-xs py-4">
         © {new Date().getFullYear()} SchichtPilot ·{" "}
-        <Link to="/" className="underline text-blue-400 hover:text-white">Zur Startseite</Link>{" "}
-        | <Link to="/impressum" className="underline text-blue-400 hover:text-white">Impressum</Link>
+        <Link to="/" className="underline text-blue-400 hover:text-white">
+          Zur Startseite
+        </Link>{" "}
+        |{" "}
+        <Link to="/impressum" className="underline text-blue-400 hover:text-white">
+          Impressum
+        </Link>
       </footer>
     </div>
   );
