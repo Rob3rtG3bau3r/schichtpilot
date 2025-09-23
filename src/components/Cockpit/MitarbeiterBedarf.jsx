@@ -1,4 +1,4 @@
-// src/components/Dashboard/MitarbeiterBedarf.jsx
+// src/components/Dashboard/MitarbeiterBedarf.jsx (Lazy-Tooltips + Cache)
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
@@ -17,6 +17,10 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
 
+  // Globale Maps für Lazy-Tooltip-Builder
+  const [userNameMapState, setUserNameMapState] = useState({});
+  const [matrixMapState, setMatrixMapState] = useState({});
+
   // Feature-Flags
   const [allowTooltip, setAllowTooltip] = useState(false);
   const [allowAnalyse, setAllowAnalyse] = useState(false);
@@ -30,15 +34,27 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
 
-  // ===== Portal-Tooltip =====
-  const [hoverKey, setHoverKey] = useState(null); // z.B. "F|2025-09-13" oder "BAR|2025-09-13"
+  // ===== Tooltip infra: Cache + Show/Hide Timer =====
   const [tipData, setTipData] = useState(null);   // { text, top, left, flip, header, width }
-  const tipTimer = useRef(null);
+  const tipHideTimer = useRef(null);
+  const tipShowTimer = useRef(null);
+  const tooltipCache = useRef(new Map()); // key -> text
+
+  const clearShowTimer = () => {
+    if (tipShowTimer.current) {
+      clearTimeout(tipShowTimer.current);
+      tipShowTimer.current = null;
+    }
+  };
+  const clearHideTimer = () => {
+    if (tipHideTimer.current) {
+      clearTimeout(tipHideTimer.current);
+      tipHideTimer.current = null;
+    }
+  };
 
   const showTipAt = (el, key, text, header, alignTop = false, width = 280) => {
-    if (!allowTooltip) return; // Feature-Gate
-    if (!el || !text) return;
-    if (tipTimer.current) clearTimeout(tipTimer.current);
+    if (!allowTooltip || !el || !text) return;
 
     const rect = el.getBoundingClientRect();
     let left = rect.right + 8;
@@ -55,17 +71,35 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     if (top < 8) top = 8;
     if (top + 140 > vh) top = Math.max(8, vh - 160);
 
-    setHoverKey(key);
     setTipData({ text, top, left, flip, header, width });
   };
 
+  const scheduleShow = (el, key, buildFn, header, alignTop = false, width = 280) => {
+    if (!allowTooltip) return;
+    clearShowTimer();
+    clearHideTimer();
+    tipShowTimer.current = setTimeout(() => {
+      let txt = tooltipCache.current.get(key);
+      if (!txt) {
+        try { txt = buildFn(); } catch { txt = ''; }
+        if (txt) tooltipCache.current.set(key, txt);
+      }
+      if (txt) showTipAt(el, key, txt, header, alignTop, width);
+    }, 180); // Show-Delay
+  };
+
   const scheduleHide = () => {
-    if (tipTimer.current) clearTimeout(tipTimer.current);
-    tipTimer.current = setTimeout(() => {
-      setHoverKey(null);
+    clearShowTimer();
+    clearHideTimer();
+    tipHideTimer.current = setTimeout(() => {
       setTipData(null);
     }, 120);
   };
+
+  // Cache bei Kontextwechsel leeren
+  useEffect(() => {
+    tooltipCache.current = new Map();
+  }, [firma, unit, jahr, monat, refreshKey]);
 
   // Tage aufbauen
   useEffect(() => {
@@ -159,19 +193,42 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         position: q.position ?? 999,
       };
     });
+    setMatrixMapState(matrixMap);
 
     // --- Qualifikationen & User (Sichtbarkeit/Namen) ---
-    const userIds = [...new Set(dienste.map((d) => d.user))];
+// --- Qualifikationen & User (Sichtbarkeit/Namen) ---
+const userIds = [...new Set(dienste.map((d) => d.user))];
 
-    const { data: qualis } = await supabase
+// Monatsende als obere Grenze (Quali gilt ab created_at; keine Untergrenze nötig)
+const monatsEndeIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
+
+// Helper hast du weiter unten bereits; falls nicht vorhanden, belassen wir ihn wie bei DB_User
+const chunkArray = (arr, size) => {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+
+// Serverseitig gefilterte Qualis (nur relevante User bis Monatsende)
+let qualis = [];
+if (userIds.length > 0) {
+  const qualChunks = chunkArray(userIds, 200); // 100–200 ist gut
+  for (const batch of qualChunks) {
+    const { data, error } = await supabase
       .from('DB_Qualifikation')
-      .select('user_id, quali, created_at');
+      .select('user_id, quali, created_at')
+      .in('user_id', batch)
+      .lte('created_at', monatsEndeIso);
 
-    const chunkArray = (arr, size) => {
-      const out = [];
-      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-      return out;
-    };
+    if (error) {
+      console.error('Qualis laden (gefiltert) fehlgeschlagen', error);
+      continue;
+    }
+    if (data?.length) qualis.push(...data);
+  }
+}
+// Hinweis: Falls userIds leer ist, bleibt qualis = []
+
 
     let userNameMap = {};
     let userVisibleMap = {};
@@ -188,6 +245,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         });
       }
     }
+    setUserNameMapState(userNameMap);
 
     const status = { F: {}, S: {}, N: {} };
 
@@ -206,13 +264,13 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .map((d) => d.user);
         const aktiveUser = aktiveUserRaw.filter((uid) => userVisibleMap[uid] !== false);
 
-        // Quali-Map nur mit gültigen Qualis ab created_at
+        // Quali-Map nur mit gültigen Qualis ab created_at (pro Zelle speichern → lazy Tooltip)
         const userQualiMap = {};
+        const tag = dayjs(datum);
         qualis
           .filter((q) => aktiveUser.includes(q.user_id))
           .forEach((q) => {
             const gueltigAb = dayjs(q.created_at);
-            const tag = dayjs(datum);
             if (tag.isBefore(gueltigAb, 'day')) return;
             if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
             userQualiMap[q.user_id].push(q.quali);
@@ -305,48 +363,31 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
             if (vorhanden < (b.anzahl || 0)) zusatzFehlt.push(kurz);
           });
 
-        // Tooltip-Text
-        const tooltip = (() => {
-          const lines = [];
-          lines.push(`👥 Anzahl MA: ${aktiveUser.length}`);
-          if (fehlend.length > 0) lines.push('', `❌ Fehlende Quali: ${fehlend.join(', ')}`);
-          if (zusatzFehlt.length > 0) lines.push('', `⚠️ Zusatzquali fehlt: ${zusatzFehlt.join(', ')}`);
-          if (Object.keys(abdeckung).length > 0) {
-            lines.push('', '✔ Eingesetzt:');
-            for (const qualiId in abdeckung) {
-              const uids = abdeckung[qualiId];
-              const qname = matrixMap[qualiId]?.kuerzel || `ID:${qualiId}`;
-              const namen = uids.map((uid) => userNameMap[uid] || `User ${uid}`).join(', ');
-              lines.push(`- ${qname}: ${namen || 'niemand'}`);
-            }
-          }
-          const nichtVerwendete = aktiveUser.filter((id) => !verwendeteUser.has(id));
-          if (nichtVerwendete.length > 0) {
-            lines.push('', '🕐 Noch verfügbar:');
-            for (const uid of nichtVerwendete) {
-              const qlist = (userQualiMap[uid] || []).map((qid) => matrixMap[qid]?.kuerzel || `ID:${qid}`);
-              lines.push(`- ${userNameMap[uid] || `User ${uid}`}: ${qlist.join(', ') || 'keine Quali'}`);
-            }
-          }
-          return lines.join('\n');
-        })();
+        const nichtVerwendete = aktiveUser.filter((id) => !verwendeteUser.has(id));
 
+        // Kein Tooltip-String mehr speichern → nur strukturierte Meta-Daten
         const bottom = topMissingKuerzel
           ? `${topMissingKuerzel}${totalMissing > 1 ? '+' : ''}`
           : null;
 
         status[schicht][datum] = {
           farbe: statusfarbe,
-          tooltip,
           bottom,
           topLeft: zusatzFehlt.length > 0 ? zusatzFehlt[0] : null,
           topRight,
           fehlend,
+          meta: {
+            aktiveUserIds: aktiveUser,
+            abdeckung,                   // quali_id -> [userIds]
+            nichtVerwendeteIds: nichtVerwendete,
+            userQualiMap,                // user_id -> [qualiIds]
+            zusatzFehltKuerzel: zusatzFehlt,
+          },
         };
       }
     }
 
-    // Farbleiste oben (Sonder-/Zeitbedarfe)
+    // Farbleiste oben (Sonder-/Zeitbedarfe) – Lazy-Tooltip Daten
     const leiste = {};
     for (const tag of tage) {
       const tagBedarfe = bedarf.filter(
@@ -359,14 +400,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
       if (tagBedarfe.length > 0) {
         const eventName = [...new Set(tagBedarfe.map((b) => b.namebedarf))].join(', ');
-        const tooltipZeilen = [
-          `${dayjs(tag).format('DD.MM.YYYY')} – ${eventName}`,
-          ...tagBedarfe.map((b) => {
-            const bez = matrixMap[b.quali_id]?.bezeichnung || 'Unbekannt';
-            const icon = b.anzahl === 1 ? '👤' : '👥';
-            return `${icon} ${bez}: ${b.anzahl} ${b.anzahl === 1 ? 'Person' : 'Personen'}`;
-          }),
-        ];
 
         const farben = tagBedarfe.map((b) => b.farbe);
         const step = 100 / farben.length;
@@ -380,7 +413,8 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
         leiste[tag] = {
           gradient,
-          tooltip: tooltipZeilen.join('\n'),
+          eventName,
+          items: tagBedarfe.map((b) => ({ quali_id: b.quali_id, anzahl: b.anzahl })),
         };
       }
     }
@@ -394,13 +428,58 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tage, firma, unit, refreshKey]);
 
+  // Tooltip-Builder (Cell)
+  const buildCellTooltip = (kuerzel, datum, cell) => {
+    if (!cell?.meta) return '';
+    const { aktiveUserIds = [], abdeckung = {}, nichtVerwendeteIds = [], userQualiMap = {}, zusatzFehltKuerzel = [] } = cell.meta;
+
+    const lines = [];
+    lines.push(`👥 Anzahl MA: ${aktiveUserIds.length}`);
+
+    if (cell.fehlend?.length) lines.push('', `❌ Fehlende Quali: ${cell.fehlend.join(', ')}`);
+    if (zusatzFehltKuerzel.length) lines.push('', `⚠️ Zusatzquali fehlt: ${zusatzFehltKuerzel.join(', ')}`);
+
+    const abdeckungKeys = Object.keys(abdeckung);
+    if (abdeckungKeys.length) {
+      lines.push('', '✔ Eingesetzt:');
+      for (const qualiId of abdeckungKeys) {
+        const uids = abdeckung[qualiId] || [];
+        const qname = matrixMapState[qualiId]?.kuerzel || `ID:${qualiId}`;
+        const namen = uids.map((uid) => userNameMapState[uid] || `User ${uid}`).join(', ');
+        lines.push(`- ${qname}: ${namen || 'niemand'}`);
+      }
+    }
+
+    if (nichtVerwendeteIds.length) {
+      lines.push('', '🕐 Noch verfügbar:');
+      for (const uid of nichtVerwendeteIds) {
+        const qlist = (userQualiMap[uid] || []).map((qid) => matrixMapState[qid]?.kuerzel || `ID:${qid}`);
+        lines.push(`- ${userNameMapState[uid] || `User ${uid}`}: ${qlist.join(', ') || 'keine Quali'}`);
+      }
+    }
+    return lines.join('\n');
+  };
+
+  // Tooltip-Builder (Bar)
+  const buildBarTooltip = (datum, entry) => {
+    if (!entry) return '';
+    const lines = [];
+    lines.push(`${dayjs(datum).format('DD.MM.YYYY')} – ${entry.eventName}`);
+    for (const it of entry.items || []) {
+      const bez = matrixMapState[it.quali_id]?.bezeichnung || 'Unbekannt';
+      const icon = it.anzahl === 1 ? '👤' : '👥';
+      lines.push(`${icon} ${bez}: ${it.anzahl} ${it.anzahl === 1 ? 'Person' : 'Personen'}`);
+    }
+    return lines.join('\n');
+  };
+
   // Modal öffnen (Feature-Gate)
   const handleModalOeffnen = (datum, kuerzel) => {
     if (!allowAnalyse) return;
-    const status = bedarfStatus[kuerzel]?.[datum];
+    const cell = bedarfStatus[kuerzel]?.[datum];
     setModalDatum(datum);
     setModalSchicht(kuerzel);
-    setFehlendeQualis(status?.fehlend || []);
+    setFehlendeQualis(cell?.fehlend || []);
     setModalOffen(true);
   };
 
@@ -432,9 +511,8 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
                 className="relative w-[48px] min-w-[48px] h-[6px] rounded-t"
                 style={{ background: eintrag?.gradient || (eintrag?.farbe || 'transparent') }}
                 onMouseEnter={(e) =>
-                  allowTooltip &&
-                  eintrag?.tooltip &&
-                  showTipAt(e.currentTarget, key, eintrag.tooltip, header, true)
+                  allowTooltip && eintrag &&
+                  scheduleShow(e.currentTarget, key, () => buildBarTooltip(datum, eintrag), header, true)
                 }
                 onMouseLeave={allowTooltip ? scheduleHide : undefined}
               />
@@ -450,7 +528,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           </div>
           <div className="flex gap-[2px]">
             {tage.map((datum) => {
-              const status = bedarfStatus[kuerzel]?.[datum];
+              const cell = bedarfStatus[kuerzel]?.[datum];
               const key = `${kuerzel}|${datum}`;
               const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${
                 kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'
@@ -461,29 +539,28 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
                   key={datum}
                   onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
                   onMouseEnter={(e) =>
-                    allowTooltip &&
-                    status?.tooltip &&
-                    showTipAt(e.currentTarget, key, status.tooltip, header, kuerzel === 'F')
+                    allowTooltip && cell &&
+                    scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
                   }
                   onMouseLeave={allowTooltip ? scheduleHide : undefined}
                   className={`relative ${
                     allowAnalyse ? 'cursor-pointer' : 'cursor-default'
                   } w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${
-                    status?.farbe || 'bg-gray-200 dark:bg-gray-600'
+                    cell?.farbe || 'bg-gray-200 dark:bg-gray-600'
                   }`}
                 >
-                  {status?.topLeft && (
+                  {cell?.topLeft && (
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
                   )}
-                  {status?.topRight === 'blau-1' && (
+                  {cell?.topRight === 'blau-1' && (
                     <div className="absolute top-0 right-0 w-0 h-0 border-t-[12px] border-t-green-300 border-l-[12px] border-l-transparent pointer-events-none" />
                   )}
-                  {status?.topRight === 'blau-2' && (
+                  {cell?.topRight === 'blau-2' && (
                     <div className="absolute top-0 right-0 w-0 h-0 border-t-[12px] border-t-green-700 border-l-[12px] border-l-transparent pointer-events-none" />
                   )}
-                  {status?.bottom && (
+                  {cell?.bottom && (
                     <div className="absolute bottom-0 left-0 w-full text-[9px] text-gray-900 dark:text-white">
-                      {status.bottom}
+                      {cell.bottom}
                     </div>
                   )}
                 </div>
@@ -498,9 +575,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         tipData &&
         createPortal(
           <div
-            onMouseEnter={() => {
-              if (tipTimer.current) clearTimeout(tipTimer.current);
-            }}
+            onMouseEnter={() => { clearHideTimer(); }}
             onMouseLeave={scheduleHide}
             style={{ position: 'fixed', top: tipData.top, left: tipData.left, zIndex: 100000, pointerEvents: 'auto' }}
           >
@@ -568,4 +643,3 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 };
 
 export default MitarbeiterBedarf;
-
