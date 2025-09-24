@@ -15,69 +15,95 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
   const [buttonDisabled, setButtonDisabled] = useState(false);
   const [userVisible, setUserVisible] = useState(true);
 
-  useEffect(() => {
-  const ladeQualifikationen = async () => {
-    if (!firma || !unit || !user?.user_id) return;
+  // --- Helpers ---
+  const todayYYYYMMDD = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
 
-    const { data: matrix } = await supabase
-      .from('DB_Qualifikationsmatrix')
-      .select('*')
-      .eq('firma_id', firma)
-      .eq('unit_id', unit)
-      .eq('aktiv', true)
-      .order('position', { ascending: true });
-
-    const { data: zugewiesenData } = await supabase
-      .from('DB_Qualifikation')
-      .select('*')
-      .eq('user_id', user.user_id);
-
-    if (matrix) setAlleQualis(matrix);
-
-    if (zugewiesenData && matrix) {
-      const mitDetails = zugewiesenData.map((eintrag) => {
-        const details = matrix.find((m) => m.id === eintrag.quali);
-        return {
-          ...eintrag,
-          qualifikation: details?.qualifikation ?? '❓Unbekannt',
-          kuerzel: details?.quali_kuerzel ?? '',
-          beschreibung: details?.beschreibung ?? '',
-          position: details?.position ?? null,
-        };
-      });
-
-      setZugewiesen(
-        mitDetails.sort((a, b) => {
-          if (a.position == null && b.position == null) return 0;
-          if (a.position == null) return 1;
-          if (b.position == null) return -1;
-          return a.position - b.position;
-        })
-      );
+  const toYYYYMMDD = (val) => {
+    if (!val) return todayYYYYMMDD();
+    const d = new Date(val);
+    if (Number.isNaN(d.getTime())) {
+      // falls bereits 'YYYY-MM-DD' vorliegt, einfach zurückgeben
+      return String(val).slice(0, 10);
     }
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
   };
 
-  ladeQualifikationen();
-}, [firma, unit, user?.user_id]);
-useEffect(() => {
-  const ladeUserVisible = async () => {
-    if (!user?.user_id) return;
+  useEffect(() => {
+    const ladeQualifikationen = async () => {
+      if (!firma || !unit || !user?.user_id) return;
 
-    const { data: userInfo } = await supabase
-      .from('DB_User')
-      .select('user_visible')
-      .eq('user_id', user.user_id)
-      .single();
+      const { data: matrix } = await supabase
+        .from('DB_Qualifikationsmatrix')
+        .select('*')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('aktiv', true)
+        .order('position', { ascending: true });
 
-    setUserVisible(userInfo?.user_visible === true);
-  };
+      const { data: zugewiesenData } = await supabase
+        .from('DB_Qualifikation')
+        .select('*')
+        .eq('user_id', user.user_id);
 
-  ladeUserVisible();
-}, [user?.user_id]);
+      if (matrix) setAlleQualis(matrix);
+
+      if (zugewiesenData && matrix) {
+        const mitDetails = zugewiesenData.map((eintrag) => {
+          const details = matrix.find((m) => m.id === eintrag.quali);
+          const ca = toYYYYMMDD(eintrag.created_at);
+          return {
+            ...eintrag,
+            qualifikation: details?.qualifikation ?? '❓Unbekannt',
+            kuerzel: details?.quali_kuerzel ?? '',
+            beschreibung: details?.beschreibung ?? '',
+            position: details?.position ?? null,
+            created_at: ca,                 // für <input type="date">
+            _originalCreatedAt: ca,         // Vergleich
+            _changedDate: false,            // Marker für Updates
+          };
+        });
+
+        setZugewiesen(
+          mitDetails.sort((a, b) => {
+            if (a.position == null && b.position == null) return 0;
+            if (a.position == null) return 1;
+            if (b.position == null) return -1;
+            return a.position - b.position;
+          })
+        );
+      }
+    };
+
+    ladeQualifikationen();
+  }, [firma, unit, user?.user_id]);
+
+  useEffect(() => {
+    const ladeUserVisible = async () => {
+      if (!user?.user_id) return;
+      const { data: userInfo } = await supabase
+        .from('DB_User')
+        .select('user_visible')
+        .eq('user_id', user.user_id)
+        .single();
+      setUserVisible(userInfo?.user_visible === true);
+    };
+    ladeUserVisible();
+  }, [user?.user_id]);
+
   const handleZuweisen = (q) => {
     const schon = zugewiesen.some((z) => z.quali === q.id);
     if (schon) return;
 
+    const ca = todayYYYYMMDD();
     setZugewiesen((prev) => [
       ...prev,
       {
@@ -86,8 +112,10 @@ useEffect(() => {
         qualifikation: q.qualifikation,
         kuerzel: q.quali_kuerzel,
         beschreibung: q.beschreibung,
-        created_at: new Date().toISOString(),
+        created_at: ca,             // direkt als YYYY-MM-DD
         position: q.position,
+        _originalCreatedAt: ca,
+        _changedDate: false,
       },
     ]);
   };
@@ -113,40 +141,104 @@ useEffect(() => {
     }
   };
 
+  const handleDateChange = (id, value) => {
+    // value ist 'YYYY-MM-DD'
+    setZugewiesen((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, created_at: value, _changedDate: value !== e._originalCreatedAt }
+          : e
+      )
+    );
+  };
+
   const handleSpeichern = async () => {
     const neuZuweisungen = zugewiesen.filter((q) => String(q.id).startsWith('neu-'));
-    if (neuZuweisungen.length === 0) return;
+    const changedExisting = zugewiesen.filter(
+      (q) => !String(q.id).startsWith('neu-') && q._changedDate
+    );
+
+    if (neuZuweisungen.length === 0 && changedExisting.length === 0) return;
 
     setButtonDisabled(true);
     setFeedback('Speichern …');
 
-    const eintraege = neuZuweisungen.map((q) => ({
-      user_id: user?.user_id,
-      quali: q.quali,
-      created_at: q.created_at,
-    }));
+    // 1) Neue Einträge einfügen
+    if (neuZuweisungen.length > 0) {
+      const eintraege = neuZuweisungen.map((q) => ({
+        user_id: user?.user_id,
+        quali: q.quali,
+        created_at: q.created_at, // 'YYYY-MM-DD' reicht, Postgres castet zu timestamp
+      }));
 
-    const { error, data } = await supabase.from('DB_Qualifikation').insert(eintraege).select();
+      const { error, data } = await supabase
+        .from('DB_Qualifikation')
+        .insert(eintraege)
+        .select();
 
-    if (!error) {
-      const gespeicherte = data.map((e) => e.quali);
-      setZugewiesen((prev) =>
-        prev.map((q2) =>
-          String(q2.id).startsWith('neu-') && gespeicherte.includes(q2.quali)
-            ? { ...q2, id: data.find((d) => d.quali === q2.quali)?.id }
-            : q2
-        )
-      );
-      setFeedback('✔️ Erfolgreich gespeichert!');
-      triggerRefresh?.();
-    } else {
-      setFeedback('❌ Fehler beim Speichern!');
+      if (!error && data) {
+        // IDs aus DB zurück in den State mappen
+        setZugewiesen((prev) =>
+          prev.map((q2) =>
+            String(q2.id).startsWith('neu-')
+              ? (() => {
+                  const match = data.find((d) => d.quali === q2.quali);
+                  return match
+                    ? {
+                        ...q2,
+                        id: match.id,
+                        _originalCreatedAt: toYYYYMMDD(match.created_at),
+                        _changedDate: false,
+                      }
+                    : q2;
+                })()
+              : q2
+          )
+        );
+      } else if (error) {
+        setFeedback('❌ Fehler beim Speichern neuer Qualifikationen!');
+        setTimeout(() => {
+          setFeedback('');
+          setButtonDisabled(false);
+        }, 2000);
+        return;
+      }
     }
 
+    // 2) Geänderte created_at bei bestehenden Einträgen updaten
+    if (changedExisting.length > 0) {
+      for (const u of changedExisting) {
+        const { error: upErr } = await supabase
+          .from('DB_Qualifikation')
+          .update({ created_at: u.created_at })
+          .eq('id', u.id);
+
+        if (upErr) {
+          setFeedback('❌ Fehler beim Aktualisieren des Datums!');
+          setTimeout(() => {
+            setFeedback('');
+            setButtonDisabled(false);
+          }, 2000);
+          return;
+        }
+      }
+
+      // Flags zurücksetzen
+      setZugewiesen((prev) =>
+        prev.map((q) =>
+          q._changedDate
+            ? { ...q, _changedDate: false, _originalCreatedAt: q.created_at }
+            : q
+        )
+      );
+    }
+
+    setFeedback('✔️ Erfolgreich gespeichert!');
+    triggerRefresh?.();
     setTimeout(() => {
       setFeedback('');
       setButtonDisabled(false);
-    }, 2000);
+    }, 1500);
   };
 
   const handleVisibleToggle = async (checked) => {
@@ -168,7 +260,10 @@ useEffect(() => {
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">Qualifikationen zuweisen</h2>
-        <Info className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" onClick={() => setInfoOffen(true)} />
+        <Info
+          className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+          onClick={() => setInfoOffen(true)}
+        />
       </div>
 
       <div className="grid grid-cols-12 gap-4">
@@ -195,7 +290,7 @@ useEffect(() => {
               <tr>
                 <th className="p-1 text-left">Qualifikation</th>
                 <th className="p-1 text-left">Kürzel</th>
-                <th className="p-1 text-left">Zugewiesen</th>
+                <th className="p-1 text-left">Zugewiesen am</th>
                 <th className="p-1 text-left">Aktion</th>
               </tr>
             </thead>
@@ -205,10 +300,18 @@ useEffect(() => {
                   key={eintrag.id}
                   onMouseEnter={() => setHoverText(eintrag.beschreibung)}
                   onMouseLeave={() => setHoverText('')}
+                  className={eintrag._changedDate ? 'bg-yellow-50 dark:bg-yellow-900/20' : ''}
                 >
                   <td className="p-1">{eintrag.qualifikation}</td>
                   <td className="p-1">{eintrag.kuerzel}</td>
-                  <td className="p-1">{new Date(eintrag.created_at).toLocaleDateString()}</td>
+                  <td className="p-1">
+                    <input
+                      type="date"
+                      value={eintrag.created_at || todayYYYYMMDD()}
+                      onChange={(e) => handleDateChange(eintrag.id, e.target.value)}
+                      className="bg-transparent border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
+                    />
+                  </td>
                   <td className="p-1 text-red-600 text-center">
                     <Trash2 size={16} className="inline cursor-pointer" onClick={() => handleEntfernen(eintrag.id)} />
                   </td>
@@ -291,7 +394,7 @@ useEffect(() => {
             </p>
             <p className="mb-2">
               ✅ Die Checkbox <strong>„Mitarbeiter im Einsatzplan anzeigen“</strong> dient dazu, Mitarbeitende temporär
-              auszublenden (z. B. bei Krankheit oder Urlaub). In der Kampfliste werden sie dann visuell ausgegraut.
+              auszublenden (z. B. bei Krankheit oder Urlaub). In der Kampfliste werden sie dann visuell ausgegraut.
             </p>
             <p className="mb-2">
               ⚠️ <strong>Wichtig:</strong> Auch wenn ein Mitarbeiter ausgeblendet ist, werden seine Qualifikationen bei
@@ -305,4 +408,3 @@ useEffect(() => {
 };
 
 export default QualiZuweisung;
-
