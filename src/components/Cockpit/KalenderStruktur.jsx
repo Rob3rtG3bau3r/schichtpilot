@@ -130,9 +130,9 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
         </div>
       </div>
 
-      <div className="flex overflow-x-auto text-center text-sm">
+      <div className="flex overflow-x-visible text-center text-sm">
         <div className="w-[160px] min-w-[160px] flex-shrink-0"></div>
-        <div className="flex gap-[2px]">
+        <div className="flex gap-[2px] min-w-fit">
           {tage.map((t, index) => (
             <div
               key={index}

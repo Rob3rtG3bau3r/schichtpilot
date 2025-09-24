@@ -485,7 +485,7 @@ if (userIds.length > 0) {
 
   return (
     <div
-      className="overflow-x-auto relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700"
+      className="overflow-x-visible relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700"
       style={{ overflowY: 'visible' }}
     >
       {/* Info-Button */}
@@ -500,7 +500,7 @@ if (userIds.length > 0) {
       {/* Farbleiste ganz oben */}
       <div className="flex w-full">
         <div className="w-[176px] min-w-[176px]"></div>
-        <div className="flex gap-[2px]">
+        <div className="flex gap-[2px] min-w-fit">
           {tage.map((datum) => {
             const eintrag = bedarfsLeiste[datum];
             const key = `BAR|${datum}`;
@@ -526,7 +526,7 @@ if (userIds.length > 0) {
           <div className="w-[176px] min-w-[176px] text-gray-900 dark:text-gray-300 text-left px-2 py text-xs">
             {kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'}
           </div>
-          <div className="flex gap-[2px]">
+          <div className="flex gap-[2px] min-w-fit">
             {tage.map((datum) => {
               const cell = bedarfStatus[kuerzel]?.[datum];
               const key = `${kuerzel}|${datum}`;

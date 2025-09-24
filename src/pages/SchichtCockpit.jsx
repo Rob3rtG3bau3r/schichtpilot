@@ -76,7 +76,8 @@ const [modalFrei, setModalFrei] = useState([]);
   };
 
   return (
-    <div className="px-6 pb-1 text-white overflow-x-visible overflow-y-visible relative isolate">
+    <div className="min-h-screen bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white">
+      <div className="px-6 pb-1 relative isolate">
 
       <CockpitMenue
         sollPlanAktiv={sollPlanAktiv}
@@ -86,6 +87,9 @@ const [modalFrei, setModalFrei] = useState([]);
         gruppenZähler={gruppenZähler}
       />
 
+<div id="sp-hscroll"
+     className="overflow-x-auto overflow-y-visible"
+     style={{ overscrollBehaviorX: 'contain' }}>
 
       {/* Kalenderstruktur */}
       <KalenderStruktur
@@ -126,6 +130,7 @@ const [modalFrei, setModalFrei] = useState([]);
         sichtbareGruppen={sichtbareGruppen}
         setGruppenZähler={setGruppenZähler}
       />
+    </div>
       {/* Popup zum Ändern eines Dienstes */}
       <SchichtDienstAendernForm
         offen={popupOffen}
@@ -137,6 +142,7 @@ const [modalFrei, setModalFrei] = useState([]);
         reloadListe={() => setReloadKey(prev => prev + 1)} 
         onRefreshMitarbeiterBedarf={() => setRefreshMitarbeiterKey((prev) => prev + 1)}
       />
+    </div>
     </div>
   );
 };

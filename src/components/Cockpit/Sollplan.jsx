@@ -97,7 +97,7 @@ const Sollplan = ({ jahr, monat }) => {
                 <span className="text-gray-400">{monatsstunden} h</span>
               </div>
 
-              <div className="flex gap-[2px] overflow-x-auto">
+              <div className="flex gap-[2px] overflow-x-visible min-w-fit">
                 {Array.from({ length: tageImMonat }, (_, i) => {
                   const tag = i + 1;
                   const eintrag = tageMap[tag];
