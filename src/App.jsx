@@ -25,9 +25,19 @@ import ResetPassword from "./pages/ResetPassword";
 import UnitReports from './pages/UnitReports';
 import TopReport from './pages/TopReport';
 import UserPflege from './pages/UserPflege';
+import DesktopOnlyRoute from './routes/DesktopOnlyRoute';
+import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 
 const App = () => {
-  if (window.matchMedia('(display-mode: standalone)').matches && !window.location.pathname.startsWith('/mobile')) {
+const isMobileNow =
+  window.matchMedia?.('(max-width: 1023px)')?.matches ||
+  /Mobi|Android|iPhone|iPad|iPod|Windows Phone|BlackBerry|webOS/i.test(navigator.userAgent);
+
+if (
+  window.matchMedia('(display-mode: standalone)').matches &&
+  isMobileNow &&
+  !window.location.pathname.startsWith('/mobile')
+) {
   window.location.href = '/mobile';
 }
 
@@ -44,7 +54,14 @@ const App = () => {
   <Route path="/reset-password" element={<ResetPassword />} />
 
   {/* Alle geschützten Routen im Layout */}
-  <Route path="/" element={<Layout />}>
+  <Route
+  path="/"
+  element={
+    <DesktopOnlyProtectedLayout>
+      <Layout />
+    </DesktopOnlyProtectedLayout>
+  }
+>
     <Route
       path="dashboard"
       element={
@@ -64,9 +81,11 @@ const App = () => {
         <Route
           path="schichtcockpit"
           element={
+            <DesktopOnlyRoute>
             <RollenCheckRoute erlaubteRollen={['Admin_Dev', 'Planner','Team_Leader','Employee', 'SuperAdmin']}>
               <SchichtCockpit />
             </RollenCheckRoute>
+            </DesktopOnlyRoute>
           }
         />
         <Route

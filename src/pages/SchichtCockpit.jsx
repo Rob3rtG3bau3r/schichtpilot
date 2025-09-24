@@ -8,6 +8,25 @@ import { supabase } from '../supabaseClient';
 import { useRollen } from '../context/RollenContext';
 import MitarbeiterBedarf from '../components/Cockpit/MitarbeiterBedarf';
 import dayjs from 'dayjs';
+import { Link } from "react-router-dom";
+
+const MobileBlocker = () => (
+  <div className="fixed inset-0 z-[9999] lg:hidden bg-gray-900 text-white flex items-center justify-center p-6">
+    <div className="max-w-md text-center space-y-4">
+      <h1 className="text-xl font-semibold">Nur am Desktop verfügbar</h1>
+      <p className="opacity-90">
+        Das Cockpit & somit die Schichtplanung sind bewusst nicht für kleine Bildschirme freigegeben.
+        Bitte nutze die mobile Ansicht.
+      </p>
+      <Link
+        to="/mobile"
+        className="inline-block rounded-xl px-4 py-2 bg-blue-600 hover:bg-blue-700"
+      >
+        Zur mobilen Ansicht
+      </Link>
+    </div>
+  </div>
+);
 
 const SchichtCockpit = () => {
   const [gruppenZähler, setGruppenZähler] = useState({});
@@ -143,6 +162,7 @@ const [modalFrei, setModalFrei] = useState([]);
         onRefreshMitarbeiterBedarf={() => setRefreshMitarbeiterKey((prev) => prev + 1)}
       />
     </div>
+    <MobileBlocker />
     </div>
   );
 };
