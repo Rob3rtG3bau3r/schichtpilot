@@ -207,7 +207,7 @@ const KampfListe = ({
         if (!idsSet.has(uid)) continue;
         const gesamt = Number(r.urlaub_gesamt) || 0;
         const summe = Number(r.summe_jahr) || 0;
-        urlaubInfo[uid] = { gesamt, summe, rest: gesamt - summe };
+        urlaubInfo[uid] = { summe, gesamt, rest: gesamt - summe };
       }
       setUrlaubInfoMap(urlaubInfo);
 
@@ -217,7 +217,7 @@ const KampfListe = ({
         if (!idsSet.has(uid)) continue;
         const gesamt = Number(r.stunden_gesamt) || 0;
         const summe = Number(r.summe_jahr) || 0;
-        stundenInfo[uid] = { gesamt, summe, rest: gesamt - summe };
+        stundenInfo[uid] = { summe, gesamt, rest: summe - gesamt };
       }
       setStundenInfoMap(stundenInfo);
 
@@ -397,7 +397,7 @@ const KampfListe = ({
                         onMouseLeave={scheduleHideTip}
                         style={{ pointerEvents: 'auto' }}
                       >
-                        <div className="relative w-[240px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
+                        <div className="relative w-[256px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
                                         bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 font-mono text-xs">
                           {/* Pfeil */}
                           <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
