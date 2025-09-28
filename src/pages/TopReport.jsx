@@ -6,7 +6,7 @@ import { useRollen } from '../context/RollenContext';
 import { ChevronDown, ChevronRight, RotateCw } from 'lucide-react';
 
 const Panel = ({ title, children, right }) => (
-  <div className="rounded-2xl border border-gray-700/50 bg-gray-900 text-white p-3">
+  <div className="rounded-2xl border border-gray-700/50 bg-gray-800 text-white p-3">
     <div className="flex items-center justify-between mb-2">
       <h3 className="font-semibold">{title}</h3>
       {right}
@@ -32,7 +32,7 @@ const Card = ({ title, items, topN = 5 }) => {
   };
 
   return (
-    <div className="rounded-xl border border-gray-700/40 bg-gray-800 p-3">
+    <div className="rounded-xl border border-gray-700/40 bg-gray-700 p-3">
       <div className="flex items-center justify-between">
         <div className="font-medium">{title}</div>
         {items ? (
