@@ -1,7 +1,22 @@
 'use client';
 import React, { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../supabaseClient';
-import { Calendar, ChevronDown, Download, CheckCircle2, Circle, AlertCircle, RefreshCw } from 'lucide-react';
+import { supabase as supabaseClient } from '../supabaseClient';
+import { Calendar, ChevronDown, Download, CheckCircle2, Circle, AlertCircle, RefreshCw, Check, X } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
 
 // ---- UI primitives ---------------------------------------------------------
 const Card = ({ className = '', children, ...rest }) => (
@@ -38,8 +53,13 @@ const colorBySign = (n) =>
 : n < 0 ? 'text-red-600 dark:text-red-400'
         : 'text-gray-900 dark:text-gray-100';
 
+// Fallback-Farbpalette für Kürzel
+const FALLBACK_COLORS = ['#60a5fa','#f472b6','#34d399','#f59e0b','#a78bfa','#f87171','#4ade80','#fb7185'];
+
 // ---- component -------------------------------------------------------------
 export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, defaultYear }) {
+  const supabase = supabaseProp ?? supabaseClient;
+
   // Scrollbar fix nur hier (keine globalen Änderungen)
   useEffect(() => {
     const root = document.documentElement;
@@ -66,7 +86,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
         .maybeSingle();
       if (data) { setFirmaIdState(data.firma_id); setUnitIdState(data.unit_id); }
     })();
-  }, [firmaIdState, unitIdState]);
+  }, [firmaIdState, unitIdState, supabase]);
 
   // State / Daten
   const now = useMemo(()=> new Date(), []);
@@ -81,6 +101,26 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
 
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [showYear, setShowYear] = useState(false);
+
+  // Kürzel-Farben aus DB_SchichtArt
+  const [kuerzelColors, setKuerzelColors] = useState({}); // { KU: '#hex' }
+  useEffect(() => {
+    if (!firmaIdState || !unitIdState) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('DB_SchichtArt')
+        .select('kuerzel, farbe, color, color_hex, hex')
+        .eq('firma_id', firmaIdState)
+        .eq('unit_id', unitIdState);
+      if (error) return; // still graceful fallback
+      const map = {};
+      (data || []).forEach(row => {
+        const c = row.farbe || row.color || row.color_hex || row.hex;
+        if (row.kuerzel && c) map[row.kuerzel] = c;
+      });
+      setKuerzelColors(map);
+    })();
+  }, [firmaIdState, unitIdState, supabase]);
 
   const loadYear = async (y) => {
     setLoading(true); setError(null);
@@ -133,6 +173,78 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
     return (Number(ytdRow.krank_stunden_ytd ?? 0) / Number(ytdRow.ytd_ist)) * 100;
   }, [ytdRow]);
 
+  // ---------- Jahresdatensätze für Diagramme ----------
+  const fullYearRows = useMemo(() => {
+    // Mappe 1..12 fest, fülle fehlende Monate mit Nullwerten
+    const byMonth = new Map(months.map(r => [r.monat, r]));
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const r = byMonth.get(m) || { monat: m };
+      return {
+        monat: m,
+        label: MONTHS[m-1],
+        urlaubstage: Number(r.urlaubstage_sum ?? 0),
+        ist: Number(r.ist_stunden_sum ?? 0),
+        soll: Number(r.soll_stunden_sum ?? 0),
+        krankStdKO: Number((r.kuerzel_stunden?.K ?? 0) + (r.kuerzel_stunden?.KO ?? 0)),
+        dauer12: Number(r.dauer12_count ?? 0),
+        kuerzelStunden: r.kuerzel_stunden || {},
+      };
+    });
+  }, [months]);
+
+  const cumBoth = useMemo(() => {
+    let runIst = 0, runSoll = 0;
+    return fullYearRows.map(row => {
+      runIst += (row.ist || 0);
+      runSoll += (row.soll || 0);
+      return { label: row.label, kumIst: runIst, kumSoll: runSoll };
+    });
+  }, [fullYearRows]);
+
+  const availableKuerzel = useMemo(() => {
+    const set = new Set();
+    fullYearRows.forEach(r => Object.keys(r.kuerzelStunden || {}).forEach(k => set.add(k)));
+    return Array.from(set).sort();
+  }, [fullYearRows]);
+
+  // Top-3 Kürzel über das Jahr (nach Gesamtsumme)
+  const top3Kuerzel = useMemo(() => {
+    const totals = {};
+    fullYearRows.forEach(r => {
+      Object.entries(r.kuerzelStunden || {}).forEach(([k, v]) => {
+        totals[k] = (totals[k] || 0) + Number(v || 0);
+      });
+    });
+    return Object.entries(totals)
+      .sort((a,b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k]) => k);
+  }, [fullYearRows]);
+
+  const [customKuerzel, setCustomKuerzel] = useState([]);
+  const chosenKuerzel = (customKuerzel.length ? customKuerzel : top3Kuerzel).slice(0, 3);
+
+  const kuerzelSeriesPerMonth = useMemo(() => {
+    return fullYearRows.map(r => {
+      const base = { label: r.label };
+      chosenKuerzel.forEach(k => { base[k] = Number(r.kuerzelStunden?.[k] ?? 0); });
+      return base;
+    });
+  }, [fullYearRows, chosenKuerzel]);
+
+  // Farben zugewiesen (DB_SchichtArt -> Fallback)
+  const colorFor = (k, idx) => kuerzelColors[k] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+
+  // --- Monatsdiagramm-Daten (rechts neben Monatsübersicht) ---
+  const monthTopKuerzel = useMemo(() => {
+    if (!monthRow?.kuerzel_stunden) return [];
+    const arr = Object.entries(monthRow.kuerzel_stunden).map(([k,v])=>({k, v: Number(v||0)})).sort((a,b)=>b.v-a.v).slice(0,5);
+    return arr;
+  }, [monthRow]);
+
+  const monthKrankKO = useMemo(()=> Number((monthRow?.kuerzel_stunden?.K || 0) + (monthRow?.kuerzel_stunden?.KO || 0)), [monthRow]);
+
   // CSV (Year) – Werte aus db_report_ytd
   const exportCSVYear = () => {
     if (!atLeastOneReady || !ytdRow) return;
@@ -150,9 +262,9 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
       (ytdRow.ytd_soll ?? ''), (ytdRow.ytd_ist ?? 0), (ytdRow.ytd_diff ?? ''),
       (ytdRow.year_soll ?? ''), (ytdRow.year_ist ?? 0), (ytdRow.year_diff ?? ''),
       (ytdRow.ytd_urlaub ?? 0), (ytdRow.year_urlaub ?? 0), (ytdRow.year_urlaub_soll ?? ''),
-      (ytdRow.krank_stunden_ytd ?? 0), (ytdRow.kranktage_ytd ?? 0), (ytdKrankQuote ?? ''),
+      (ytdRow.krank_stunden_ytd ?? 0), (ytdRow.kranktage_ytd ?? 0), (((ytdRow.krank_stunden_ytd ?? 0)/(ytdRow.ytd_ist||1))*100).toFixed(2),
       (ytdRow.dauer10_ytd ?? 0), (ytdRow.dauer11_ytd ?? 0), (ytdRow.dauer12_ytd ?? 0),
-    ].join(';') + '\n';
+].join(';') + '\n';
     const blob = new Blob([csvHeader + line], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
     a.download = `unit_report_year_${year}.csv`; document.body.appendChild(a); a.click();
@@ -209,7 +321,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
 
   // --- Render ---------------------------------------------------------------
   return (
-    <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-4">
+    <div className=" mx-auto p-4 md:p-6 space-y-4">
       {/* Kopfzeile */}
       <div className='flex items-center justify-between gap-2'>
         <div className='flex items-center gap-2'>
@@ -254,16 +366,15 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
               {monthRow && (
                 <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
                   {typeof monthRow.soll_stunden_sum === 'number' && (
-
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Ist-Stunden</div>
-                    <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
-                  </div>
-                  )}
                     <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Soll-Stunden</div>
-                      <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
+                      <div className='text-sm text-gray-400'>Ist-Stunden</div>
+                      <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
                     </div>
+                  )}
+                  <div className='rounded-xl border p-3'>
+                    <div className='text-sm text-gray-400'>Soll-Stunden</div>
+                    <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
+                  </div>
                   {monthDiff != null && (
                     <div className='rounded-xl border p-3'>
                       <div className='text-sm text-gray-400'>Differenz (Ist−Soll)</div>
@@ -313,113 +424,311 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
               <KuerzelTable title='Kürzel – Stunden' data={monthRow?.kuerzel_stunden ?? null} unit='h' />
             </div>
           </div>
+
+          {/* Rechte Spalte: Monats-Charts */}
+          <div className='md:col-span-5 space-y-4'>
+            {/* Ist vs Soll (Balken) */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Ist vs. Soll (Monat)</div>
+                  <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+                </div>
+                <div className='h-48'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={[{ name: 'Monat', Ist: Number(monthRow?.ist_stunden_sum||0), Soll: Number(monthRow?.soll_stunden_sum||0) }]}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="Ist"  name="Ist (h)"  fill="#10b981"  />   {/* blau */}
+                      <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />   {/* grün */}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+
+            {/* Top-5 Kürzel (Stunden) im Monat */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Top-5 Kürzel (h) im Monat</div>
+                  <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+                </div>
+                <div className='h-48'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthTopKuerzel.map((r,i)=>({ name: r.k, h: r.v, fill: colorFor(r.k,i) }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="h" name="Stunden" >
+                        {monthTopKuerzel.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={colorFor(entry.k,index)} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+
+            {/* Krank K+KO (Stunden) im Monat */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Krank (K+KO) Stunden im Monat</div>
+                  <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+                </div>
+                <div className='h-48'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={[{ name: 'K+KO', h: monthKrankKO }]}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="h" name="Stunden"  fill="#ef4444" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+          </div>
         </div>
       )}
 
-      {/* JAHRESANSICHT – db_report_ytd */}
+      {/* JAHRESANSICHT – db_report_ytd + Diagramme */}
       {showYear && (
         <div className='grid md:grid-cols-12 gap-4'>
+          {/* Linke Hauptkarte */}
           <div className='md:col-span-7 space-y-4'>
             <Card>
-              <div className='flex items-center justify-between mb-3'>
-                <div className='flex items-center gap-2'><Calendar className='w-4 h-4'/><span className='font-medium'>Jahresübersicht</span></div>
-                <Muted>{year} · bis Monat {ytdRow?.bis_monat ?? '–'}</Muted>
-              </div>
-
-              {!atLeastOneReady && <Muted>Noch kein Monat finalisiert.</Muted>}
-              {atLeastOneReady && (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {/* Stunden – YTD */}
-                  <div className="col-span-full mt-1 text-xs uppercase tracking-wide text-gray-500">
-                    Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Ist-Stunden (YTD)</div>
-                    <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_ist ?? 0)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Soll-Stunden (YTD)</div>
-                    <div className='text-lg font-semibold'>{ytdRow?.ytd_soll != null ? deNumber(ytdRow.ytd_soll) : '–'}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Differenz (Ist−Soll, YTD)</div>
-                    <div className={`text-lg font-semibold ${colorBySign(ytdRow?.ytd_diff ?? 0)}`}>
-                      {ytdRow?.ytd_diff == null ? '–'
-                        : (ytdRow.ytd_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.ytd_diff))}
-                    </div>
-                  </div>
-
-                  {/* Stunden – Jahr gesamt */}
-                  <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Stunden · gesamtes Jahr</div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Ist-Stunden (Jahr)</div>
-                    <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_ist ?? 0)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Soll-Stunden (Jahr)</div>
-                    <div className='text-lg font-semibold'>{ytdRow?.year_soll != null ? deNumber(ytdRow.year_soll) : '–'}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Differenz (Ist−Soll, Jahr)</div>
-                    <div className={`text-lg font-semibold ${colorBySign(ytdRow?.year_diff ?? 0)}`}>
-                      {ytdRow?.year_diff == null ? '–'
-                        : (ytdRow.year_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.year_diff))}
-                    </div>
-                  </div>
-
-                  {/* Urlaub – YTD */}
-                  <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">
-                    Urlaub · bis Monat {ytdRow?.bis_monat ?? '–'}
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Urlaubstage (YTD)</div>
-                    <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_urlaub ?? 0, 0)}</div>
-                  </div>
-
-                  {/* Urlaub – Jahr gesamt */}
-                  <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Urlaub · gesamtes Jahr</div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Urlaubstage (Jahr)</div>
-                    <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_urlaub ?? 0, 0)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Urlaubstage-Soll (Jahr)</div>
-                    <div className='text-lg font-semibold'>{ytdRow?.year_urlaub_soll != null ? deNumber(ytdRow.year_urlaub_soll, 0) : '–'}</div>
-                  </div>
-
-                  {/* Krank (YTD) */}
-                  <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Krank · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Kranktage (YTD)</div>
-                    <div className='text-lg font-semibold'>{deNumber(ytdRow?.kranktage_ytd ?? 0, 0)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Krank-Stunden (YTD)</div>
-                    <div className='text-lg font-semibold'>{deNumber(ytdRow?.krank_stunden_ytd ?? 0)}</div>
-                  </div>                  
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Krank-% (Stundenbasis, YTD)</div>
-                    <div className='text-lg font-semibold'>{dePercent(ytdKrankQuote)}</div>
-                  </div>
-                  {/* >10 Stunden (YTD) */}
-                  <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Einsätze über 10 Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>10/11/12 Std Einsätze (YTD)</div>
-                    <div className='text-lg font-semibold'>
-                      {(ytdRow?.dauer10_ytd ?? 0) + (ytdRow?.dauer11_ytd ?? 0) + (ytdRow?.dauer12_ytd ?? 0)}
-                    </div>
-                    <div className='text-xs font-bold text-gray-200 mt-1'>
-                      10h = {ytdRow?.dauer10_ytd ?? 0} 
-                    </div>
-                    <div className='text-xs font-bold text-gray-200 mt-1'>
-                      11h = {ytdRow?.dauer11_ytd ?? 0}
-                    </div>
-                    <div className='text-xs font-bold text-gray-200 mt-1'>
-                      12h = {ytdRow?.dauer12_ytd ?? 0}
-                    </div>
-                  </div>
+              <div className='flex flex-col gap-3'>
+                <div className='flex items-center justify-between'>
+                  <div className='flex items-center gap-2'><Calendar className='w-4 h-4'/><span className='font-medium'>Jahresübersicht</span></div>
+                  <Muted>{year} · bis Monat {ytdRow?.bis_monat ?? '–'}</Muted>
                 </div>
-              )}
+
+                {!atLeastOneReady && <Muted>Noch kein Monat finalisiert.</Muted>}
+                {atLeastOneReady && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {/* Stunden – YTD */}
+                    <div className="col-span-full mt-1 text-xs uppercase tracking-wide text-gray-500">
+                      Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Ist-Stunden (YTD)</div>
+                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_ist ?? 0)}</div>
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Soll-Stunden (YTD)</div>
+                      <div className='text-lg font-semibold'>{ytdRow?.ytd_soll != null ? deNumber(ytdRow.ytd_soll) : '–'}</div>
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Differenz (Ist−Soll, YTD)</div>
+                      <div className={`text-lg font-semibold ${colorBySign(ytdRow?.ytd_diff ?? 0)}`}>
+                        {ytdRow?.ytd_diff == null ? '–'
+                          : (ytdRow.ytd_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.ytd_diff))}
+                      </div>
+                    </div>
+
+                    {/* Stunden – Jahr gesamt */}
+                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Stunden · gesamtes Jahr</div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Ist-Stunden (Jahr)</div>
+                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_ist ?? 0)}</div>
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Soll-Stunden (Jahr)</div>
+                      <div className='text-lg font-semibold'>{ytdRow?.year_soll != null ? deNumber(ytdRow.year_soll) : '–'}</div>
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Differenz (Ist−Soll, Jahr)</div>
+                      <div className={`text-lg font-semibold ${colorBySign(ytdRow?.year_diff ?? 0)}`}>
+                        {ytdRow?.year_diff == null ? '–'
+                          : (ytdRow.year_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.year_diff))}
+                      </div>
+                    </div>
+
+                    {/* Urlaub – YTD */}
+                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">
+                      Urlaub · bis Monat {ytdRow?.bis_monat ?? '–'}
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Urlaubstage (YTD)</div>
+                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_urlaub ?? 0, 0)}</div>
+                    </div>
+
+                    {/* Urlaub – Jahr gesamt */}
+                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Urlaub · gesamtes Jahr</div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Urlaubstage (Jahr)</div>
+                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_urlaub ?? 0, 0)}</div>
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Urlaubstage-Soll (Jahr)</div>
+                      <div className='text-lg font-semibold'>{ytdRow?.year_urlaub_soll != null ? deNumber(ytdRow.year_urlaub_soll, 0) : '–'}</div>
+                    </div>
+
+                    {/* Krank (YTD) */}
+                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Krank · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Kranktage (YTD)</div>
+                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.kranktage_ytd ?? 0, 0)}</div>
+                    </div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Krank-Stunden (YTD)</div>
+                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.krank_stunden_ytd ?? 0)}</div>
+                    </div>                 
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>Krank-% (Stundenbasis, YTD)</div>
+                      <div className='text-lg font-semibold'>{dePercent(ytdKrankQuote)}</div>
+                    </div>
+                    {/* >10 Stunden (YTD) */}
+                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Einsätze über 10 Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
+                    <div className='rounded-xl border p-3'>
+                      <div className='text-sm text-gray-400'>10/11/12 Std Einsätze (YTD)</div>
+                      <div className='text-lg font-semibold'>
+                        {(ytdRow?.dauer10_ytd ?? 0) + (ytdRow?.dauer11_ytd ?? 0) + (ytdRow?.dauer12_ytd ?? 0)}
+                      </div>
+                      <div className='text-xs font-bold text-gray-200 mt-1'>
+                        10h = {ytdRow?.dauer10_ytd ?? 0} 
+                      </div>
+                      <div className='text-xs font-bold text-gray-200 mt-1'>
+                        11h = {ytdRow?.dauer11_ytd ?? 0}
+                      </div>
+                      <div className='text-xs font-bold text-gray-200 mt-1'>
+                        12h = {ytdRow?.dauer12_ytd ?? 0}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {/* Rechte Spalte: wichtigste Jahresdiagramme */}
+          <div className='md:col-span-5 space-y-4'>
+            {/* Urlaubstage pro Monat (Balken) */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Urlaubstage je Monat</div>
+                  <Muted>Tage</Muted>
+                </div>
+                <div className='h-56 shadow-xl'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={fullYearRows}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="urlaubstage" name="Urlaubstage"  fill="#3b82f6"/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+
+            {/* Ist/Soll kumuliert (Linie) */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Kumulierte Stunden (Ist & Soll)</div>
+                  <Muted>h</Muted>
+                </div>
+                <div className='h-56'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={cumBoth}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="kumIst" name="Ist kumuliert" dot={false} stroke="#10b981"/>
+                      <Line type="monotone" dataKey="kumSoll" name="Soll kumuliert" dot={false} stroke="#373affff" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+
+            {/* Krank K/KO in Stunden (Balken) */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Krank (K + KO) in Stunden je Monat</div>
+                  <Muted>h</Muted>
+                </div>
+                <div className='h-56'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={fullYearRows}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="krankStdKO" name="K+KO Stunden" fill="#ef4444" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+
+            {/* 12-Stunden-Dienste Anzahl (Balken) */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>12h-Dienste je Monat (Anzahl)</div>
+                  <Muted>Count</Muted>
+                </div>
+                <div className='h-56'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={fullYearRows}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="dauer12" name="12h Dienste" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </Card>
+
+            {/* Kürzel: Popover mit Suche + farbige Balken */}
+            <Card>
+              <div className='px-3 pt-2 pb-3'>
+                <div className='flex items-center justify-between mb-2'>
+                  <div className='font-medium'>Kürzel (Stunden) je Monat</div>
+                  <KuerzelPicker
+                    available={availableKuerzel}
+                    value={customKuerzel}
+                    onChange={setCustomKuerzel}
+                    colorFor={colorFor}
+                  />
+                </div>
+                <div className='h-56'>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={kuerzelSeriesPerMonth}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      {chosenKuerzel.map((k, idx) => (
+                        <Bar key={k} dataKey={k} name={`${k} (h)`} fill={colorFor(k, idx)} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </Card>
           </div>
         </div>
@@ -428,7 +737,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
   );
 }
 
-// ---- Unterkomponente Tabelle ----------------------------------------------
+// ---- Unterkomponenten ------------------------------------------------------
 const KuerzelTable = ({ title, data, unit })=>{
   const rows = Object.entries(data ?? {}).map(([k,v])=>({k, v})).sort((a,b)=> (b.v ?? 0) - (a.v ?? 0));
   return (
@@ -448,9 +757,12 @@ const KuerzelTable = ({ title, data, unit })=>{
             {rows.length === 0 && (
               <tr><td className='px-4 py-3 text-gray-500' colSpan={2}>Keine Daten</td></tr>
             )}
-            {rows.map(r=> (
+            {rows.map((r, idx)=> (
               <tr key={r.k} className='hover:bg-white/5'>
-                <td className='px-4 py-2 font-mono'>{r.k}</td>
+                <td className='px-4 py-2 font-mono flex items-center gap-2'>
+                  <span className='inline-block w-3 h-3 rounded' style={{ backgroundColor: FALLBACK_COLORS[idx % FALLBACK_COLORS.length] }} />
+                  {r.k}
+                </td>
                 <td className='px-4 py-2 text-right'>{unit === 'h' ? deNumber(r.v) : deNumber(r.v,0)}</td>
               </tr>
             ))}
@@ -460,4 +772,93 @@ const KuerzelTable = ({ title, data, unit })=>{
     </Card>
   );
 };
+// ---- Simple Badge (statt shadcn Badge)
+const MiniBadge = ({ children, onClose }) => (
+  <span className="inline-flex items-center gap-1 rounded-xl px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600">
+    {children}
+    {onClose && (
+      <button onClick={onClose} className="ml-1 opacity-70 hover:opacity-100">
+        <X className="w-3 h-3" />
+      </button>
+    )}
+  </span>
+);
 
+const KuerzelPicker = ({ available, value, onChange, colorFor }) => {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = React.useRef(null);
+
+  // click outside, um den Popover zu schließen
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const filtered = available.filter(k => k.toLowerCase().includes(q.toLowerCase()));
+  const selected = new Set(value);
+  const toggle = (k) => {
+    const arr = value.includes(k) ? value.filter(v=>v!==k) : [...value, k];
+    onChange(arr.slice(0,3)); // max 3 beibehalten
+  };
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={()=>setOpen(v=>!v)}
+        className="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm hover:bg-gray-500"
+      >
+        Kürzel wählen ({value.length || 'Top 3'})
+        <ChevronDown className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-64 rounded-xl border bg-white dark:bg-gray-800 shadow-lg z-20">
+          <div className="p-2 border-b">
+            <input
+              value={q}
+              onChange={(e)=>setQ(e.target.value)}
+              placeholder="Kürzel suchen…"
+              className="w-full rounded-lg bg-gray-100 dark:bg-gray-700 px-2 py-1 text-sm outline-none"
+            />
+          </div>
+
+          <div className="max-h-60 overflow-auto py-1">
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-sm text-gray-500">Keine Treffer</div>
+            )}
+            {filtered.map((k, idx) => (
+              <button
+                key={k}
+                onClick={()=>toggle(k)}
+                className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+              >
+                <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: colorFor(k, idx) }} />
+                <span className="font-mono">{k}</span>
+                <span className="ml-auto">
+                  {selected.has(k) ? <Check className="w-4 h-4" /> : <span className="inline-block w-4 h-4" />}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {value.length > 0 && (
+            <div className="flex flex-wrap gap-1 p-2 border-t">
+              {value.map((k, idx) => (
+                <MiniBadge key={k} onClose={() => onChange(value.filter(v=>v!==k))}>
+                  <span className="inline-block w-2.5 h-2.5 rounded" style={{ backgroundColor: colorFor(k, idx) }} />
+                  <span className="font-mono">{k}</span>
+                </MiniBadge>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
