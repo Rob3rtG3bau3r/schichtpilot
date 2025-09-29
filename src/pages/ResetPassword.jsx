@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import logo from "../assets/logo.png";
-import qrCode from "../assets/qr_code_mockup.png";
 import { useNavigate, Link } from "react-router-dom";
 
+// ---------------------------
+// Passwort-Checks
+// ---------------------------
 function checkPw(pw) {
   const minLen = pw.length >= 8;
   const upper = /[A-Z]/.test(pw);
@@ -13,44 +15,67 @@ function checkPw(pw) {
   return { ok: minLen && upper && lower && digit && special, minLen, upper, lower, digit, special };
 }
 
+// optionale freundliche Fehlermeldungen für den Code-Exchange
+const mapExchangeError = (err) => {
+  const raw = err?.message || "";
+  const msg = raw.toLowerCase();
+  if (msg.includes("expired") || msg.includes("invalid grant") || msg.includes("invalid") || msg.includes("used")) {
+    return "Der Bestätigungs-Link ist abgelaufen oder wurde bereits benutzt. Bitte fordere einen neuen an.";
+  }
+  return raw || "Unbekannter Fehler beim Bestätigen des Links.";
+};
+
 export default function ResetPassword() {
   const nav = useNavigate();
-  const [phase, setPhase] = useState("verifying"); // verifying | ready | error | saving | done
+
+  // verifying | confirm | ready | saving | done | error
+  const [phase, setPhase] = useState("verifying");
   const [error, setError] = useState("");
+
+  const [code, setCode] = useState(null); // PKCE ?code=...
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
 
   useEffect(() => {
+    // 0) Fehler, die Supabase ggf. im Hash liefert (#error=...)
+    if (window.location.hash.includes("error=")) {
+      const p = new URLSearchParams(window.location.hash.slice(1));
+      setPhase("error");
+      setError(decodeURIComponent(p.get("error_description") || "Ungültiger Link."));
+      return;
+    }
+
     const run = async () => {
       try {
-        // 1) Neuer Flow mit ?code=
-        const code = new URLSearchParams(window.location.search).get("code");
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-          setPhase("ready");
+        // 1) PKCE-Flow: ?code=... vorhanden -> NICHT automatisch einlösen
+        const urlParams = new URLSearchParams(window.location.search);
+        const c = urlParams.get("code");
+        if (c) {
+          setCode(c);
+          setPhase("confirm"); // auf Button warten
           return;
         }
 
-        // 2) Alternativer Flow mit #access_token=… (Session via Hash)
-        await new Promise((r) => setTimeout(r, 400));
+        // 2) Implicit/Hash-Flow: Session kann direkt vorhanden sein
+        await new Promise((r) => setTimeout(r, 300));
         const { data } = await supabase.auth.getSession();
         if (data?.session) {
           setPhase("ready");
           return;
         }
 
-        // 3) Späterer Auth-State (langsame Geräte)
+        // 3) Letzter Versuch: Auth-State 1–2s beobachten
         const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
           if ((event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") && session) {
             setPhase("ready");
           }
         });
+
         setTimeout(() => {
           if (sub) sub.subscription.unsubscribe();
           if (phase === "verifying") {
             setPhase("error");
-            setError("Ungültiger oder fehlender Link.");
+            setError("Ungültiger oder fehlender Link. Bitte fordere einen neuen an.");
           }
         }, 2000);
       } catch (err) {
@@ -62,6 +87,20 @@ export default function ResetPassword() {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Manuelle Bestätigung – verhindert, dass Scanner den Token verbrauchen
+  const handleConfirm = async () => {
+    if (!code) return;
+    setPhase("verifying");
+    setError("");
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      setPhase("error");
+      setError(mapExchangeError(error));
+      return;
+    }
+    setPhase("ready");
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -87,21 +126,51 @@ export default function ResetPassword() {
 
   // Inhalt innerhalb der Card – abhängig von phase
   const chk = checkPw(pw);
+
   const renderCardContent = () => {
     if (phase === "verifying") {
-      return <div className="text-gray-200">Link wird geprüft…</div>;
+      return <div className="text-gray-200">Vorgang wird geprüft…</div>;
     }
+
+    if (phase === "confirm") {
+      return (
+        <div className="space-y-4">
+          <p className="text-gray-200">
+            Zur Sicherheit klicke auf <strong>„Link bestätigen“</strong>, um den Bestätigungs-Code einzulösen.
+          </p>
+          <button
+            onClick={handleConfirm}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded transition"
+          >
+            Link bestätigen
+          </button>
+          <p className="text-xs text-gray-400">
+            Hinweis: Manche Mail-Scanner öffnen Links automatisch. Durch diesen Button wird der Code erst jetzt eingelöst.
+          </p>
+          <div className="text-sm text-gray-300">
+            <Link to="/passwort-vergessen" className="text-blue-400 hover:underline">
+              Neuen Link anfordern
+            </Link>
+          </div>
+        </div>
+      );
+    }
+
     if (phase === "error") {
       return (
         <div className="space-y-4">
           <p className="text-red-400">{error}</p>
-          <Link to="/passwort-vergessen" className="underline text-blue-300">Neuen Link anfordern</Link>
+          <Link to="/passwort-vergessen" className="underline text-blue-300">
+            Neuen Link anfordern
+          </Link>
         </div>
       );
     }
+
     if (phase === "done") {
       return <div className="text-green-400">Passwort aktualisiert! Weiterleitung…</div>;
     }
+
     // phase === "ready" | "saving"
     return (
       <form onSubmit={handleSave} className="space-y-5">
