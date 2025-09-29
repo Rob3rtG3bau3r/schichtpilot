@@ -442,8 +442,8 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Bar dataKey="Ist"  name="Ist (h)"  fill="#10b981"  />   {/* blau */}
-                      <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />   {/* grün */}
+                      <Bar dataKey="Ist"  name="Ist (h)"  fill="#10b981"  />  
+                      <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />  
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
