@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Info } from 'lucide-react';
 import InfoModal from './InfoModal';
@@ -44,6 +44,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
   });
 
   const [editingUserId, setEditingUserId] = useState(null);
+  const [originalFirmaId, setOriginalFirmaId] = useState('');
   const [firmen, setFirmen] = useState([]);
   const [units, setUnits] = useState([]);
   const [passwortManuell, setPasswortManuell] = useState(false);
@@ -51,6 +52,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
   const [zeigePasswort, setZeigePasswort] = useState(false);
   const [zeigeInfo, setZeigeInfo] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [warnMessage, setWarnMessage] = useState('');
 
   const { userId } = useRollen();
 
@@ -58,7 +60,8 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
   useEffect(() => {
     const ladeFirmenUndUnits = async () => {
       const { data: firmenData } = await supabase.from('DB_Kunden').select('id, firmenname');
-      const { data: unitsData } = await supabase.from('DB_Unit').select('id, unitname');
+      // 👇 wichtig: firma_id mitladen, damit gefiltert werden kann
+      const { data: unitsData } = await supabase.from('DB_Unit').select('id, unitname, firma');
       setFirmen(firmenData || []);
       setUnits(unitsData || []);
     };
@@ -91,12 +94,53 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
         email: selectedUser.email || '',
       }));
       setEditingUserId(selectedUser.user_id || selectedUser.id || null);
+      setOriginalFirmaId(selectedUser.firma_id || '');
+    } else {
+      setEditingUserId(null);
+      setOriginalFirmaId('');
     }
   }, [selectedUser]);
 
+  /** Units gefiltert nach aktueller Firma */
+const filteredUnits = useMemo(() => {
+  const fId = String(formData.firma_id || '');
+  if (!fId) return [];
+  return (units || []).filter(u => String(u.firma) === fId);
+}, [units, formData.firma_id]);
+
+  /** Wenn Firma wechselt (nur im Neu-Modus sinnvoll), Unit zurücksetzen */
+  useEffect(() => {
+    // Wenn die aktuell gesetzte Unit nicht zur (neuen) Firma passt, leeren
+    if (formData.unit_id && filteredUnits.length > 0) {
+      const ok = filteredUnits.some(u => String(u.id) === String(formData.unit_id));
+      if (!ok) {
+        setFormData(prev => ({ ...prev, unit_id: '' }));
+      }
+    }
+  }, [formData.firma_id, filteredUnits]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
+
+    // Firma im Bearbeiten-Modus sperren
+    if (name === 'firma_id' && editingUserId) {
+      setWarnMessage('Die Firma eines bestehenden Nutzers kann nicht geändert werden.');
+      // Optional: kurze visuelle Bestätigung, dann Hinweis wieder ausblenden
+      setTimeout(() => setWarnMessage(''), 3500);
+      return;
+    }
+
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Komfort: separater Handler, falls du später andere Logik brauchst
+  const handleFirmaNeuSetzen = (e) => {
+    const value = e.target.value;
+    setFormData(prev => ({
+      ...prev,
+      firma_id: value,
+      unit_id: '', // beim Wechsel Firma immer Unit leeren
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -123,12 +167,30 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
     let firmaId = formData.firma_id;
     if (formData.typ === 'Kunden Anlegen') {
       try {
-        firmaId = await erstelleFirmaUndHoleId(formData.firma_id); // hier ist der Firmenname eingegeben
+        // hier ist in formData.firma_id der FREITEXT-FIRMENNAME
+        firmaId = await erstelleFirmaUndHoleId(formData.firma_id);
       } catch (error) {
         alert(error.message);
         setLadeStatus(false);
         return;
       }
+    }
+
+    // ❗ Validierung: Unit muss zur Firma gehören (sofern gesetzt & nicht Kunden-Anlegen)
+if (firmaId && formData.unit_id && formData.typ !== 'Kunden Anlegen') {
+  const unitObj = units.find(u => String(u.id) === String(formData.unit_id));
+  if (unitObj && String(unitObj.firma) !== String(firmaId)) {
+    alert('Die gewählte Unit gehört nicht zur ausgewählten Firma.');
+    setLadeStatus(false);
+    return;
+  }
+}
+
+    // ❗ Firma im Edit-Modus nicht ändern (Sicherheitsnetz auf Submit-Ebene)
+    if (editingUserId && String(firmaId) !== String(originalFirmaId)) {
+      alert('Die Firma eines bestehenden Nutzers kann nicht geändert werden.');
+      setLadeStatus(false);
+      return;
     }
 
     const userPayload = {
@@ -173,7 +235,6 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
         if (passwortManuell) {
           setStatusMessage('✅ Benutzer angelegt. Passwort wurde manuell gesetzt.');
         } else {
-          // Automatisch Reset-Link versenden
           try {
             await sendeResetLink(formData.email);
             setStatusMessage('📧 Benutzer angelegt. Ein Link zum Passwort-Setzen wurde per E-Mail verschickt.');
@@ -203,6 +264,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
       });
       setPasswortManuell(false);
       setEditingUserId(null);
+      setOriginalFirmaId('');
 
       setTimeout(() => setStatusMessage(''), 4000);
     } catch (err) {
@@ -222,6 +284,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
         onClick={() => setZeigeInfo(true)}
         className="absolute top-4 right-4 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
         title="Info"
+        type="button"
       >
         <Info size={20} />
       </button>
@@ -280,6 +343,7 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
         </select>
 
         {istKunde ? (
+          // Kunden anlegen: freier Firmenname
           <input
             name="firma_id"
             placeholder="Firma (frei eingeben)"
@@ -289,37 +353,62 @@ const BenutzerFormular = ({ selectedUser, onCancelEdit, onUserUpdated }) => {
             disabled={ladeStatus}
           />
         ) : (
-          <select
-            name="firma_id"
-            value={formData.firma_id}
-            onChange={handleChange}
-            className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
-            disabled={ladeStatus}
-          >
-            <option value="">Wähle Firma</option>
-            {firmen.map((firma) => (
-              <option key={firma.id} value={firma.id}>
-                {firma.firmenname}
-              </option>
-            ))}
-          </select>
+          // Normal: Firma auswählen (im Edit-Modus gesperrt)
+          <div>
+            <select
+              name="firma_id"
+              value={formData.firma_id}
+              onChange={editingUserId ? handleChange : handleFirmaNeuSetzen}
+              className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+              disabled={ladeStatus || !!editingUserId}
+            >
+              <option value="">Wähle Firma</option>
+              {firmen.map((firma) => (
+                <option key={firma.id} value={firma.id}>
+                  {firma.firmenname}
+                </option>
+              ))}
+            </select>
+            {editingUserId && (
+              <p className="mt-1 text-xs text-amber-600">
+                Hinweis: Die Firma eines bestehenden Nutzers kann nicht geändert werden.
+              </p>
+            )}
+            {warnMessage && (
+              <p className="mt-1 text-xs text-amber-600">{warnMessage}</p>
+            )}
+          </div>
         )}
 
         {!istKunde && (
-          <select
-            name="unit_id"
-            value={formData.unit_id}
-            onChange={handleChange}
-            className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
-            disabled={ladeStatus}
-          >
-            <option value="">Wähle Unit</option>
-            {units.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {unit.unitname}
-              </option>
-            ))}
-          </select>
+          <div>
+            <select
+              name="unit_id"
+              value={formData.unit_id}
+              onChange={handleChange}
+              className="w-full p-2 rounded bg-gray-200 dark:bg-gray-700"
+              disabled={ladeStatus || !formData.firma_id}
+              title={!formData.firma_id ? 'Bitte zuerst Firma wählen' : 'Unit (nach Firma gefiltert)'}
+            >
+              {!formData.firma_id ? (
+                <option value="">Bitte zuerst Firma wählen</option>
+              ) : filteredUnits.length === 0 ? (
+                <option value="">Keine Units für diese Firma</option>
+              ) : (
+                <>
+                  <option value="">Wähle Unit</option>
+                  {filteredUnits.map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.unitname}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
+            <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Units werden automatisch nach der ausgewählten Firma gefiltert.
+            </p>
+          </div>
         )}
 
         <select
