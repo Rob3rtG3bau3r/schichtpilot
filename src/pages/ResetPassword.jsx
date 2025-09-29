@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabaseClient";
 import logo from "../assets/logo.png";
 import { useNavigate, Link } from "react-router-dom";
@@ -15,12 +15,92 @@ function checkPw(pw) {
   return { ok: minLen && upper && lower && digit && special, minLen, upper, lower, digit, special };
 }
 
-// optionale freundliche Fehlermeldungen für den Code-Exchange
+// --- Heuristik: bekannte Preview-/Scanner-UserAgents ausfiltern ---
+function isLikelyScannerUA() {
+  const ua = (navigator.userAgent || "").toLowerCase();
+  const hints = [
+    "safelinks",         // Defender Safe Links
+    "microsoft office",  // Outlook desktop fetch
+    "urlpreview",
+    "linkpreview",
+    "link checker",
+    "bots", "crawler",
+    "headlesschrome",
+    "puppeteer",
+    "vkshare",
+    "facebookexternalhit",
+    "slackbot",
+    "twitterbot",
+    "whatsapp",
+  ];
+  return hints.some(h => ua.includes(h));
+}
+
+// --- Human-Signal: Wir lösen automatisch ein,
+//     sobald es sehr wahrscheinlich ein echter Nutzer ist.
+function humanSignal(cb) {
+  let fired = false;
+  const fire = () => {
+    if (!fired) { fired = true; cleanup(); cb(); }
+  };
+
+  const onFocus = () => {
+    // Nur wenn die Seite sichtbar und im Top-Level ist
+    if (document.visibilityState === "visible" && window.top === window.self) {
+      // Minimal warten, damit "instant fetcher" nicht durchrutschen
+      setTimeout(() => {
+        if (document.hasFocus()) fire();
+      }, 120);
+    }
+  };
+
+  const onPointer = () => fire();
+  const onKey = () => fire();
+  const onWheel = () => fire();
+  const onTouch = () => fire();
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") onFocus();
+  };
+
+  document.addEventListener("visibilitychange", onVisibility, { passive: true });
+  window.addEventListener("focus", onFocus, { passive: true });
+  window.addEventListener("pointerdown", onPointer, { passive: true });
+  window.addEventListener("mousemove", onPointer, { passive: true, once: true });
+  window.addEventListener("keydown", onKey, { passive: true });
+  window.addEventListener("wheel", onWheel, { passive: true });
+  window.addEventListener("touchstart", onTouch, { passive: true });
+
+  // Fallback: wenn nach kurzer Zeit echte Umgebung (fokussiert, sichtbar, nicht Bot) → auto
+  const fallbackId = setTimeout(() => {
+    if (!fired &&
+        !isLikelyScannerUA() &&
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        window.top === window.self &&
+        !navigator.webdriver) {
+      fire();
+    }
+  }, 1200);
+
+  const cleanup = () => {
+    clearTimeout(fallbackId);
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("focus", onFocus);
+    window.removeEventListener("pointerdown", onPointer);
+    window.removeEventListener("mousemove", onPointer);
+    window.removeEventListener("keydown", onKey);
+    window.removeEventListener("wheel", onWheel);
+    window.removeEventListener("touchstart", onTouch);
+  };
+
+  return cleanup;
+}
+
 const mapExchangeError = (err) => {
   const raw = err?.message || "";
   const msg = raw.toLowerCase();
-  if (msg.includes("expired") || msg.includes("invalid grant") || msg.includes("invalid") || msg.includes("used")) {
-    return "Der Bestätigungs-Link ist abgelaufen oder wurde bereits benutzt. Bitte fordere einen neuen an.";
+  if (msg.includes("expired") || msg.includes("invalid") || msg.includes("used") || msg.includes("grant")) {
+    return "Der Link ist abgelaufen oder wurde bereits benutzt. Bitte fordere einen neuen an.";
   }
   return raw || "Unbekannter Fehler beim Bestätigen des Links.";
 };
@@ -28,16 +108,21 @@ const mapExchangeError = (err) => {
 export default function ResetPassword() {
   const nav = useNavigate();
 
-  // verifying | confirm | ready | saving | done | error
+  // waiting = auf Human-Signal warten (quasi auto)
+  // verifying = tauscht Code ein
+  // ready = Passwort-Formular
+  // saving/done/error wie gehabt
   const [phase, setPhase] = useState("verifying");
   const [error, setError] = useState("");
 
-  const [code, setCode] = useState(null); // PKCE ?code=...
+  const [code, setCode] = useState(null);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
 
+  const cleanupRef = useRef(null);
+
   useEffect(() => {
-    // 0) Fehler, die Supabase ggf. im Hash liefert (#error=...)
+    // 1) Hash-Fehler (z. B. #error=...) früh anzeigen
     if (window.location.hash.includes("error=")) {
       const p = new URLSearchParams(window.location.hash.slice(1));
       setPhase("error");
@@ -45,115 +130,117 @@ export default function ResetPassword() {
       return;
     }
 
-    const run = async () => {
-      try {
-        // 1) PKCE-Flow: ?code=... vorhanden -> NICHT automatisch einlösen
-        const urlParams = new URLSearchParams(window.location.search);
-        const c = urlParams.get("code");
-        if (c) {
-          setCode(c);
-          setPhase("confirm"); // auf Button warten
-          return;
-        }
+    // 2) PKCE ?code=... vorhanden?
+    const c = new URLSearchParams(window.location.search).get("code");
+    if (c) {
+      setCode(c);
+      // Kein Auto-Exchange sofort—zuerst auf Human-Signal warten:
+      setPhase("waiting");
 
-        // 2) Implicit/Hash-Flow: Session kann direkt vorhanden sein
-        await new Promise((r) => setTimeout(r, 300));
+      // Starte Human-Signal-Listener
+      cleanupRef.current = humanSignal(async () => {
+        try {
+          setPhase("verifying");
+          const { error } = await supabase.auth.exchangeCodeForSession(c);
+          if (error) {
+            setPhase("error");
+            setError(mapExchangeError(error));
+            return;
+          }
+          setPhase("ready");
+        } catch (err) {
+          setPhase("error");
+          setError("Der Link konnte nicht bestätigt werden.");
+        }
+      });
+      return;
+    }
+
+    // 3) Implicit/Hash-Flow (Session schon aktiv)?
+    (async () => {
+      try {
+        await new Promise(r => setTimeout(r, 250));
         const { data } = await supabase.auth.getSession();
         if (data?.session) {
           setPhase("ready");
           return;
         }
-
-        // 3) Letzter Versuch: Auth-State 1–2s beobachten
+        // Letzte Chance: kurze Wartezeit auf Auth-Event
         const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
           if ((event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") && session) {
             setPhase("ready");
           }
         });
-
         setTimeout(() => {
           if (sub) sub.subscription.unsubscribe();
           if (phase === "verifying") {
             setPhase("error");
             setError("Ungültiger oder fehlender Link. Bitte fordere einen neuen an.");
           }
-        }, 2000);
-      } catch (err) {
-        console.warn("reset flow error:", err);
+        }, 1500);
+      } catch (e) {
         setPhase("error");
         setError("Der Link ist abgelaufen oder ungültig. Bitte fordere einen neuen an.");
       }
+    })();
+
+    return () => {
+      if (cleanupRef.current) cleanupRef.current();
     };
-    run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Manuelle Bestätigung – verhindert, dass Scanner den Token verbrauchen
-  const handleConfirm = async () => {
-    if (!code) return;
-    setPhase("verifying");
-    setError("");
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      setPhase("error");
-      setError(mapExchangeError(error));
-      return;
-    }
-    setPhase("ready");
-  };
-
   const handleSave = async (e) => {
     e.preventDefault();
+    setError("");
     if (pw !== pw2) return setError("Die Passwörter stimmen nicht überein.");
     const chk = checkPw(pw);
     if (!chk.ok) return setError("Bitte ein starkes Passwort wählen (mind. 8 Zeichen, Groß-/Kleinbuchstaben, Zahl, Sonderzeichen).");
 
     setPhase("saving");
-    setError("");
-
     const { error } = await supabase.auth.updateUser({ password: pw });
     if (error) {
-      console.warn("updateUser error:", error);
       setPhase("ready");
       setError("Passwort konnte nicht gespeichert werden. Bitte erneut versuchen.");
       return;
     }
-
     await supabase.auth.signOut();
     setPhase("done");
     setTimeout(() => nav("/login?reset=success"), 1000);
   };
 
-  // Inhalt innerhalb der Card – abhängig von phase
   const chk = checkPw(pw);
 
   const renderCardContent = () => {
-    if (phase === "verifying") {
-      return <div className="text-gray-200">Vorgang wird geprüft…</div>;
-    }
-
-    if (phase === "confirm") {
+    if (phase === "waiting") {
       return (
-        <div className="space-y-4">
-          <p className="text-gray-200">
-            Zur Sicherheit klicke auf <strong>„Link bestätigen“</strong>, um den Bestätigungs-Code einzulösen.
-          </p>
-          <button
-            onClick={handleConfirm}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded transition"
-          >
-            Link bestätigen
-          </button>
-          <p className="text-xs text-gray-400">
-            Hinweis: Manche Mail-Scanner öffnen Links automatisch. Durch diesen Button wird der Code erst jetzt eingelöst.
-          </p>
-          <div className="text-sm text-gray-300">
-            <Link to="/passwort-vergessen" className="text-blue-400 hover:underline">
-              Neuen Link anfordern
-            </Link>
+        <div className="space-y-3 text-gray-200">
+          <div>Link geöffnet – kurze Sicherheitsprüfung…</div>
+          <div className="text-xs text-gray-400">Tipp: Bewege Maus/Tippe/Drücke eine Taste, falls es nicht automatisch weitergeht.</div>
+          <div className="text-sm">
+            <button
+              onClick={async () => {
+                if (cleanupRef.current) cleanupRef.current();
+                setPhase("verifying");
+                const { error } = await supabase.auth.exchangeCodeForSession(code);
+                if (error) {
+                  setPhase("error");
+                  setError(mapExchangeError(error));
+                } else {
+                  setPhase("ready");
+                }
+              }}
+              className="mt-2 underline text-blue-300"
+            >
+              Oder hier klicken, um fortzufahren
+            </button>
           </div>
         </div>
       );
+    }
+
+    if (phase === "verifying") {
+      return <div className="text-gray-200">Bestätige…</div>;
     }
 
     if (phase === "error") {
