@@ -168,30 +168,47 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
     return Number(monthRow.ist_stunden_sum || 0) - Number(monthRow.soll_stunden_sum || 0);
   }, [monthRow]);
 
+  const monthK       = useMemo(() => Number(monthRow?.kuerzel_stunden?.K  ?? 0), [monthRow]);
+const monthKO      = useMemo(() => Number(monthRow?.kuerzel_stunden?.KO ?? 0), [monthRow]);
+const monthKCount  = useMemo(() => Number(monthRow?.kuerzel_count?.K    ?? 0), [monthRow]);
+const monthKOCount = useMemo(() => Number(monthRow?.kuerzel_count?.KO   ?? 0), [monthRow]);
+const monthKQuote  = useMemo(() => {
+  const denom = Number(monthRow?.ist_stunden_sum ?? 0);
+  return denom > 0 ? (monthK / denom) * 100 : null;
+}, [monthK, monthRow]);
+const monthKOQuote = useMemo(() => {
+  const denom = Number(monthRow?.ist_stunden_sum ?? 0);
+  return denom > 0 ? (monthKO / denom) * 100 : null;
+}, [monthKO, monthRow]);
+
   const ytdKrankQuote = useMemo(() => {
     if (!ytdRow || !Number(ytdRow?.ytd_ist)) return null;
     return (Number(ytdRow.krank_stunden_ytd ?? 0) / Number(ytdRow.ytd_ist)) * 100;
   }, [ytdRow]);
 
   // ---------- Jahresdatensätze für Diagramme ----------
-  const fullYearRows = useMemo(() => {
-    // Mappe 1..12 fest, fülle fehlende Monate mit Nullwerten
-    const byMonth = new Map(months.map(r => [r.monat, r]));
-    return Array.from({ length: 12 }, (_, i) => {
-      const m = i + 1;
-      const r = byMonth.get(m) || { monat: m };
-      return {
-        monat: m,
-        label: MONTHS[m-1],
-        urlaubstage: Number(r.urlaubstage_sum ?? 0),
-        ist: Number(r.ist_stunden_sum ?? 0),
-        soll: Number(r.soll_stunden_sum ?? 0),
-        krankStdKO: Number((r.kuerzel_stunden?.K ?? 0) + (r.kuerzel_stunden?.KO ?? 0)),
-        dauer12: Number(r.dauer12_count ?? 0),
-        kuerzelStunden: r.kuerzel_stunden || {},
-      };
-    });
-  }, [months]);
+const fullYearRows = useMemo(() => {
+  const byMonth = new Map(months.map(r => [r.monat, r]));
+  return Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const r = byMonth.get(m) || { monat: m };
+    const kStunden  = Number(r?.kuerzel_stunden?.K  ?? 0);
+    const koStunden = Number(r?.kuerzel_stunden?.KO ?? 0);
+    return {
+      monat: m,
+      label: MONTHS[m-1],
+      urlaubstage: Number(r.urlaubstage_sum ?? 0),
+      ist: Number(r.ist_stunden_sum ?? 0),
+      soll: Number(r.soll_stunden_sum ?? 0),
+      krankK: kStunden,
+      krankKO: koStunden,
+      krankStdKO: kStunden + koStunden, // falls du das irgendwo noch nutzt
+      dauer12: Number(r.dauer12_count ?? 0),
+      kuerzelStunden: r.kuerzel_stunden || {},
+    };
+  });
+}, [months]);
+
 
   const cumBoth = useMemo(() => {
     let runIst = 0, runSoll = 0;
@@ -237,11 +254,15 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
   const colorFor = (k, idx) => kuerzelColors[k] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
 
   // --- Monatsdiagramm-Daten (rechts neben Monatsübersicht) ---
-  const monthTopKuerzel = useMemo(() => {
-    if (!monthRow?.kuerzel_stunden) return [];
-    const arr = Object.entries(monthRow.kuerzel_stunden).map(([k,v])=>({k, v: Number(v||0)})).sort((a,b)=>b.v-a.v).slice(0,5);
-    return arr;
-  }, [monthRow]);
+const monthTopKuerzel = useMemo(() => {
+  if (!monthRow?.kuerzel_stunden) return [];
+  const arr = Object.entries(monthRow.kuerzel_stunden)
+    .map(([k,v])=>({k, v: Number(v||0)}))
+    .sort((a,b)=>b.v-a.v)
+    .slice(0,10); // <-- statt 5
+  return arr;
+}, [monthRow]);
+
 
   const monthKrankKO = useMemo(()=> Number((monthRow?.kuerzel_stunden?.K || 0) + (monthRow?.kuerzel_stunden?.KO || 0)), [monthRow]);
 
@@ -272,7 +293,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
   };
 
   // --- Monate-Kacheln (fixes 7×2 Raster) -----------------------------------
-  const TILE_H = 'h-12';
+  const TILE_H = 'h-8';
   const MonthTile = ({ m }) => {
     const ready = !!readyMap[m];
     const selected = selectedMonth === m && !showYear;
@@ -353,386 +374,423 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
         </Card>
       )}
 
-      {/* MONATSANSICHT */}
-      {!showYear && (
-        <div className='grid md:grid-cols-12 gap-4'>
-          <div className='md:col-span-7 space-y-4'>
-            <Card>
-              <div className='flex items-center justify-between mb-3'>
-                <div className='flex items-center gap-2'><Calendar className='w-4 h-4'/><span className='font-medium'>Monatsübersicht</span></div>
-                <Muted>{monthRow ? MONTHS[monthRow.monat-1] + ' ' + year : '–'}</Muted>
-              </div>
-              {!monthRow && <Muted>Wähle einen fertigen Monat oben aus.</Muted>}
-              {monthRow && (
-                <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
-                  {typeof monthRow.soll_stunden_sum === 'number' && (
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Ist-Stunden</div>
-                      <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
-                    </div>
-                  )}
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Soll-Stunden</div>
-                    <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
-                  </div>
-                  {monthDiff != null && (
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Differenz (Ist−Soll)</div>
-                      <div className={`text-lg font-semibold ${colorBySign(monthDiff)}`}>
-                        {monthDiff >= 0 ? '+' : '-'}{deNumber(Math.abs(monthDiff))}
-                      </div>
-                    </div>
-                  )}
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Urlaubstage</div>
-                    <div className='text-lg font-semibold'>{deNumber(monthRow.urlaubstage_sum,0)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Kranktage</div>
-                    <div className='text-lg font-semibold'>{deNumber(monthRow.kranktage_count,0)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Krank-Stunden</div>
-                    <div className='text-lg font-semibold'>{deNumber(monthRow.krank_stunden_sum)}</div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>Krank-% (Stundenbasis)</div>
-                    <div className='text-lg font-semibold'>
-                      {dePercent(
-                        (monthRow.ist_stunden_sum ?? 0) > 0
-                          ? ((monthRow.krank_stunden_sum ?? 0) / (monthRow.ist_stunden_sum ?? 1)) * 100
-                          : null
-                      )}
-                    </div>
-                  </div>
-                  <div className='rounded-xl border p-3'>
-                    <div className='text-sm text-gray-400'>10/11/12 Std Einsätze</div>
-                    <div className='text-lg font-semibold'>
-                      {(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
-                    </div>
-                    <div className='text-xs text-gray-500 mt-1'>
-                      10h {monthRow.dauer10_count ?? 0} · 11h {monthRow.dauer11_count ?? 0} · 12h {monthRow.dauer12_count ?? 0}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
+{/* MONATSANSICHT – 6/6 wie Jahresansicht, K & KO getrennt, Top-10 */}
+{!showYear && (
+  <div className='grid md:grid-cols-12 gap-4'>
+    {/* Links: 6/12 */}
+    <div className='md:col-span-6 space-y-4'>
+      <Card>
+        <div className='flex items-center justify-between mb-3'>
+          <div className='flex items-center gap-2'>
+            <Calendar className='w-4 h-4'/><span className='font-medium'>Monatsübersicht</span>
+          </div>
+          <Muted>{monthRow ? MONTHS[monthRow.monat-1] + ' ' + year : '–'}</Muted>
+        </div>
 
-            {/* Kürzel-Tabellen */}
-            <div className='grid md:grid-cols-2 gap-4'>
-              <KuerzelTable title='Kürzel – Counts' data={monthRow?.kuerzel_count ?? null} unit='count' />
-              <KuerzelTable title='Kürzel – Stunden' data={monthRow?.kuerzel_stunden ?? null} unit='h' />
+        {!monthRow && <Muted>Wähle einen fertigen Monat oben aus.</Muted>}
+        {monthRow && (
+          <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
+            {/* Ist/Soll/Diff */}
+            {typeof monthRow.soll_stunden_sum === 'number' && (
+              <div className='rounded-xl border p-3'>
+                <div className='text-sm text-gray-400'>Ist-Stunden</div>
+                <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
+              </div>
+            )}
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>Soll-Stunden</div>
+              <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
+            </div>
+            {monthDiff != null && (
+              <div className='rounded-xl border p-3'>
+                <div className='text-sm text-gray-400'>Differenz (Ist−Soll)</div>
+                <div className={`text-lg font-semibold ${colorBySign(monthDiff)}`}>
+                  {monthDiff >= 0 ? '+' : '-'}{deNumber(Math.abs(monthDiff))}
+                </div>
+              </div>
+            )}
+
+            {/* Urlaub */}
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>Urlaubstage</div>
+              <div className='text-lg font-semibold'>{deNumber(monthRow.urlaubstage_sum,0)}</div>
+            </div>
+
+            {/* Krank getrennt: Tage */}
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>K-Tage</div>
+              <div className='text-lg font-semibold'>{deNumber(monthKCount,0)}</div>
+            </div>
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>KO-Tage</div>
+              <div className='text-lg font-semibold'>{deNumber(monthKOCount,0)}</div>
+            </div>
+
+            {/* Krank getrennt: Stunden */}
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>K-Stunden</div>
+              <div className='text-lg font-semibold'>{deNumber(monthK)}</div>
+            </div>
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>KO-Stunden</div>
+              <div className='text-lg font-semibold'>{deNumber(monthKO)}</div>
+            </div>
+
+            {/* Krank % separat */}
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>K-% (Stundenbasis)</div>
+              <div className='text-lg font-semibold'>{dePercent(monthKQuote)}</div>
+            </div>
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>KO-% (Stundenbasis)</div>
+              <div className='text-lg font-semibold'>{dePercent(monthKOQuote)}</div>
+            </div>
+
+            {/* 10/11/12h */}
+            <div className='rounded-xl border p-3'>
+              <div className='text-sm text-gray-400'>10/11/12 Std Einsätze</div>
+              <div className='text-lg font-semibold'>
+                {(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
+              </div>
+              <div className='text-xs text-gray-500 mt-1'>
+                10h {monthRow.dauer10_count ?? 0} · 11h {monthRow.dauer11_count ?? 0} · 12h {monthRow.dauer12_count ?? 0}
+              </div>
             </div>
           </div>
+        )}
+      </Card>
 
-          {/* Rechte Spalte: Monats-Charts */}
-          <div className='md:col-span-5 space-y-4'>
-            {/* Ist vs Soll (Balken) */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Ist vs. Soll (Monat)</div>
-                  <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
-                </div>
-                <div className='h-48'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={[{ name: 'Monat', Ist: Number(monthRow?.ist_stunden_sum||0), Soll: Number(monthRow?.soll_stunden_sum||0) }]}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="Ist"  name="Ist (h)"  fill="#10b981"  />  
-                      <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />  
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </Card>
+      {/* Kürzel-Tabellen */}
+      <div className='grid md:grid-cols-2 gap-4'>
+        <KuerzelTable title='Kürzel – Counts' data={monthRow?.kuerzel_count ?? null} unit='count' />
+        <KuerzelTable title='Kürzel – Stunden' data={monthRow?.kuerzel_stunden ?? null} unit='h' />
+      </div>
+    </div>
 
-            {/* Top-5 Kürzel (Stunden) im Monat */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Top-5 Kürzel (h) im Monat</div>
-                  <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
-                </div>
-                <div className='h-48'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthTopKuerzel.map((r,i)=>({ name: r.k, h: r.v, fill: colorFor(r.k,i) }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="h" name="Stunden" >
-                        {monthTopKuerzel.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={colorFor(entry.k,index)} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </Card>
-
-            {/* Krank K+KO (Stunden) im Monat */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Krank (K+KO) Stunden im Monat</div>
-                  <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
-                </div>
-                <div className='h-48'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={[{ name: 'K+KO', h: monthKrankKO }]}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="h" name="Stunden"  fill="#ef4444" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </Card>
+    {/* Rechts: 6/12 */}
+    <div className='md:col-span-6 space-y-4'>
+      {/* Ist vs Soll (Balken) */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Ist vs. Soll (Monat)</div>
+            <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[{ name: 'Monat', Ist: Number(monthRow?.ist_stunden_sum||0), Soll: Number(monthRow?.soll_stunden_sum||0) }]}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="Ist"  name="Ist (h)"  fill="#10b981" />
+                <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
-      )}
+      </Card>
+
+      {/* Top-10 Kürzel (Stunden) im Monat */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Top-10 Kürzel (h) im Monat</div>
+            <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthTopKuerzel.map((r,i)=>({ name: r.k, h: r.v, fill: colorFor(r.k,i) }))}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="h" name="Stunden">
+                  {monthTopKuerzel.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={colorFor(entry.k,index)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </Card>
+
+      {/* Krank getrennt: K & KO (Stunden) im Monat */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Krank (K & KO) Stunden im Monat</div>
+            <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[{ name: 'Monat', K: monthK, KO: monthKO }]}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="K"  name="K (h)"  fill="#ef4444" />
+                <Bar dataKey="KO" name="KO (h)" fill="#f59e0b" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </Card>
+    </div>
+  </div>
+)}
 
       {/* JAHRESANSICHT – db_report_ytd + Diagramme */}
-      {showYear && (
-        <div className='grid md:grid-cols-12 gap-4'>
-          {/* Linke Hauptkarte */}
-          <div className='md:col-span-7 space-y-4'>
-            <Card>
-              <div className='flex flex-col gap-3'>
-                <div className='flex items-center justify-between'>
-                  <div className='flex items-center gap-2'><Calendar className='w-4 h-4'/><span className='font-medium'>Jahresübersicht</span></div>
-                  <Muted>{year} · bis Monat {ytdRow?.bis_monat ?? '–'}</Muted>
-                </div>
-
-                {!atLeastOneReady && <Muted>Noch kein Monat finalisiert.</Muted>}
-                {atLeastOneReady && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {/* Stunden – YTD */}
-                    <div className="col-span-full mt-1 text-xs uppercase tracking-wide text-gray-500">
-                      Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Ist-Stunden (YTD)</div>
-                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_ist ?? 0)}</div>
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Soll-Stunden (YTD)</div>
-                      <div className='text-lg font-semibold'>{ytdRow?.ytd_soll != null ? deNumber(ytdRow.ytd_soll) : '–'}</div>
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Differenz (Ist−Soll, YTD)</div>
-                      <div className={`text-lg font-semibold ${colorBySign(ytdRow?.ytd_diff ?? 0)}`}>
-                        {ytdRow?.ytd_diff == null ? '–'
-                          : (ytdRow.ytd_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.ytd_diff))}
-                      </div>
-                    </div>
-
-                    {/* Stunden – Jahr gesamt */}
-                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Stunden · gesamtes Jahr</div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Ist-Stunden (Jahr)</div>
-                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_ist ?? 0)}</div>
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Soll-Stunden (Jahr)</div>
-                      <div className='text-lg font-semibold'>{ytdRow?.year_soll != null ? deNumber(ytdRow.year_soll) : '–'}</div>
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Differenz (Ist−Soll, Jahr)</div>
-                      <div className={`text-lg font-semibold ${colorBySign(ytdRow?.year_diff ?? 0)}`}>
-                        {ytdRow?.year_diff == null ? '–'
-                          : (ytdRow.year_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.year_diff))}
-                      </div>
-                    </div>
-
-                    {/* Urlaub – YTD */}
-                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">
-                      Urlaub · bis Monat {ytdRow?.bis_monat ?? '–'}
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Urlaubstage (YTD)</div>
-                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.ytd_urlaub ?? 0, 0)}</div>
-                    </div>
-
-                    {/* Urlaub – Jahr gesamt */}
-                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Urlaub · gesamtes Jahr</div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Urlaubstage (Jahr)</div>
-                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.year_urlaub ?? 0, 0)}</div>
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Urlaubstage-Soll (Jahr)</div>
-                      <div className='text-lg font-semibold'>{ytdRow?.year_urlaub_soll != null ? deNumber(ytdRow.year_urlaub_soll, 0) : '–'}</div>
-                    </div>
-
-                    {/* Krank (YTD) */}
-                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Krank · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Kranktage (YTD)</div>
-                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.kranktage_ytd ?? 0, 0)}</div>
-                    </div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Krank-Stunden (YTD)</div>
-                      <div className='text-lg font-semibold'>{deNumber(ytdRow?.krank_stunden_ytd ?? 0)}</div>
-                    </div>                 
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>Krank-% (Stundenbasis, YTD)</div>
-                      <div className='text-lg font-semibold'>{dePercent(ytdKrankQuote)}</div>
-                    </div>
-                    {/* >10 Stunden (YTD) */}
-                    <div className="col-span-full mt-2 text-xs uppercase tracking-wide text-gray-500">Einsätze über 10 Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}</div>
-                    <div className='rounded-xl border p-3'>
-                      <div className='text-sm text-gray-400'>10/11/12 Std Einsätze (YTD)</div>
-                      <div className='text-lg font-semibold'>
-                        {(ytdRow?.dauer10_ytd ?? 0) + (ytdRow?.dauer11_ytd ?? 0) + (ytdRow?.dauer12_ytd ?? 0)}
-                      </div>
-                      <div className='text-xs font-bold text-gray-200 mt-1'>
-                        10h = {ytdRow?.dauer10_ytd ?? 0} 
-                      </div>
-                      <div className='text-xs font-bold text-gray-200 mt-1'>
-                        11h = {ytdRow?.dauer11_ytd ?? 0}
-                      </div>
-                      <div className='text-xs font-bold text-gray-200 mt-1'>
-                        12h = {ytdRow?.dauer12_ytd ?? 0}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
+{/* JAHRESANSICHT – kompakt & gleich groß */}
+{showYear && (
+  <div className='grid md:grid-cols-12 gap-4'>
+    {/* Linke Hauptkarte: jetzt 6/12, kompakt, gleiche Höhe wie Charts */}
+    <div className='md:col-span-6 space-y-4'>
+      <Card className="min-h-[14rem]">
+        <div className='flex items-center justify-between px-3 pt-2 pb-2'>
+          <div className='flex items-center gap-2'>
+            <Calendar className='w-4 h-4'/><span className='font-medium'>Jahresübersicht</span>
           </div>
+          <Muted>{year} · bis Monat {ytdRow?.bis_monat ?? '–'}</Muted>
+        </div>
 
-          {/* Rechte Spalte: wichtigste Jahresdiagramme */}
-          <div className='md:col-span-5 space-y-4'>
-            {/* Urlaubstage pro Monat (Balken) */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Urlaubstage je Monat</div>
-                  <Muted>Tage</Muted>
-                </div>
-                <div className='h-56 shadow-xl'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={fullYearRows}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="urlaubstage" name="Urlaubstage"  fill="#3b82f6"/>
-                    </BarChart>
-                  </ResponsiveContainer>
+        {!atLeastOneReady ? (
+          <Muted className="px-3 pb-3">Noch kein Monat finalisiert.</Muted>
+        ) : (
+          // Innen kompakt + Scroll, damit die Karte h-56 bleibt
+          <div className="h-[calc(100%-2.5rem)] overflow-y-auto pr-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+              {/* Stunden – YTD */}
+              <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+                Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Ist-Stunden (YTD)</div>
+                <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.ytd_ist ?? 0)}</div>
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Soll-Stunden (YTD)</div>
+                <div className='text-base font-semibold leading-tight'>
+                  {ytdRow?.ytd_soll != null ? deNumber(ytdRow.ytd_soll) : '–'}
                 </div>
               </div>
-            </Card>
-
-            {/* Ist/Soll kumuliert (Linie) */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Kumulierte Stunden (Ist & Soll)</div>
-                  <Muted>h</Muted>
-                </div>
-                <div className='h-56'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={cumBoth}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="kumIst" name="Ist kumuliert" dot={false} stroke="#10b981"/>
-                      <Line type="monotone" dataKey="kumSoll" name="Soll kumuliert" dot={false} stroke="#373affff" />
-                    </LineChart>
-                  </ResponsiveContainer>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Differenz (Ist−Soll, YTD)</div>
+                <div className={`text-base font-semibold leading-tight ${colorBySign(ytdRow?.ytd_diff ?? 0)}`}>
+                  {ytdRow?.ytd_diff == null ? '–'
+                    : (ytdRow.ytd_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.ytd_diff))}
                 </div>
               </div>
-            </Card>
 
-            {/* Krank K/KO in Stunden (Balken) */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Krank (K + KO) in Stunden je Monat</div>
-                  <Muted>h</Muted>
-                </div>
-                <div className='h-56'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={fullYearRows}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="krankStdKO" name="K+KO Stunden" fill="#ef4444" />
-                    </BarChart>
-                  </ResponsiveContainer>
+              {/* Stunden – Jahr gesamt */}
+              <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+                Stunden · gesamtes Jahr
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Ist-Stunden (Jahr)</div>
+                <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.year_ist ?? 0)}</div>
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Soll-Stunden (Jahr)</div>
+                <div className='text-base font-semibold leading-tight'>
+                  {ytdRow?.year_soll != null ? deNumber(ytdRow.year_soll) : '–'}
                 </div>
               </div>
-            </Card>
-
-            {/* 12-Stunden-Dienste Anzahl (Balken) */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>12h-Dienste je Monat (Anzahl)</div>
-                  <Muted>Count</Muted>
-                </div>
-                <div className='h-56'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={fullYearRows}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="dauer12" name="12h Dienste" />
-                    </BarChart>
-                  </ResponsiveContainer>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Differenz (Ist−Soll, Jahr)</div>
+                <div className={`text-base font-semibold leading-tight ${colorBySign(ytdRow?.year_diff ?? 0)}`}>
+                  {ytdRow?.year_diff == null ? '–'
+                    : (ytdRow.year_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.year_diff))}
                 </div>
               </div>
-            </Card>
 
-            {/* Kürzel: Popover mit Suche + farbige Balken */}
-            <Card>
-              <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
-                  <div className='font-medium'>Kürzel (Stunden) je Monat</div>
-                  <KuerzelPicker
-                    available={availableKuerzel}
-                    value={customKuerzel}
-                    onChange={setCustomKuerzel}
-                    colorFor={colorFor}
-                  />
-                </div>
-                <div className='h-56'>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={kuerzelSeriesPerMonth}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      {chosenKuerzel.map((k, idx) => (
-                        <Bar key={k} dataKey={k} name={`${k} (h)`} fill={colorFor(k, idx)} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
+              {/* Urlaub – YTD */}
+              <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+                Urlaub · bis Monat {ytdRow?.bis_monat ?? '–'}
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Urlaubstage (YTD)</div>
+                <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.ytd_urlaub ?? 0, 0)}</div>
+              </div>
+
+              {/* Urlaub – Jahr gesamt */}
+              <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+                Urlaub · gesamtes Jahr
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Urlaubstage (Jahr)</div>
+                <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.year_urlaub ?? 0, 0)}</div>
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Urlaubstage-Soll (Jahr)</div>
+                <div className='text-base font-semibold leading-tight'>
+                  {ytdRow?.year_urlaub_soll != null ? deNumber(ytdRow.year_urlaub_soll, 0) : '–'}
                 </div>
               </div>
-            </Card>
+
+              {/* Krank (YTD) */}
+              <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+                Krank · bis Monat {ytdRow?.bis_monat ?? '–'}
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Kranktage (YTD)</div>
+                <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.kranktage_ytd ?? 0, 0)}</div>
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Krank-Stunden (YTD)</div>
+                <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.krank_stunden_ytd ?? 0)}</div>
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>Krank-% (Stundenbasis, YTD)</div>
+                <div className='text-base font-semibold leading-tight'>{dePercent(ytdKrankQuote)}</div>
+              </div>
+
+              {/* >10 Stunden (YTD) */}
+              <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+                Einsätze über 10 Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
+              </div>
+              <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                <div className='text-xs text-gray-500'>10/11/12 Std Einsätze (YTD)</div>
+                <div className='text-base font-semibold leading-tight'>
+                  {(ytdRow?.dauer10_ytd ?? 0) + (ytdRow?.dauer11_ytd ?? 0) + (ytdRow?.dauer12_ytd ?? 0)}
+                </div>
+                <div className='text-[11px] text-gray-500 mt-1'>
+                  10h {ytdRow?.dauer10_ytd ?? 0} · 11h {ytdRow?.dauer11_ytd ?? 0} · 12h {ytdRow?.dauer12_ytd ?? 0}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+
+    {/* Rechte Spalte: jetzt auch 6/12 */}
+    <div className='md:col-span-6 space-y-4'>
+      {/* Urlaubstage je Monat */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Urlaubstage je Monat</div>
+            <Muted>Tage</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={fullYearRows}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="urlaubstage" name="Urlaubstage" fill="#3b82f6"/>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
-      )}
+      </Card>
+
+      {/* Kumulierte Stunden */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Kumulierte Stunden (Ist & Soll)</div>
+            <Muted>h</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={cumBoth}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="kumIst" name="Ist kumuliert" dot={false} stroke="#10b981"/>
+                <Line type="monotone" dataKey="kumSoll" name="Soll kumuliert" dot={false} stroke="#373affff" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </Card>
+
+      {/* Kürzel je Monat */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Kürzel (Stunden) je Monat</div>
+            <KuerzelPicker
+              available={availableKuerzel}
+              value={customKuerzel}
+              onChange={setCustomKuerzel}
+              colorFor={colorFor}
+            />
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={kuerzelSeriesPerMonth}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                {chosenKuerzel.map((k, idx) => (
+                  <Bar key={k} dataKey={k} name={`${k} (h)`} fill={colorFor(k, idx)} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </Card>
+
+      {/* Krank K+KO */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>Krank (K + KO) in Stunden je Monat</div>
+            <Muted>h</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={fullYearRows}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="krankStdKO" name="K+KO Stunden" fill="#ef4444" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </Card>
+
+      {/* 12h-Dienste */}
+      <Card>
+        <div className='px-3 pt-2 pb-3'>
+          <div className='flex items-center justify-between mb-2'>
+            <div className='font-medium'>12h-Dienste je Monat (Anzahl)</div>
+            <Muted>Count</Muted>
+          </div>
+          <div className='h-56'>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={fullYearRows}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="dauer12" name="12h Dienste" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </Card>
+    </div>
+  </div>
+)}
+
     </div>
   );
 }
