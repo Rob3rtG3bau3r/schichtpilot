@@ -4,38 +4,41 @@ import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
 
 // ==============================
-// Helpers
+// Helpers für State-Nonce
 // ==============================
+const LS_STATE_KEY = "sp_pw_reset_state";
+
+const b64url = (bytes) =>
+  btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+const genState = () => {
+  const arr = new Uint8Array(16);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  return b64url(arr);
+};
+
+const saveState = (state) => {
+  const payload = { state, ts: Date.now() };
+  localStorage.setItem(LS_STATE_KEY, JSON.stringify(payload));
+};
+
 const normalizeEmail = (e) => e.trim().toLowerCase();
+const isLikelyValidEmail = (s) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 
 const mapSupabaseAuthError = (err, redirectTo) => {
   const raw = err?.message || "";
   const msg = raw.toLowerCase();
-
-  if (err?.status === 429 || msg.includes("rate limit")) {
+  if (err?.status === 429 || msg.includes("rate limit"))
     return "Zu viele Anfragen. Bitte kurz warten und erneut versuchen.";
-  }
-  if (msg.includes("redirect") && msg.includes("not allowed")) {
+  if (msg.includes("redirect") && msg.includes("not allowed"))
     return `Die Redirect-URL ist nicht freigeschaltet: ${redirectTo}`;
-  }
-  if (msg.includes("smtp") || msg.includes("email")) {
+  if (msg.includes("smtp") || msg.includes("email"))
     return "E-Mail-Versand fehlgeschlagen. Bitte Mail-Setup/Spam prüfen.";
-  }
   return `Senden fehlgeschlagen: ${raw || "Unbekannter Fehler"}`;
-};
-
-const isLikelyValidEmail = (s) =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
-
-// ---- Client-Cooldown gegen Spam / Rate-Limits ----
-const COOLDOWN_MS = 60_000; // 60 Sekunden
-const LS_KEY = "pw_reset_last";
-
-const getLastTs = () => Number(localStorage.getItem(LS_KEY) || "0");
-const setLastTs = (ts = Date.now()) => localStorage.setItem(LS_KEY, String(ts));
-const secondsLeft = () => {
-  const diff = COOLDOWN_MS - (Date.now() - getLastTs());
-  return Math.max(0, Math.ceil(diff / 1000));
 };
 
 // ==============================
@@ -44,29 +47,18 @@ const secondsLeft = () => {
 export default function PasswortVergessen() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState({ loading: false, msg: "", error: "" });
-  const [cooldown, setCooldown] = useState(secondsLeft());
-
-  // ticke die Restsekunden herunter
-  useEffect(() => {
-    const id = setInterval(() => setCooldown(secondsLeft()), 500);
-    return () => clearInterval(id);
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const redirectTo = `${window.location.origin}/reset-password`;
     setStatus({ loading: true, msg: "", error: "" });
 
-    // Hard-Stop, falls Cooldown aktiv
-    const left = secondsLeft();
-    if (left > 0) {
-      setStatus({
-        loading: false,
-        msg: "",
-        error: `Bitte ${left} Sek. warten, bevor du erneut einen Link anforderst.`,
-      });
-      return;
-    }
+    // 1) Nonce erzeugen und lokal merken (an Gerät/Browser gebunden)
+    const state = genState();
+    saveState(state);
+
+    // 2) Redirect-URL MIT State
+    const base = `${window.location.origin}/reset-password`;
+    const redirectTo = `${base}?state=${encodeURIComponent(state)}`;
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(
@@ -75,7 +67,6 @@ export default function PasswortVergessen() {
       );
 
       if (error) {
-        console.warn("resetPasswordForEmail error:", error);
         setStatus({
           loading: false,
           msg: "",
@@ -84,9 +75,6 @@ export default function PasswortVergessen() {
         return;
       }
 
-      // Erfolg → Cooldown starten
-      setLastTs();
-      setCooldown(secondsLeft());
       setStatus({
         loading: false,
         msg:
@@ -104,7 +92,7 @@ export default function PasswortVergessen() {
     }
   };
 
-  const disabled = status.loading || !isLikelyValidEmail(email) || cooldown > 0;
+  const disabled = status.loading || !isLikelyValidEmail(email);
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col justify-between items-center px-4 text-white">
@@ -143,11 +131,7 @@ export default function PasswortVergessen() {
               disabled={disabled}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded transition disabled:opacity-50"
             >
-              {status.loading
-                ? "Sende Link…"
-                : cooldown > 0
-                ? `Link anfordern (in ${cooldown}s)`
-                : "Link anfordern"}
+              {status.loading ? "Sende Link…" : "Link anfordern"}
             </button>
 
             {status.msg && (
@@ -158,14 +142,14 @@ export default function PasswortVergessen() {
             )}
 
             <p className="text-xs text-gray-400">
-              Tipp: Öffne <strong>den neuesten</strong> Link aus der E-Mail.
-              Der Link ist nur kurz gültig und einmalig.
+              Tipp: Öffne <strong>den neuesten</strong> Link aus der E-Mail. Der
+              Link ist nur kurz gültig und einmalig.
             </p>
 
             {process.env.NODE_ENV !== "production" && (
               <p className="text-[11px] text-gray-500 mt-2">
                 Debug Redirect:&nbsp;
-                {`${window.location.origin}/reset-password`}
+                {`${window.location.origin}/reset-password?state=<nonce>`}
               </p>
             )}
 
