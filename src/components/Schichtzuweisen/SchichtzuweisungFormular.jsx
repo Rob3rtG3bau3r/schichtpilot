@@ -26,6 +26,7 @@ const SchichtzuweisungFormular = ({
   const [modalOffen, setModalOffen] = useState(false);
   const [gesamtAnzahl, setGesamtAnzahl] = useState(0);
   const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
+  const [endet, setEndet] = useState(false);
 
   useEffect(() => {
     const ladeTeams = async () => {
@@ -75,182 +76,54 @@ const SchichtzuweisungFormular = ({
 
       const reinesDatum = data[0].datum?.slice(0, 10);
       setMaxDatumEnde(reinesDatum);
-      setDatumEnde(reinesDatum);
+
     };
 
     fetchMaxDatum();
   }, [team, firma, unit]);
 
-  const handleSubmit = async () => {
-    setIsLoading(true);
-    let darfUeberschreiben = false;
+const handleSubmit = async () => {
+  setIsLoading(true);
 
-    if (!selectedUser || !team || !datumStart || !datumEnde) {
-      alert('Bitte alle Felder ausfüllen!');
-      setIsLoading(false);
-      return;
-    }
-
-    const start = dayjs(datumStart);
-    const ende = dayjs(datumEnde);
-
-    if (ende.isBefore(start, 'day')) {
-      alert('Enddatum darf nicht vor dem Startdatum liegen.');
-      setIsLoading(false);
-      return;
-    }
-
-    if (dayjs(maxDatumEnde).isBefore(ende, 'day')) {
-      alert('Enddatum liegt außerhalb des Sollplans.');
-      setIsLoading(false);
-      return;
-    }
-
-    const { data: kundenData, error: kundenError } = await supabase
-      .from('DB_Kunden')
-      .select('id, firmenname, created_at')
-      .eq('id', firma)
-      .maybeSingle();
-
-    if (kundenError || !kundenData) {
-      alert('Kunde wurde nicht in DB_Kunden gefunden.');
-      setIsLoading(false);
-      return;
-    }
-
-    setKundenCheckInfo({ db: kundenData.firmenname, client: firma });
-
-    if (start.isBefore(dayjs(kundenData.created_at), 'day')) {
-      alert('Startdatum liegt vor dem Beginn des Kundenvertrags.');
-      setIsLoading(false);
-      return;
-    }
-
-    const tageAnzahl = ende.diff(start, 'day') + 1;
-    setGesamtAnzahl(tageAnzahl);
-    setAktuellerFortschritt(0);
-
-    for (let d = start.clone(); d.isSameOrBefore(ende, 'day'); d = d.add(1, 'day')) {
-      const datum = d.format('YYYY-MM-DD');
-
-      const { data: sollEintraege, error: sollFehler } = await supabase
-        .from('DB_SollPlan')
-        .select('kuerzel, schichtart_id, startzeit, endzeit, dauer')
-        .eq('datum', datum)
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('schichtgruppe', team)
-        .limit(1);
-
-      if (sollFehler) {
-        console.warn(`❌ Fehler beim Laden des SollPlans für ${datum}:`, sollFehler.message);
-        continue;
-      }
-
-      if (!sollEintraege || sollEintraege.length === 0) {
-        console.warn(`⚠️ Kein SollPlan für ${datum} und Team ${team} gefunden.`);
-        continue;
-      }
-
-      const { kuerzel, schichtart_id, startzeit, endzeit, dauer } = sollEintraege[0];
-
-      const { data: vorhandeneEintraege, error: checkError } = await supabase
-        .from('DB_Kampfliste')
-        .select('*')
-        .eq('user', selectedUser.user_id)
-        .eq('datum', datum);
-
-      if (checkError) {
-        alert('Fehler beim Prüfen auf vorhandene Einträge.');
-        setIsLoading(false);
-        return;
-      }
-
-      if (vorhandeneEintraege.length > 0) {
-        if (!darfUeberschreiben) {
-          const bestaetigt = window.confirm(
-            `Es existieren bereits Einträge im gewählten Zeitraum.\n\nMöchtest du alle überschreiben?`
-          );
-          if (!bestaetigt) {
-            setIsLoading(false);
-            return;
-          }
-          darfUeberschreiben = true;
-        }
-
-        const alterEintrag = vorhandeneEintraege[0];
-        const { id, ...rest } = alterEintrag;
-
-        const erlaubteFelder = [
-          'created_at', 'created_by', 'user', 'firma', 'unit', 'datum',
-          'schichtgruppe', 'soll_schicht', 'ist_schicht', 'kommentar',
-          'startzeit_ist', 'endzeit_ist', 'dauer_ist'
-        ];
-
-        const eintragGefiltert = {};
-        for (const key of erlaubteFelder) {
-          if (rest[key] !== undefined) {
-            eintragGefiltert[key] = rest[key];
-          }
-        }
-
-        const { error: verlaufError } = await supabase.from('DB_KampflisteVerlauf').insert({
-          ...eintragGefiltert,
-          change_on: new Date().toISOString()
-        });
-
-        if (verlaufError) {
-          alert('Fehler beim Verschieben in den Verlauf.');
-          setIsLoading(false);
-          return;
-        }
-
-        await supabase.from('DB_Kampfliste').delete().eq('id', alterEintrag.id);
-      }
-
-      const { error: insertError } = await supabase.from('DB_Kampfliste').insert({
-        created_by: selectedUser.user_id,
-        created_at: new Date().toISOString(),
-        user: selectedUser.user_id,
-        firma_id: firma,
-        unit_id: unit,
-        datum,
-        schichtgruppe: team,
-        soll_schicht: kuerzel,
-        ist_schicht: schichtart_id,
-        startzeit_ist: startzeit,
-        endzeit_ist: endzeit,
-        dauer_ist: dauer,
-        dauer_soll: dauer,
-        kommentar: '',
-        aenderung: false,
-      });
-
-      if (insertError) {
-        alert(`Fehler beim Einfügen für ${datum}: ${insertError.message}`);
-        setIsLoading(false);
-        return;
-      }
-
-      setAktuellerFortschritt((prev) => prev + 1);
-    }
-
-    // Nach allen Inserts Berechnung starten
-    await berechneFuerJahre(
-      selectedUser.user_id,
-      firma,
-      unit,
-      start.year(),
-      ende.year()
-    );
-
-    alert('✅ Schicht erfolgreich zugewiesen!');
-    if (typeof onRefresh === 'function') {
-      onRefresh();
-    }
-
+  if (!selectedUser || !team || !datumStart) {
+    alert('Bitte Team und Startdatum auswählen!');
     setIsLoading(false);
-  };
+    return;
+  }
+
+  if (datumEnde && dayjs(datumEnde).isBefore(datumStart, 'day')) {
+    alert('Enddatum darf nicht vor dem Startdatum liegen.');
+    setIsLoading(false);
+    return;
+  }
+
+  try {
+    const { error: insertError } = await supabase.from('DB_SchichtZuweisung').insert({
+      user_id: selectedUser.user_id,
+      schichtgruppe: team,
+      von_datum: datumStart,
+      bis_datum: endet ? datumEnde : null,
+      position_ingruppe: 99, // kann später per Drag-Drop gesetzt werden
+      firma_id: firma,
+      unit_id: unit,
+      created_at: new Date().toISOString(),
+      created_by: localStorage.getItem('user_id') || null,
+    });
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    alert('✅ Schichtgruppe erfolgreich zugewiesen!');
+    if (typeof onRefresh === 'function') onRefresh();
+
+  } catch (error) {
+    alert('❌ Fehler beim Speichern der Zuweisung: ' + error.message);
+  }
+
+  setIsLoading(false);
+};
+
 
   return (
     <div className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}>
@@ -290,16 +163,34 @@ const SchichtzuweisungFormular = ({
         onChange={(e) => setDatumStart(e.target.value)}
         className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
       />
+<div className="flex items-center mb-2">
+  <input
+    type="checkbox"
+    id="endet"
+    checked={endet}
+    onChange={(e) => {
+      setEndet(e.target.checked);
+      if (!e.target.checked) setDatumEnde(''); // Reset wenn ausgeschaltet
+    }}
+    className="mr-2"
+  />
+  <label htmlFor="endet">Zuweisung endet (z.B MA verlässt das Unternehmen?)</label>
+</div>
 
-      <label className="block mb-2">Zuweisung bis</label>
-      <input
-        type="date"
-        value={datumEnde}
-        onChange={(e) => setDatumEnde(e.target.value)}
-        max={maxDatumEnde}
-        min={datumStart || undefined}
-        className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
-      />
+{endet && (
+  <>
+    <label className="block mb-2">Zuweisung bis</label>
+    <input
+      type="date"
+      value={datumEnde}
+      onChange={(e) => setDatumEnde(e.target.value)}
+      max={maxDatumEnde}
+      min={datumStart || undefined}
+      className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
+    />
+  </>
+)}
+
 
       {selectedUser && (
         <p className="mb-4">
