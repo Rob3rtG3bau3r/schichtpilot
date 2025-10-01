@@ -446,7 +446,7 @@ if (userIds.length > 0) {
         const uids = abdeckung[qualiId] || [];
         const qname = matrixMapState[qualiId]?.kuerzel || `ID:${qualiId}`;
         const namen = uids.map((uid) => userNameMapState[uid] || `User ${uid}`).join(', ');
-        lines.push(`- ${qname}: ${namen || 'niemand'}`);
+        lines.push(`- ${qname}: ${namen || '???'}`);
       }
     }
 
