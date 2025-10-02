@@ -30,76 +30,88 @@ const TeamPflegen = () => {
   const firstLoadRef = useRef(true);
 
   // --------- Hilfsfunktionen für Sortierung ---------
-  // Extrahiert die erste Zahl in einem String (z. B. "Team 12" -> 12). Gibt null zurück, wenn keine Zahl vorhanden.
   const firstNumber = (s) => {
     if (!s) return null;
     const m = String(s).match(/\d+/);
     return m ? parseInt(m[0], 10) : null;
   };
-
-  // Extrahiert den ersten Buchstaben A-Z (äöü werden via localeCompare korrekt einsortiert)
   const firstLetter = (s) => {
     if (!s) return "";
     const m = String(s).match(/[A-Za-zÄÖÜäöü]/);
     return m ? m[0].toUpperCase() : "";
   };
-
-  // Universelle Team-Sortierung:
-  // 1) Wenn beide einen Zahlentreffer haben: nach Zahl (natürliche Sortierung)
-  // 2) Sonst nach erstem Buchstaben (A, B, C …)
-  // 3) Fallback: voller Stringvergleich (de)
   const sortTeams = (arr) => {
     return [...arr].sort((a, b) => {
       const na = firstNumber(a);
       const nb = firstNumber(b);
       if (na !== null && nb !== null) return na - nb;
-      if (na !== null) return -1; // Zahlen vor reinen Buchstaben
+      if (na !== null) return -1;
       if (nb !== null) return 1;
-
       const la = firstLetter(a);
       const lb = firstLetter(b);
       if (la && lb && la !== lb) return la.localeCompare(lb, "de", { sensitivity: "base" });
-
       return String(a).localeCompare(String(b), "de", { sensitivity: "base", numeric: true });
     });
   };
   // ---------------------------------------------------
 
   const ladeTeamdaten = async () => {
+    if (!firma || !unit) return;
     setLoading(true);
     try {
+      // 1) Sichtbare User (wie gehabt)
       const { data: users, error: userError } = await supabase
         .from("DB_User")
-        .select("user_id, vorname, nachname, position_ingruppe")
+        .select("user_id, vorname, nachname, user_visible")
         .eq("firma_id", firma)
         .eq("unit_id", unit)
         .eq("user_visible", true);
 
       if (userError) throw userError;
+      const userIds = (users || []).map((u) => u.user_id);
 
-      const { data: kampfData, error: kampfError } = await supabase
-        .from("DB_Kampfliste")
-        .select("user, schichtgruppe")
+      // 2) HEUTIGE Schichtzuweisungen (Neue DB!)
+      //    von_datum ≤ heute UND (bis_datum IS NULL ODER bis_datum ≥ heute)
+      const { data: zuwRaw, error: zuwErr } = await supabase
+        .from("DB_SchichtZuweisung")
+        .select("user_id, schichtgruppe, position_ingruppe, von_datum, bis_datum")
         .eq("firma_id", firma)
         .eq("unit_id", unit)
-        .eq("datum", heute);
+        .in("user_id", userIds)
+        .lte("von_datum", heute);
 
-      if (kampfError) throw kampfError;
+      if (zuwErr) throw zuwErr;
 
-      // Teams deduplizieren, Leere entfernen, robust sortieren
-      const uniqueTeamsRaw = [...new Set(kampfData.map((k) => (k?.schichtgruppe ?? "").toString().trim()))].filter(Boolean);
+      // pro User: gültige Einträge heute filtern + den mit max(von_datum) nehmen
+      const zuwHeuteMap = new Map(); // user_id -> { schichtgruppe, position_ingruppe, von_datum, bis_datum }
+      (zuwRaw || [])
+        .filter((z) => !z.bis_datum || z.bis_datum >= heute)
+        .forEach((z) => {
+          const prev = zuwHeuteMap.get(z.user_id);
+          if (!prev || z.von_datum > prev.von_datum) {
+            zuwHeuteMap.set(z.user_id, {
+              schichtgruppe: z.schichtgruppe,
+              position_ingruppe: z.position_ingruppe ?? 999,
+              von_datum: z.von_datum,
+              bis_datum: z.bis_datum ?? null,
+            });
+          }
+        });
+
+      // 3) Alle Teams deduplizieren + sortieren (aus Zuweisungen, nicht Kampfliste)
+      const uniqueTeamsRaw = Array.from(
+        new Set(
+          Array.from(zuwHeuteMap.values())
+            .map((v) => (v?.schichtgruppe ?? "").toString().trim())
+            .filter(Boolean)
+        )
+      );
       const uniqueTeamsSorted = sortTeams(uniqueTeamsRaw);
       setTeams(uniqueTeamsSorted);
 
-      // Map: user -> tagesaktuelle schichtgruppe
-      const gruppenMap = kampfData.reduce((acc, k) => {
-        acc[k.user] = (k?.schichtgruppe ?? "—").toString();
-        return acc;
-      }, {});
-
-      const eigeneGruppe = gruppenMap[userId];
-
-      // Vorauswahl nur beim ersten Laden ODER wenn aktuelle Auswahl leer ist.
+      // 4) Vorauswahl: eigene Gruppe falls vorhanden, sonst erstes Team
+      const eigeneZuw = zuwHeuteMap.get(userId);
+      const eigeneGruppe = eigeneZuw?.schichtgruppe;
       setAktiveTeams((prev) => {
         if (firstLoadRef.current || prev.length === 0) {
           firstLoadRef.current = false;
@@ -108,13 +120,11 @@ const TeamPflegen = () => {
           }
           return uniqueTeamsSorted.length ? [uniqueTeamsSorted[0]] : [];
         }
-        // Ansonsten Auswahl beibehalten, nur auf existierende Teams beschränken.
+        // Beibehalten, aber auf existierende Teams begrenzen
         return prev.filter((t) => uniqueTeamsSorted.includes(t));
       });
 
-      // IDs für Stunde/Urlaub-Lookups
-      const userIds = users.map((u) => u.user_id);
-
+      // 5) Stunden/Urlaub (wie gehabt)
       const { data: stundenData } = await supabase
         .from("DB_Stunden")
         .select("user_id, jahr, summe_jahr, vorgabe_stunden, stunden_gesamt")
@@ -131,16 +141,21 @@ const TeamPflegen = () => {
         .eq("firma_id", firma)
         .eq("unit_id", unit);
 
-      const userListe = users
+      // 6) Finales Merge + Sortierung NUR nach position_ingruppe aus Zuweisung
+      const userListe = (users || [])
         .map((u) => {
+          const zuw = zuwHeuteMap.get(u.user_id);
+          const schichtgruppe = zuw?.schichtgruppe || "—";
+          const position = Number(zuw?.position_ingruppe ?? 999);
+
           const stunden = stundenData?.find((s) => s.user_id === u.user_id);
           const urlaub = urlaubData?.find((r) => r.user_id === u.user_id);
-
           const abw = (stunden?.summe_jahr ?? 0) - (stunden?.stunden_gesamt ?? 0);
 
           return {
             ...u,
-            schichtgruppe: gruppenMap[u.user_id] || "—",
+            schichtgruppe,
+            position_ingruppe: position,
             abweichung: abw,
             summe_ist: stunden?.summe_jahr ?? 0,
             summe_soll: stunden?.stunden_gesamt ?? 0,
@@ -148,11 +163,14 @@ const TeamPflegen = () => {
             urlaub_gesamt: urlaub?.urlaub_gesamt ?? 0,
           };
         })
-        .sort((a, b) => (a.position_ingruppe || 0) - (b.position_ingruppe || 0));
+        .sort((a, b) => (a.position_ingruppe || 999) - (b.position_ingruppe || 999));
 
       setMitarbeiter(userListe);
     } catch (err) {
-      console.error("❌ Fehler beim Laden:", err.message);
+      console.error("❌ Fehler beim Laden:", err.message || err);
+      setTeams([]);
+      setMitarbeiter([]);
+      setAktiveTeams([]);
     } finally {
       setLoading(false);
     }
@@ -237,15 +255,10 @@ const TeamPflegen = () => {
                     </div>
                     <div className="text-xs text-gray-500 flex flex-wrap gap-2 mt-1">
                       <span>Gruppe: {m.schichtgruppe}</span>
-                      <span>
-                        | Std. Jahresende: {Number(m.abweichung ?? 0).toFixed(1)}
-                      </span>
-                      <span>
-                        | Std.: {m.summe_ist} / {m.summe_soll}
-                      </span>
-                      <span>
-                        | Urlaub: {m.resturlaub} / {m.urlaub_gesamt}
-                      </span>
+                      <span>| Pos.: {m.position_ingruppe ?? "–"}</span>
+                      <span>| Std. Jahresende: {Number(m.abweichung ?? 0).toFixed(1)}</span>
+                      <span>| Std.: {m.summe_ist} / {m.summe_soll}</span>
+                      <span>| Urlaub: {m.resturlaub} / {m.urlaub_gesamt}</span>
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -278,7 +291,7 @@ const TeamPflegen = () => {
         <PflegenModal
           user={pflegeUser}
           onClose={() => setPflegeUser(null)}
-          onRefresh={ladeTeamdaten} // Auswahl bleibt dank Logik oben erhalten
+          onRefresh={ladeTeamdaten}
         />
       )}
 
@@ -293,12 +306,11 @@ const TeamPflegen = () => {
             </button>
             <h2 className="text-lg font-semibold mb-2">ℹ Informationen</h2>
             <ul className="text-sm list-disc ml-4 space-y-2">
-              <li>Die Teams werden tagesaktuell aus der Kampfliste geladen.</li>
-              <li>Die Liste ist nach „Position in Gruppe“ sortiert.</li>
+              <li>Die Teams werden tagesaktuell aus <strong>DB_SchichtZuweisung</strong> geladen.</li>
+              <li>Die Liste ist nach <strong>Position in Gruppe</strong> (aus der Zuweisung) sortiert.</li>
               <li>Über die Checkboxen kannst du Teams filtern oder alle anzeigen.</li>
-              <li>Klicke auf das Stift-Symbol, um Stunden/Urlaub zu pflegen.</li>
               <li>Die Jahreswerte zu Stunden &amp; Urlaub stammen aus den Tabellen DB_Stunden und DB_Urlaub.</li>
-              <li>Die Team-Reihenfolge ist: erst „Alle Teams“, danach natürliche Sortierung (Zahl → Buchstabe).</li>
+              <li>Die Team-Reihenfolge oben ist natürlich sortiert (Zahl → Buchstabe), danach A–Z.</li>
             </ul>
           </div>
         </div>

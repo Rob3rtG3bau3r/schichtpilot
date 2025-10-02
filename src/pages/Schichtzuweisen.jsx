@@ -37,6 +37,8 @@ const Schichtzuweisen = () => {
             onRefresh={handleRefresh}
             isLoading={isLoading}
             setIsLoading={setIsLoading}
+            datumStart={datumStart}      
+            setDatumStart={setDatumStart}
             className="col-span-3"
           />
 

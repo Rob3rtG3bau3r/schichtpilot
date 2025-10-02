@@ -85,13 +85,12 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   const [qualis, setQualis] = useState([]); // {label, seit}
 
   // 🔔 Notice-State
-  const [notice, setNotice] = useState(null); // { type: 'success'|'warning'|'error'|'info', text: string }
+  const [notice, setNotice] = useState(null); // { type, text }
   const noticeRef = useRef(null);
   const noticeTimer = useRef(null);
   const showNotice = (type, text, timeoutMs = 3000) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     setNotice({ type, text });
-    // sanft zum Bereich scrollen
     setTimeout(()=> noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
     if (timeoutMs) {
       noticeTimer.current = setTimeout(() => setNotice(null), timeoutMs);
@@ -126,35 +125,43 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
 
       const heute = dayjs().format('YYYY-MM-DD');
 
-      // === Kampfliste: versuche 'user', falle auf 'user_id' zurück, jeweils mit optionalen Filtern ===
-      const loadK = async (cmp /* 'lte' | 'gte' */) => {
-        const asc = cmp === 'gte';
-        // Versuch A: Spalte 'user'
-        let qA = supabase.from('DB_Kampfliste').select('datum, schichtgruppe, user')[cmp]('datum', heute).eq('user', u.user_id).order('datum', { ascending: asc });
-        qA = addEq(addEq(qA, 'firma_id', firma), 'unit_id', unit);
-        let { data, error } = await qA;
-        if (!error && data && data.length) return data;
-        // Versuch B: Spalte 'user_id'
-        let qB = supabase.from('DB_Kampfliste').select('datum, schichtgruppe, user_id')[cmp]('datum', heute).eq('user_id', u.user_id).order('datum', { ascending: asc });
-        qB = addEq(addEq(qB, 'firma_id', firma), 'unit_id', unit);
-        const { data: d2 } = await qB;
-        return d2 || [];
-      };
+      // === Schichtzuweisungen für den User laden (statt Kampfliste)
+      let zQ = supabase
+        .from('DB_SchichtZuweisung')
+        .select('von_datum, bis_datum, schichtgruppe, firma_id, unit_id')
+        .eq('user_id', u.user_id);
+      zQ = addEq(addEq(zQ, 'firma_id', firma), 'unit_id', unit);
 
-      const past = await loadK('lte');
-      const future = await loadK('gte');
+      const { data: zData, error: zErr } = await zQ;
+      if (zErr) {
+        console.error('DB_SchichtZuweisung:', zErr);
+      }
 
-      if (past && past.length>0) setAktuelleSchicht(past[past.length-1]?.schichtgruppe || past[0]?.schichtgruppe || null);
-      else if (future && future.length>0) setAktuelleSchicht(future[0].schichtgruppe || null);
-      else setAktuelleSchicht(null);
+      const zuw = (zData || []).filter(z => z.firma_id === u.firma_id && z.unit_id === u.unit_id);
 
-      if (future && future.length>0) {
-        const first = future[0];
-        const wechsel = future.find(k => k.schichtgruppe && k.schichtgruppe !== first.schichtgruppe);
-        setGeplanterWechsel(wechsel ? { datum: wechsel.datum, schichtgruppe: wechsel.schichtgruppe } : null);
-      } else setGeplanterWechsel(null);
+      // Aktuell gültige Zuweisung (heute)
+      const heuteGueltig = zuw
+        .filter(z => z.von_datum <= heute && (!z.bis_datum || z.bis_datum >= heute))
+        .sort((a,b) => a.von_datum < b.von_datum ? 1 : -1); // max von_datum zuerst
+      const aktuell = heuteGueltig[0] || null;
+      setAktuelleSchicht(aktuell?.schichtgruppe || null);
 
-      // === Qualifikationen: Zuweisungen + Matrix (robust) ===
+      // Geplanter Wechsel = nächster Eintrag nach heute (erster Start > heute), optional andere Gruppe
+      const zukunft = zuw
+        .filter(z => z.von_datum > heute)
+        .sort((a,b) => a.von_datum > b.von_datum ? 1 : -1); // frühester zuerst
+
+      let wechsel = null;
+      if (zukunft.length > 0) {
+        const firstFuture = zukunft[0];
+        // Wenn gleiche Gruppe sofort folgt, suchen wir den ersten, bei dem sich die Gruppe ändert
+        wechsel = zukunft.find(z => z.schichtgruppe !== (aktuell?.schichtgruppe || null)) || firstFuture;
+        // Falls du NUR echte Gruppenwechsel zeigen willst:
+        // wechsel = zukunft.find(z => z.schichtgruppe !== (aktuell?.schichtgruppe || null)) || null;
+      }
+      setGeplanterWechsel(wechsel ? { datum: wechsel.von_datum, schichtgruppe: wechsel.schichtgruppe } : null);
+
+      // === Qualifikationen: Zuweisungen + Matrix (robust) – unverändert
       const { data: qData } = await supabase
         .from('DB_Qualifikation')
         .select('quali, created_at')
@@ -163,7 +170,6 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       const ids = Array.from(new Set((qData||[]).map(q=>q.quali).filter(v=>v!=null)));
       const byId = new Map();
       if (ids.length>0) {
-        // Primär: DB_Qualifikationsmatrix
         let { data: mData, error: mErr } = await supabase
           .from('DB_Qualifikationsmatrix')
           .select('id, quali_kuerzel, qualifikation, aktiv, firma_id, unit_id')
@@ -171,7 +177,6 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         if (!mErr && mData) {
           mData.forEach(m => byId.set(m.id, m));
         } else {
-          // Fallback: DB_QualifikationMatrix (falls anders benannt)
           const { data: alt } = await supabase
             .from('DB_QualifikationMatrix')
             .select('id, quali_kuerzel, qualifikation')
@@ -182,7 +187,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
 
       setQualis((qData||[]).map(q=>{
         const m = byId.get(q.quali);
-        const label = m?.qualifikation ||m?.quali_kuerzel || `#${q.quali}`;
+        const label = m?.qualifikation || m?.quali_kuerzel || `#${q.quali}`;
         return { label, seit: q.created_at ? dayjs(q.created_at).format('DD.MM.YYYY') : '—' };
       }));
     })();
@@ -221,11 +226,9 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         return;
       }
 
-      // Zukünftige Dienste löschen (optional)
+      // Zukünftige Dienste löschen (optional) — weiterhin Kampfliste, falls dort Plan-IST-Einträge liegen
       if(!aktiv && willLoeschenKampfliste){
-        let del = supabase.from('DB_Kampfliste').delete().gte('datum', loeschDatum);
-        // robust: versuche 'user', sonst 'user_id'
-        del = del.eq('user', user.user_id);
+        let del = supabase.from('DB_Kampfliste').delete().gte('datum', loeschDatum).eq('user', user.user_id);
         del = addEq(addEq(del, 'firma_id', firma), 'unit_id', unit);
         let { data: delRows, error: delErr } = await del.select('datum');
         if (delErr) {
@@ -359,48 +362,40 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
             </div>
           </div>
 
+          {/* Buttons + Notice */}
+          <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2 pt-2 pb-5">
+            <div />
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm text-white transition
+                         bg-blue-600 hover:bg-blue-500 dark:hover:bg-blue-700 border border-blue-300 dark:border-blue-700"
+              onClick={onCancel}
+              disabled={disabled}
+            >
+              Abbrechen
+            </button>
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition
+                         bg-green-700 text-white hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700"
+              onClick={save}
+              disabled={disabled}
+            >
+              Speichern &amp; Übernehmen
+            </button>
 
-
-{/* Buttons + Notice als Grid */}
-<div className="grid grid-cols-[1fr_auto_auto] items-center gap-2 pt-2 pb-5">
-  {/* Spalte 1 = Spacer */}
-  <div />
-
-  {/* Spalte 2 = Abbrechen */}
-  <button
-    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm text-white transition
-               bg-blue-600 hover:bg-blue-500 dark:hover:bg-blue-700 border border-blue-300 dark:border-blue-700"
-    onClick={onCancel}
-    disabled={disabled}
-  >
-    Abbrechen
-  </button>
-
-  {/* Spalte 3 = Speichern */}
-  <button
-    className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition
-               bg-green-700 text-white hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700"
-    onClick={save}
-    disabled={disabled}
-  >
-    Speichern &amp; Übernehmen
-  </button>
-
-  {/* Zeile 2: Notice nimmt die beiden Button-Spalten ein → gleiche Breite wie beide Buttons zusammen */}
-  {notice && (
-    <>
-      <div /> {/* Spacer unter Spalte 1 */}
-      <div className="col-span-2">
-        <NoticeBar
-          ref={noticeRef}
-          type={notice.type}
-          text={notice.text}
-          onClose={() => setNotice(null)}
-        />
-      </div>
-    </>
-  )}
-</div>
+            {notice && (
+              <>
+                <div />
+                <div className="col-span-2">
+                  <NoticeBar
+                    ref={noticeRef}
+                    type={notice.type}
+                    text={notice.text}
+                    onClose={() => setNotice(null)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </Card>

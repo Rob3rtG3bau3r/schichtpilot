@@ -26,7 +26,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     );
   };
 
-  // Mitarbeiter + höchste Quali + Team (heute) laden
+  // Mitarbeiter + höchste Quali + Team (heute) laden – Team aus DB_SchichtZuweisung
   useEffect(() => {
     const ladeDaten = async () => {
       // Für Nicht-SuperAdmin: ohne Firma/Unit keine Daten
@@ -35,18 +35,18 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         return;
       }
 
-      // 1) Mitarbeitende (aktiv)
+      // 1) Mitarbeitende laden
       let mitarbeiterRes;
       if (isSuperAdmin) {
         mitarbeiterRes = await supabase
           .from('DB_User')
-          .select('user_id, vorname, nachname, rolle, firma_id, unit_id')
+          .select('user_id, vorname, nachname, rolle, firma_id, unit_id, aktiv');
       } else {
         mitarbeiterRes = await supabase
           .from('DB_User')
-          .select('user_id, vorname, nachname, rolle, firma_id, unit_id')
+          .select('user_id, vorname, nachname, rolle, firma_id, unit_id, aktiv')
           .eq('firma_id', firma)
-          .eq('unit_id', unit)
+          .eq('unit_id', unit);
       }
       const { data: mitarbeiter, error: error1 } = mitarbeiterRes;
       if (error1) {
@@ -54,7 +54,9 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         setPersonen([]);
         return;
       }
-      const userIds = (mitarbeiter || []).map((m) => m.user_id);
+
+      const aktive = (mitarbeiter || []).filter(m => m.aktiv !== false);
+      const userIds = aktive.map((m) => m.user_id);
       if (userIds.length === 0) {
         setPersonen([]);
         return;
@@ -100,22 +102,39 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         }
       }
 
-      // 4) Kampfliste-Einträge für HEUTE (Team) nur für die geladenen User
+      // 4) Zuweisungen am HEUTIGEN Tag aus DB_SchichtZuweisung
       const heute = new Date().toISOString().split('T')[0];
-      let kampfRes = supabase
-        .from('DB_Kampfliste')
-        .select('user, schichtgruppe, firma_id, unit_id')
-        .eq('datum', heute)
-        .in('user', userIds);
 
-      if (!isSuperAdmin) {
-        kampfRes = kampfRes.eq('firma_id', firma).eq('unit_id', unit);
+      // Hol alle Zuweisungen mit von_datum <= heute für die betroffenen User
+      // (SuperAdmin: über alle Firmen/Units; sonst ist die Userliste sowieso gefiltert)
+      const { data: zuwRaw, error: zuwErr } = await supabase
+        .from('DB_SchichtZuweisung')
+        .select('user_id, schichtgruppe, von_datum, bis_datum, firma_id, unit_id')
+        .in('user_id', userIds)
+        .lte('von_datum', heute);
+
+      if (zuwErr) {
+        console.error('Fehler beim Laden der Zuweisungen:', zuwErr);
       }
 
-      const { data: kampfliste, error: errorKampfliste } = await kampfRes;
-      if (errorKampfliste) {
-        console.error('Fehler beim Laden der Kampfliste:', errorKampfliste);
-      }
+      // Pro User die am heutigen Tag gültige Zuweisung (max von_datum) ermitteln
+      const zuwByUser = new Map(); // user_id -> { schichtgruppe, von_datum }
+      (aktive || []).forEach((u) => {
+        const rows = (zuwRaw || [])
+          .filter(z =>
+            z.user_id === u.user_id &&
+            z.firma_id === u.firma_id &&
+            z.unit_id === u.unit_id && // passend zum User
+            (!z.bis_datum || z.bis_datum >= heute)
+          );
+        if (rows.length > 0) {
+          const last = rows.reduce((acc, curr) =>
+            acc == null || curr.von_datum > acc.von_datum ? curr : acc, null);
+          if (last) {
+            zuwByUser.set(u.user_id, { schichtgruppe: last.schichtgruppe, von_datum: last.von_datum });
+          }
+        }
+      });
 
       // 5) Zusammenbauen
       const qualisByUser = new Map();
@@ -125,7 +144,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         qualisByUser.set(q.user_id, arr);
       });
 
-      const personenMitDaten = (mitarbeiter || []).map((person) => {
+      const personenMitDaten = (aktive || []).map((person) => {
         // höchste Quali: kleinste Matrix-Position
         const eigene = qualisByUser.get(person.user_id) || [];
         let besteBezeichnung = '–';
@@ -139,8 +158,8 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           }
         });
 
-        const kampfEintrag = kampfliste?.find((k) => k.user === person.user_id);
-        const aktuelleSchichtgruppe = kampfEintrag?.schichtgruppe ?? '–';
+        const zuw = zuwByUser.get(person.user_id);
+        const aktuelleSchichtgruppe = zuw?.schichtgruppe ?? '–';
 
         return {
           user_id: person.user_id,
@@ -148,7 +167,6 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           rolle: person.rolle,
           schichtgruppe: aktuelleSchichtgruppe,
           hoechste_quali: besteBezeichnung,
-          // nützlich, falls du später Firmen/Units anzeigen willst:
           firma_id: person.firma_id,
           unit_id: person.unit_id,
         };
@@ -271,7 +289,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
               <li>Nur aktive User werden angezeigt.</li>
               <li>Als <strong>SuperAdmin</strong> siehst du alle Firmen & Units.</li>
               <li>Pro Person wird die höchste zugewiesene Qualifikation angezeigt (nach Position).</li>
-              <li>Team wird aus der Kampfliste für <strong>heute</strong> ermittelt.</li>
+              <li>Team wird aus den <strong>Schichtzuweisungen</strong> für <strong>heute</strong> ermittelt.</li>
             </ul>
             <div className="mt-4 text-right">
               <button

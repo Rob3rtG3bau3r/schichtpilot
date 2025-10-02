@@ -16,8 +16,6 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   const [sortiereNachGruppe, setSortiereNachGruppe] = useState(() => localStorage.getItem('sortiereNachGruppe') === 'true');
   const [infoOffen, setInfoOffen] = useState(false);
   const [sortierung, setSortierung] = useState({ feld: 'nachname', richtung: 'asc' });
-
-  // 🔎 Namenssuche
   const [suche, setSuche] = useState('');
 
   const handleSortierung = (feld) => {
@@ -33,9 +31,11 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   useEffect(() => {
     const ladeBenutzerMitGruppeUndQualifikation = async () => {
       if (!firma || !unit) return;
+
       const heute = dayjs().format('YYYY-MM-DD');
       const abfrageDatum = datumStart || heute;
 
+      // 1) Aktive User laden
       const { data: userData, error: userError } = await supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle')
@@ -48,14 +48,42 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         return;
       }
 
-      const userIds = userData.map((u) => u.user_id);
+      const userIds = (userData || []).map(u => u.user_id);
+      if (userIds.length === 0) {
+        setBenutzer([]);
+        return;
+      }
 
-      const { data: kampfData } = await supabase
-        .from('DB_Kampfliste')
-        .select('user, schichtgruppe')
-        .eq('datum', abfrageDatum)
-        .in('user', userIds);
+      // 2) Zuweisungen laden (neue DB) und auf Datum filtern
+      //   - Wir begrenzen serverseitig auf von_datum ≤ abfrageDatum
+      //   - und filtern clientseitig auf (bis_datum null oder ≥ abfrageDatum)
+      const { data: zuwRaw, error: zuwError } = await supabase
+        .from('DB_SchichtZuweisung')
+        .select('user_id, schichtgruppe, von_datum, bis_datum')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .in('user_id', userIds)
+        .lte('von_datum', abfrageDatum);
 
+      if (zuwError) {
+        console.error('Fehler beim Laden der Zuweisungen:', zuwError.message);
+      }
+
+      const zuwGefiltert = (zuwRaw || []).filter(z =>
+        dayjs(z.von_datum).isSameOrBefore(abfrageDatum, 'day') &&
+        (!z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(abfrageDatum, 'day'))
+      );
+
+      // pro User den "letzten" gültigen Eintrag (max von_datum) finden
+      const zuwMap = new Map(); // user_id -> { schichtgruppe, von_datum }
+      for (const z of zuwGefiltert) {
+        const prev = zuwMap.get(z.user_id);
+        if (!prev || dayjs(z.von_datum).isAfter(prev.von_datum, 'day')) {
+          zuwMap.set(z.user_id, { schichtgruppe: z.schichtgruppe, von_datum: z.von_datum });
+        }
+      }
+
+      // 3) Qualifikationen (wie gehabt)
       const { data: qualiData } = await supabase
         .from('DB_Qualifikation')
         .select('user_id, quali')
@@ -67,37 +95,31 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         .eq('firma_id', firma)
         .eq('unit_id', unit);
 
-      const gruppeMap = {};
-      for (const eintrag of kampfData || []) {
-        gruppeMap[eintrag.user] = eintrag.schichtgruppe || null;
-      }
-
       const qualiMap = {};
-      for (const user of userIds) {
-        const userQualis = (qualiData || []).filter((q) => q.user_id === user);
-        const mitPosition = userQualis
-          .map((q) => {
-            const matrix = (qualiMatrix || []).find((m) => m.id === q.quali);
-            return matrix && matrix.position != null ? { ...matrix } : null;
-          })
-          .filter(Boolean);
-        if (mitPosition.length > 0) {
-          const wichtigste = mitPosition.sort((a, b) => a.position - b.position)[0];
-          qualiMap[user] = wichtigste.qualifikation;
+      for (const uid of userIds) {
+        const userQualis = (qualiData || []).filter(q => q.user_id === uid);
+        const mitPos = userQualis
+          .map(q => (qualiMatrix || []).find(m => m.id === q.quali))
+          .filter(m => m && m.position != null);
+        if (mitPos.length > 0) {
+          const wichtigste = mitPos.sort((a, b) => a.position - b.position)[0];
+          qualiMap[uid] = wichtigste.qualifikation;
         }
       }
 
-      let finalListe = (userData || []).map((user) => ({
+      // 4) Zusammenführen
+      let finalListe = (userData || []).map(user => ({
         ...user,
-        schichtgruppe: gruppeMap[user.user_id] || null,
+        schichtgruppe: zuwMap.get(user.user_id)?.schichtgruppe || null,
         hauptquali: qualiMap[user.user_id] || null,
       }));
 
+      // 5) Filter "nur ohne Gruppe"
       if (nurOhneGruppe) {
-        finalListe = finalListe.filter((u) => !u.schichtgruppe);
+        finalListe = finalListe.filter(u => !u.schichtgruppe);
       }
 
-      // Sortierung
+      // 6) Sortierung
       finalListe.sort((a, b) => {
         const { feld, richtung } = sortierung;
         let aWert = (a[feld] || '').toString().toLowerCase();
@@ -121,7 +143,6 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   useEffect(() => localStorage.setItem('nurOhneGruppe', nurOhneGruppe), [nurOhneGruppe]);
   useEffect(() => localStorage.setItem('sortiereNachGruppe', sortiereNachGruppe), [sortiereNachGruppe]);
 
-  // 🔎 Filter auf Name anwenden (case-insensitive, „Vorname Nachname“ & „Nachname Vorname“)
   const sichtbareBenutzer = benutzer.filter((u) => {
     const q = suche.trim().toLowerCase();
     if (!q) return true;
@@ -233,8 +254,8 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
               <li>Nur aktive Benutzer aus der aktuellen Unit werden angezeigt.</li>
               <li>Die Liste kann nach Name, Rolle, Qualifikation und Team sortiert werden.</li>
               <li>Es wird die höchste Qualifikation des Benutzers angezeigt.</li>
-              <li>Checkboxen filtern nach nicht zugewiesenen.</li>
-              <li>Namenssuche oben – tippe Vor- oder Nachname.</li>
+              <li>„Team“ kommt aus den Zuweisungen (gültig am ausgewählten Datum).</li>
+              <li>Checkbox filtert nach „nicht zugewiesen“ am Datum.</li>
             </ul>
             <div className="mt-4 text-right">
               <button
@@ -252,4 +273,3 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
 };
 
 export default PersonalListe;
-

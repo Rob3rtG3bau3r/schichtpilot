@@ -123,7 +123,11 @@ const KampfListe = ({
       if (!firma || !unit) return;
 
       const daysInMonth = new Date(jahr, monat + 1, 0).getDate();
-      const datumsliste = dateStrByTag.slice(1, daysInMonth + 1); // (2) aus Memo
+      const datumsliste = dateStrByTag.slice(1, daysInMonth + 1);
+
+      // Zeitraum für die Zuweisungen dieses Monats
+      const monthStart = `${prefix}-01`;
+      const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
       const ladeKampflisteBatchweise = async () => {
         let alleEintraege = [];
@@ -132,7 +136,7 @@ const KampfListe = ({
           const { data, error } = await supabase
             .from('DB_Kampfliste')
             .select(
-              'id, datum, created_by, created_at, startzeit_ist, endzeit_ist, user, schichtgruppe, kommentar, aenderung, ist_schicht(id, kuerzel, farbe_bg, farbe_text)'
+              'id, datum, created_by, created_at, startzeit_ist, endzeit_ist, user, kommentar, aenderung, ist_schicht(id, kuerzel, farbe_bg, farbe_text)'
             )
             .in('datum', datumsliste)
             .eq('firma_id', firma)
@@ -162,7 +166,7 @@ const KampfListe = ({
       // --- Userinfos laden ---
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, position_ingruppe, user_visible')
+        .select('user_id, vorname, nachname, rolle, user_visible')
         .in('user_id', alleUserIds);
 
       if (userError) {
@@ -170,7 +174,7 @@ const KampfListe = ({
         return;
       }
 
-      // (1) Map statt .find(...) – O(1) Lookup
+      // O(1) Lookup
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
 
       // --- Quali-Counts laden (gültig bis inklusive Monatsende) ---
@@ -178,7 +182,7 @@ const KampfListe = ({
       const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
       setQualiCountMap(qualiMap);
 
-      // --- Urlaub & Stunden laden (exakt deine Felder) ---
+      // --- Urlaub & Stunden laden ---
       const jahrNum = Number(jahr) || new Date().getFullYear();
 
       const [urlaubRes, stundenRes] = await Promise.all([
@@ -221,6 +225,52 @@ const KampfListe = ({
       }
       setStundenInfoMap(stundenInfo);
 
+      // --- NEU: Schichtzuweisungen für den Monat laden (Quelle für Schicht & Position) ---
+      const { data: zuwRaw, error: zuwErr } = await supabase
+        .from('DB_SchichtZuweisung')
+        .select('user_id, schichtgruppe, position_ingruppe, von_datum, bis_datum')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .in('user_id', alleUserIds)
+        .lte('von_datum', monthEnd);
+
+      if (zuwErr) {
+        console.error('❌ Fehler beim Laden der Zuweisungen:', zuwErr.message || zuwErr);
+      }
+
+      // Nur Zuweisungen, die den Monat berühren
+      const zuwMonat = (zuwRaw || []).filter(
+        (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(monthStart, 'day')
+      );
+
+      // Map: user_id -> Array von Intervallen
+      const zuwByUser = new Map();
+      for (const z of zuwMonat) {
+        const uid = String(z.user_id);
+        const arr = zuwByUser.get(uid) || [];
+        arr.push(z);
+        zuwByUser.set(uid, arr);
+      }
+      // pro User nach Startdatum sortieren
+      for (const [uid, arr] of zuwByUser) {
+        arr.sort((a, b) => (a.von_datum < b.von_datum ? -1 : 1));
+      }
+
+      // Helper: Zuweisung (Schichtgruppe & Position) am Datum ermitteln
+      const getAssnForDate = (uid, datum) => {
+        const arr = zuwByUser.get(String(uid)) || [];
+        let best = null;
+        for (const r of arr) {
+          const ok =
+            dayjs(r.von_datum).isSameOrBefore(datum, 'day') &&
+            (!r.bis_datum || dayjs(r.bis_datum).isSameOrAfter(datum, 'day'));
+          if (ok && (!best || r.von_datum > best.von_datum)) {
+            best = r;
+          }
+        }
+        return best; // {schichtgruppe, position_ingruppe, ...} | null
+      };
+
       // --- Gruppieren ---
       const gruppiert = {};
 
@@ -229,15 +279,20 @@ const KampfListe = ({
         const userId = String(k.user);
         const creatorId = String(k.created_by);
 
-        // (1) O(1) lookups
         const userInfo = userById.get(userId);
         const creatorInfo = userById.get(creatorId);
         if (!userInfo) continue;
 
+        // 👉 NEU: Schicht & Position aus Zuweisung (heute als Leitwert; wenn nicht vorhanden, am Zellen-Datum)
+        const assnToday = getAssnForDate(userId, heutigesDatum);
+        const assnAtCell = assnToday || getAssnForDate(userId, k.datum);
+        const rowSchichtgruppe = assnToday?.schichtgruppe || assnAtCell?.schichtgruppe || null;
+        const rowPosition = assnToday?.position_ingruppe ?? assnAtCell?.position_ingruppe ?? 999;
+
         if (!gruppiert[userId]) {
           gruppiert[userId] = {
-            schichtgruppe: k.schichtgruppe,
-            position: userInfo.position_ingruppe || 999,
+            schichtgruppe: rowSchichtgruppe,
+            position: rowPosition,
             rolle: userInfo.rolle,
             user_visible: userInfo.user_visible || false,
             name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
@@ -264,7 +319,7 @@ const KampfListe = ({
         };
       }
 
-      // Zähler pro Schichtgruppe
+      // Zähler pro Schichtgruppe (auf Basis "heute" / Leitwert)
       const zaehler = {};
       for (const [, e] of Object.entries(gruppiert)) {
         const gruppe = e.schichtgruppe || 'Unbekannt';
@@ -272,21 +327,28 @@ const KampfListe = ({
       }
       setGruppenZähler(zaehler);
 
-      // Nur sichtbare Gruppen behalten
+      // Nur sichtbare Gruppen behalten (ebenfalls Leitwert)
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
           delete gruppiert[key];
         }
       });
 
-      // Sortierung
+      // Sortierung nach Schichtgruppe, dann Positionswert
       const sortiert = Object.entries(gruppiert).sort(([, a], [, b]) => {
         const schichtSort = (a.schichtgruppe || '').localeCompare(b.schichtgruppe || '');
-        return schichtSort !== 0 ? schichtSort : a.position - b.position;
+        return schichtSort !== 0 ? schichtSort : (a.position ?? 999) - (b.position ?? 999);
       });
 
       setEintraege(sortiert);
+
+      // 🔁 Helper für Zell-Klick: wir brauchen die Gruppe am Zellen-Datum
+      // Merken als Closure:
+      getSchichtgruppeFor = (uid, datum) => (getAssnForDate(uid, datum)?.schichtgruppe || null);
     };
+
+    // kleiner Trick: Function-Ref im Scope behalten
+    var getSchichtgruppeFor = (uid, datum) => null;
 
     ladeKampfliste();
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, dateStrByTag, setGruppenZähler]);
@@ -472,7 +534,7 @@ const KampfListe = ({
                 >
                   {tage.map((t) => {
                     const eintragTag = e.tage[t.tag];
-                    const zellenDatum = dateStrByTag[t.tag]; // (2) aus Memo
+                    const zellenDatum = dateStrByTag[t.tag];
                     const istHeute = zellenDatum === heutigesDatum;
 
                     return (
@@ -493,8 +555,24 @@ const KampfListe = ({
                           }
                         }}
                         onMouseLeave={scheduleHideCellTip}
-                        onClick={() => {
+                        onClick={async () => {
                           if (istNurLesend) return;
+
+                          // 👉 Schichtgruppe am Zellen-Datum aus DB_SchichtZuweisung holen
+                          const { data: assn, error: assnErr } = await supabase
+                            .from('DB_SchichtZuweisung')
+                            .select('schichtgruppe')
+                            .eq('firma_id', firma)
+                            .eq('unit_id', unit)
+                            .eq('user_id', userId)
+                            .lte('von_datum', zellenDatum)
+                            .or(`bis_datum.is.null, bis_datum.gte.${zellenDatum}`)
+                            .order('von_datum', { ascending: false })
+                            .limit(1);
+
+                          const schichtgruppeAtDate =
+                            !assnErr && assn && assn.length ? assn[0].schichtgruppe : e.schichtgruppe;
+
                           const eintragObjekt = {
                             user: userId,
                             name: e.vollName,
@@ -509,12 +587,13 @@ const KampfListe = ({
                             ist_schicht_id: eintragTag?.ist_schicht_id || null,
                             beginn: eintragTag?.beginn || '',
                             ende: eintragTag?.ende || '',
-                            schichtgruppe: e.schichtgruppe,
+                            schichtgruppe: schichtgruppeAtDate, // 🆕 aus neuer DB
                             created_by: eintragTag?.created_by,
                             created_by_name: eintragTag?.created_by_name,
                             created_at: eintragTag?.created_at,
                             kommentar: eintragTag?.kommentar || '',
                           };
+
                           setPopupEintrag(eintragObjekt);
                           setAusgewählterDienst(eintragObjekt);
                           setPopupOffen(true);
@@ -563,7 +642,7 @@ const KampfListe = ({
                             hoveredCellKey === key &&
                             (eintragTag?.beginn || eintragTag?.ende || eintragTag?.kommentar);
                           if (!show) return null;
-                          const datumLabel = dateLabelByTag[t.tag]; // (2) aus Memo
+                          const datumLabel = dateLabelByTag[t.tag];
                           return (
                             <div
                               className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"

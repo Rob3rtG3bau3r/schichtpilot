@@ -33,10 +33,14 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     });
   };
 
-  // Qualifikationen für Dropdown laden
+  // Qualifikationen für Dropdown laden (aus Matrix)
   useEffect(() => {
     const ladeQualifikationen = async () => {
-      const { data, error } = await supabase
+      if (!firma || !unit) {
+        setQualifikationen([]);
+        return;
+      }
+      const { data } = await supabase
         .from('DB_Qualifikationsmatrix')
         .select('qualifikation')
         .eq('firma_id', firma)
@@ -47,15 +51,22 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
       if (data) {
         const eindeutige = [...new Set(data.map((q) => q.qualifikation))];
         setQualifikationen(eindeutige);
+      } else {
+        setQualifikationen([]);
       }
     };
     ladeQualifikationen();
   }, [firma, unit]);
 
-  // Mitarbeiter + höchste Quali laden
+  // Mitarbeiter + höchste Quali + Team (heute) laden
   useEffect(() => {
     const ladeDaten = async () => {
-      // 1. Mitarbeiter aus der Unit holen
+      if (!firma || !unit) {
+        setPersonen([]);
+        return;
+      }
+
+      // 1) Mitarbeiter aus der Unit holen
       const { data: mitarbeiter, error: error1 } = await supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle')
@@ -65,47 +76,74 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 
       if (error1) {
         console.error('Fehler beim Laden der Mitarbeitenden:', error1);
+        setPersonen([]);
         return;
       }
 
-      // 2. Qualifikationen laden
+      const userIds = (mitarbeiter || []).map((m) => m.user_id);
+      if (userIds.length === 0) {
+        setPersonen([]);
+        return;
+      }
+
+      // 2) Qualifikationen dieser User laden
       const { data: qualiEintraege, error: error2 } = await supabase
         .from('DB_Qualifikation')
-        .select('user_id, quali');
+        .select('user_id, quali')
+        .in('user_id', userIds);
 
       if (error2) {
         console.error('Fehler beim Laden der Qualifikationen:', error2);
-        return;
       }
 
-      // 3. QualiMatrix laden für Positionen
-      const { data: matrix, error: error3 } = await supabase
-        .from('DB_Qualifikationsmatrix')
-        .select('id, qualifikation, position')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit);
+      // 3) Matrix für genutzte Quali-IDs laden (Position + Bezeichnung)
+      const qualiIds = Array.from(new Set((qualiEintraege || []).map((q) => q.quali)));
+      let matrix = [];
+      if (qualiIds.length > 0) {
+        const { data: matrixData, error: error3 } = await supabase
+          .from('DB_Qualifikationsmatrix')
+          .select('id, qualifikation, position')
+          .in('id', qualiIds)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit);
 
-      if (error3) {
-        console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
-        return;
+        if (error3) {
+          console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
+        } else {
+          matrix = matrixData || [];
+        }
       }
 
-      // 4. Kampfliste-Einträge für heute laden
+      // 4) Team am HEUTIGEN Tag aus DB_SchichtZuweisung ermitteln
       const heute = new Date().toISOString().split('T')[0];
-      const { data: kampfliste, error: errorKampfliste } = await supabase
-        .from('DB_Kampfliste')
-        .select('user, schichtgruppe')
+
+      // Hole alle Zuweisungen für diese User mit Start <= heute
+      const { data: zuwRaw, error: zuwErr } = await supabase
+        .from('DB_SchichtZuweisung')
+        .select('user_id, schichtgruppe, von_datum, bis_datum')
         .eq('firma_id', firma)
         .eq('unit_id', unit)
-        .eq('datum', heute);
+        .in('user_id', userIds)
+        .lte('von_datum', heute);
 
-      if (errorKampfliste) {
-        console.error('Fehler beim Laden der Kampfliste:', errorKampfliste);
-        return;
+      if (zuwErr) {
+        console.error('Fehler beim Laden der Schichtzuweisungen:', zuwErr);
       }
 
-      const personenMitQuali = mitarbeiter.map((person) => {
-        const eigeneQualis = qualiEintraege
+      // Pro User: am heutigen Tag gültigen Eintrag (max von_datum) auswählen
+      const zuwMap = new Map(); // user_id -> schichtgruppe
+      (zuwRaw || [])
+        .filter(z => !z.bis_datum || z.bis_datum >= heute)
+        .forEach(z => {
+          const prev = zuwMap.get(z.user_id);
+          if (!prev || z.von_datum > prev.von_datum) {
+            zuwMap.set(z.user_id, { schichtgruppe: z.schichtgruppe, von_datum: z.von_datum });
+          }
+        });
+
+      // 5) Zusammenführen: höchste Quali + Team
+      const personenMitQuali = (mitarbeiter || []).map((person) => {
+        const eigeneQualis = (qualiEintraege || [])
           .filter((q) => q.user_id === person.user_id)
           .map((q) => {
             const details = matrix.find((m) => m.id === q.quali);
@@ -115,11 +153,10 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
             };
           });
 
-        const alle = eigeneQualis.map((q) => q.qualifikation);
+        const alle = eigeneQualis.map((q) => q.qualifikation).filter(Boolean);
         const hoechste = eigeneQualis.sort((a, b) => a.position - b.position)[0];
 
-        const kampfEintrag = kampfliste?.find((k) => k.user === person.user_id);
-        const aktuelleSchichtgruppe = kampfEintrag?.schichtgruppe ?? '–';
+        const aktuelleSchichtgruppe = zuwMap.get(person.user_id)?.schichtgruppe ?? '–';
 
         return {
           user_id: person.user_id,
@@ -137,6 +174,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     ladeDaten();
   }, [firma, unit, refreshKey]);
 
+  // Suche + Quali-Filter + Sortierung
   const gefiltertePersonen = personen
     .filter((p) =>
       p.name?.toLowerCase().includes(suche.toLowerCase()) &&
@@ -284,7 +322,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
               <li>Nur aktive User der aktuellen Unit werden angezeigt.</li>
               <li>Pro Person wird die höchste zugewiesene Qualifikation angezeigt (nach Position).</li>
               <li>Du kannst nach Namen suchen und nach Qualifikation filtern.</li>
-              <li>Die Tabelle kann jetzt auch nach Rolle sortiert werden.</li>
+              <li><strong>Team</strong> kommt aus <strong>DB_SchichtZuweisung</strong> (gültig am heutigen Tag).</li>
             </ul>
             <div className="mt-4 text-right">
               <button
@@ -302,3 +340,4 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 };
 
 export default Personalliste;
+

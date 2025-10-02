@@ -15,11 +15,13 @@ const SchichtzuweisungFormular = ({
   onRefresh,
   setIsLoading,
   isLoading,
-  className
+  className,
+  datumStart,
+  setDatumStart
 }) => {
   const [team, setTeam] = useState('');
   const [teams, setTeams] = useState([]);
-  const [datumStart, setDatumStart] = useState('');
+  //const [datumStart, setDatumStart] = useState('');
   const [datumEnde, setDatumEnde] = useState('');
   const [maxDatumEnde, setMaxDatumEnde] = useState('');
   const [kundenCheckInfo, setKundenCheckInfo] = useState(null);
@@ -27,6 +29,7 @@ const SchichtzuweisungFormular = ({
   const [gesamtAnzahl, setGesamtAnzahl] = useState(0);
   const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
   const [endet, setEndet] = useState(false);
+  const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
     const ladeTeams = async () => {
@@ -114,11 +117,13 @@ const handleSubmit = async () => {
       throw insertError;
     }
 
-    alert('✅ Schichtgruppe erfolgreich zugewiesen!');
+setFeedback('✅ Schichtgruppe erfolgreich zugewiesen!');
+setTimeout(() => setFeedback(''), 1000);
     if (typeof onRefresh === 'function') onRefresh();
 
   } catch (error) {
-    alert('❌ Fehler beim Speichern der Zuweisung: ' + error.message);
+    setFeedback('❌ Fehler beim Speichern: ' + error.message);
+    setTimeout(() => setFeedback(''), 2000);
   }
 
   setIsLoading(false);
@@ -216,7 +221,11 @@ const handleSubmit = async () => {
           Kopiere {aktuellerFortschritt} von {gesamtAnzahl} Tagen...
         </div>
       )}
-
+{feedback && (
+  <div className="mt-2 text-green-600 dark:text-green-400 text-sm text-center">
+    {feedback}
+  </div>
+)}
       {modalOffen && (
         <div
           className="fixed inset-0 bg-black backdrop-blur-sm bg-opacity-50 z-50 flex items-center justify-center"
