@@ -86,7 +86,7 @@ const KampfListe = ({
     cellHideTimerRef.current = setTimeout(() => setHoveredCellKey(null), 120);
   };
 
-  // ---- Datum-Strings & Labels ----
+  // ---- (2) Datum-Strings & Labels einmal erzeugen (useMemo) ----
   const prefix = `${jahr}-${String(monat + 1).padStart(2, '0')}`;
 
   const dateStrByTag = React.useMemo(() => {
@@ -123,108 +123,68 @@ const KampfListe = ({
       if (!firma || !unit) return;
 
       const daysInMonth = new Date(jahr, monat + 1, 0).getDate();
+      const datumsliste = dateStrByTag.slice(1, daysInMonth + 1);
+
+      // Zeitraum für die Zuweisungen dieses Monats
       const monthStart = `${prefix}-01`;
       const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
-      // ---------- v_tagesplan in 4 Datums-Batches laden ----------
-      const q1 = Math.floor(daysInMonth / 4);
-      const q2 = Math.floor(daysInMonth / 2);
-      const q3 = Math.floor((3 * daysInMonth) / 4);
+      const ladeKampflisteBatchweise = async () => {
+        let alleEintraege = [];
+        const batchSize = 1000;
+        for (let i = 0; i < 5; i++) {
+          const { data, error } = await supabase
+            .from('DB_Kampfliste')
+            .select(
+              'id, datum, created_by, created_at, startzeit_ist, endzeit_ist, user, kommentar, aenderung, ist_schicht(id, kuerzel, farbe_bg, farbe_text)'
+            )
+            .in('datum', datumsliste)
+            .eq('firma_id', firma)
+            .eq('unit_id', unit)
+            .order('created_at', { ascending: false })
+            .range(i * batchSize, (i + 1) * batchSize - 1);
 
-      const dayToDate = (d) => `${prefix}-${String(d).padStart(2, '0')}`;
-
-      const ranges = [
-        [1, q1],
-        [q1 + 1, q2],
-        [q2 + 1, q3],
-        [q3 + 1, daysInMonth],
-      ].filter(([a, b]) => a <= b); // Sicherheit
-
-      const fetchViewRange = async (startDate, endDate) => {
-        const { data, error } = await supabase
-          .from('v_tagesplan')
-          .select(
-            'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
-            'hat_aenderung, kommentar, ist_created_at, ist_created_by'
-          )
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .gte('datum', startDate)
-          .lte('datum', endDate);
-        if (error) {
-          console.error('❌ Fehler v_tagesplan:', error.message || error);
-          return [];
+          if (error) {
+            console.error(`❌ Fehler in Batch ${i}:`, error.message || error);
+            continue;
+          }
+          alleEintraege = [...alleEintraege, ...data];
+          if (data.length < batchSize) break;
         }
-        return data || [];
+        return alleEintraege;
       };
 
-      const viewChunks = await Promise.all(
-        ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
-      );
-      const viewRows = viewChunks.flat();
-
-      // ---- Schichtarten (Farben/Kürzel) laden ----
-      const schichtIds = Array.from(
-        new Set((viewRows || []).map(r => r.ist_schichtart_id).filter(x => x != null))
-      );
-      let schichtMap = new Map();
-      if (schichtIds.length) {
-        const { data: schichten, error: sErr } = await supabase
-          .from('DB_SchichtArt')
-          .select('id, kuerzel, farbe_bg, farbe_text')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('id', schichtIds);
-        if (sErr) {
-          console.error('❌ Fehler DB_SchichtArt:', sErr.message || sErr);
-        } else {
-          schichtMap = new Map((schichten || []).map(s => [s.id, s]));
-        }
-      }
-
-      // ---- View → kampfData-Form ----
-      const kampfData = (viewRows || []).map(r => ({
-        id: null,
-        datum: r.datum,
-        created_by: r.ist_created_by || null,
-        created_at: r.ist_created_at || null,
-        startzeit_ist: r.ist_startzeit || '',
-        endzeit_ist: r.ist_endzeit || '',
-        user: r.user_id,
-        kommentar: r.kommentar || null,
-        aenderung: !!r.hat_aenderung,
-        ist_schicht: (() => {
-          const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
-          return s
-            ? { id: s.id, kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
-            : { id: null, kuerzel: '-', farbe_bg: '', farbe_text: '' };
-        })(),
-      }));
+      let kampfData = await ladeKampflisteBatchweise();
 
       const userIds = kampfData.map((e) => e.user).filter(Boolean);
       const createdByIds = kampfData.map((e) => e.created_by).filter(Boolean);
       const alleUserIds = [...new Set([...userIds, ...createdByIds])].map(String);
       const idsSet = new Set(alleUserIds);
+
       if (alleUserIds.length === 0) return;
 
-      // ---- Userinfos ----
+      // --- Userinfos laden ---
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle, user_visible')
         .in('user_id', alleUserIds);
+
       if (userError) {
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
         return;
       }
+
+      // O(1) Lookup
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
 
-      // ---- Quali-Counts ----
+      // --- Quali-Counts laden (gültig bis inklusive Monatsende) ---
       const cutoffIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
       const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
       setQualiCountMap(qualiMap);
 
-      // ---- Urlaub & Stunden ----
+      // --- Urlaub & Stunden laden ---
       const jahrNum = Number(jahr) || new Date().getFullYear();
+
       const [urlaubRes, stundenRes] = await Promise.all([
         supabase
           .from('DB_Urlaub')
@@ -241,6 +201,7 @@ const KampfListe = ({
           .eq('unit_id', unit)
           .in('user_id', alleUserIds),
       ]);
+
       if (urlaubRes.error) console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
       if (stundenRes.error) console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
 
@@ -264,7 +225,7 @@ const KampfListe = ({
       }
       setStundenInfoMap(stundenInfo);
 
-      // ---- Schichtzuweisungen (für Schichtgruppe/Position) ----
+      // --- NEU: Schichtzuweisungen für den Monat laden (Quelle für Schicht & Position) ---
       const { data: zuwRaw, error: zuwErr } = await supabase
         .from('DB_SchichtZuweisung')
         .select('user_id, schichtgruppe, position_ingruppe, von_datum, bis_datum')
@@ -272,13 +233,17 @@ const KampfListe = ({
         .eq('unit_id', unit)
         .in('user_id', alleUserIds)
         .lte('von_datum', monthEnd);
+
       if (zuwErr) {
         console.error('❌ Fehler beim Laden der Zuweisungen:', zuwErr.message || zuwErr);
       }
 
+      // Nur Zuweisungen, die den Monat berühren
       const zuwMonat = (zuwRaw || []).filter(
         (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(monthStart, 'day')
       );
+
+      // Map: user_id -> Array von Intervallen
       const zuwByUser = new Map();
       for (const z of zuwMonat) {
         const uid = String(z.user_id);
@@ -286,10 +251,12 @@ const KampfListe = ({
         arr.push(z);
         zuwByUser.set(uid, arr);
       }
-      for (const [, arr] of zuwByUser) {
+      // pro User nach Startdatum sortieren
+      for (const [uid, arr] of zuwByUser) {
         arr.sort((a, b) => (a.von_datum < b.von_datum ? -1 : 1));
       }
 
+      // Helper: Zuweisung (Schichtgruppe & Position) am Datum ermitteln
       const getAssnForDate = (uid, datum) => {
         const arr = zuwByUser.get(String(uid)) || [];
         let best = null;
@@ -297,22 +264,26 @@ const KampfListe = ({
           const ok =
             dayjs(r.von_datum).isSameOrBefore(datum, 'day') &&
             (!r.bis_datum || dayjs(r.bis_datum).isSameOrAfter(datum, 'day'));
-          if (ok && (!best || r.von_datum > best.von_datum)) best = r;
+          if (ok && (!best || r.von_datum > best.von_datum)) {
+            best = r;
+          }
         }
-        return best;
+        return best; // {schichtgruppe, position_ingruppe, ...} | null
       };
 
-      // ---- Gruppieren wie zuvor ----
+      // --- Gruppieren ---
       const gruppiert = {};
+
       for (const k of kampfData) {
         const tag = dayjs(k.datum).date();
         const userId = String(k.user);
-        const creatorId = k.created_by ? String(k.created_by) : null;
+        const creatorId = String(k.created_by);
 
         const userInfo = userById.get(userId);
-        const creatorInfo = creatorId ? userById.get(creatorId) : null;
+        const creatorInfo = userById.get(creatorId);
         if (!userInfo) continue;
 
+        // 👉 NEU: Schicht & Position aus Zuweisung (heute als Leitwert; wenn nicht vorhanden, am Zellen-Datum)
         const assnToday = getAssnForDate(userId, heutigesDatum);
         const assnAtCell = assnToday || getAssnForDate(userId, k.datum);
         const rowSchichtgruppe = assnToday?.schichtgruppe || assnAtCell?.schichtgruppe || null;
@@ -348,6 +319,7 @@ const KampfListe = ({
         };
       }
 
+      // Zähler pro Schichtgruppe (auf Basis "heute" / Leitwert)
       const zaehler = {};
       for (const [, e] of Object.entries(gruppiert)) {
         const gruppe = e.schichtgruppe || 'Unbekannt';
@@ -355,19 +327,28 @@ const KampfListe = ({
       }
       setGruppenZähler(zaehler);
 
+      // Nur sichtbare Gruppen behalten (ebenfalls Leitwert)
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
           delete gruppiert[key];
         }
       });
 
+      // Sortierung nach Schichtgruppe, dann Positionswert
       const sortiert = Object.entries(gruppiert).sort(([, a], [, b]) => {
         const schichtSort = (a.schichtgruppe || '').localeCompare(b.schichtgruppe || '');
         return schichtSort !== 0 ? schichtSort : (a.position ?? 999) - (b.position ?? 999);
       });
 
       setEintraege(sortiert);
+
+      // 🔁 Helper für Zell-Klick: wir brauchen die Gruppe am Zellen-Datum
+      // Merken als Closure:
+      getSchichtgruppeFor = (uid, datum) => (getAssnForDate(uid, datum)?.schichtgruppe || null);
     };
+
+    // kleiner Trick: Function-Ref im Scope behalten
+    var getSchichtgruppeFor = (uid, datum) => null;
 
     ladeKampfliste();
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, dateStrByTag, setGruppenZähler]);
@@ -377,6 +358,7 @@ const KampfListe = ({
     if (!userIds?.length) return {};
     try {
       const ids = userIds.map(String);
+
       const { data, error } = await supabase
         .from('DB_Qualifikation')
         .select(
@@ -400,10 +382,12 @@ const KampfListe = ({
         .eq('matrix.betriebs_relevant', true)
         .eq('matrix.aktiv', true)
         .lte('created_at', cutoffIso);
+
       if (error) {
         console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
         return {};
       }
+
       const map = {};
       for (const row of data || []) {
         const uid = String(row.user_id);
@@ -418,9 +402,10 @@ const KampfListe = ({
 
   return (
     <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
+      {/* nur horizontal scrollen; Y soll sichtbar bleiben */}
       <div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
         <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
-          {/* linke Namensspalte */}
+          {/* --- linke Namensspalte --- */}
           <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
@@ -439,7 +424,9 @@ const KampfListe = ({
               const urlaub = urlaubInfoMap[userId] || { gesamt: null, summe: null, rest: null };
               const stunden = stundenInfoMap[userId] || { gesamt: null, summe: null, rest: null };
 
-              const darfTooltipSehen = rolle !== 'Employee' || String(userId) === String(currentUserId);
+              const darfTooltipSehen =
+                rolle !== 'Employee' || String(userId) === String(currentUserId);
+
               const showTip = darfTooltipSehen && hoveredUserId === userId;
 
               return (
@@ -464,6 +451,7 @@ const KampfListe = ({
                   >
                     {e.name}
 
+                    {/* Tooltip (seitlich) */}
                     {showTip && (
                       <div
                         className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"
@@ -473,24 +461,35 @@ const KampfListe = ({
                       >
                         <div className="relative w-[256px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
                                         bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 font-mono text-xs">
+                          {/* Pfeil */}
                           <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
                                           bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
                           <div className="font-sans font-semibold mb-1 truncate">{e.vollName}</div>
 
                           <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-1 items-baseline">
+                            {/* Urlaub */}
                             <div className="font-sans text-gray-500 dark:text-gray-400">Urlaub</div>
                             <div className="text-right text-gray-500 dark:text-gray-400">
                               [{fmt2(urlaub.gesamt)} – {fmt2(urlaub.summe)}]
                             </div>
-                            <div className={`text-right font-semibold ${(urlaub.rest ?? 0) < 0 ? 'text-red-600' : 'text-emerald-500'}`}>
+                            <div
+                              className={`text-right font-semibold ${
+                                (urlaub.rest ?? 0) < 0 ? 'text-red-600' : 'text-emerald-500'
+                              }`}
+                            >
                               {fmt2(urlaub.rest)}
                             </div>
 
+                            {/* Stunden */}
                             <div className="font-sans text-gray-500 dark:text-gray-400">Stunden</div>
                             <div className="text-right text-gray-500 dark:text-gray-400">
                               [{fmt2(stunden.gesamt)} – {fmt2(stunden.summe)}]
                             </div>
-                            <div className={`text-right font-semibold ${(stunden.rest ?? 0) < 0 ? 'text-red-600' : 'text-emerald-500'}`}>
+                            <div
+                              className={`text-right font-semibold ${
+                                (stunden.rest ?? 0) < 0 ? 'text-red-600' : 'text-emerald-500'
+                              }`}
+                            >
                               {fmt2(stunden.rest)}
                             </div>
                           </div>
@@ -499,6 +498,7 @@ const KampfListe = ({
                     )}
                   </span>
 
+                  {/* Rechts vom Namen: Team_Leader = Krone, sonst römisches Badge */}
                   <span className="ml-1">
                     {e.rolle === 'Team_Leader' ? (
                       <Crown size={14} className={kroneFarbe} title="Team-Leader" />
@@ -520,7 +520,7 @@ const KampfListe = ({
             })}
           </div>
 
-          {/* rechte Kalenderspalten */}
+          {/* --- rechte Kalenderspalten --- */}
           <div className="flex flex-col gap-[2px]" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
@@ -558,7 +558,8 @@ const KampfListe = ({
                         onClick={async () => {
                           if (istNurLesend) return;
 
-                          const { data: assn } = await supabase
+                          // 👉 Schichtgruppe am Zellen-Datum aus DB_SchichtZuweisung holen
+                          const { data: assn, error: assnErr } = await supabase
                             .from('DB_SchichtZuweisung')
                             .select('schichtgruppe')
                             .eq('firma_id', firma)
@@ -570,7 +571,7 @@ const KampfListe = ({
                             .limit(1);
 
                           const schichtgruppeAtDate =
-                            assn && assn.length ? assn[0].schichtgruppe : e.schichtgruppe;
+                            !assnErr && assn && assn.length ? assn[0].schichtgruppe : e.schichtgruppe;
 
                           const eintragObjekt = {
                             user: userId,
@@ -586,7 +587,7 @@ const KampfListe = ({
                             ist_schicht_id: eintragTag?.ist_schicht_id || null,
                             beginn: eintragTag?.beginn || '',
                             ende: eintragTag?.ende || '',
-                            schichtgruppe: schichtgruppeAtDate,
+                            schichtgruppe: schichtgruppeAtDate, // 🆕 aus neuer DB
                             created_by: eintragTag?.created_by,
                             created_by_name: eintragTag?.created_by_name,
                             created_at: eintragTag?.created_at,
@@ -634,6 +635,7 @@ const KampfListe = ({
                           </>
                         )}
 
+                        {/* Notice-Tooltip seitlich mit Datum/Zeit/Kommentar */}
                         {(() => {
                           const key = `${userId}|${zellenDatum}`;
                           const show =
@@ -648,16 +650,24 @@ const KampfListe = ({
                               onMouseLeave={scheduleHideCellTip}
                               style={{ pointerEvents: 'auto' }}
                             >
-                              <div className="relative w-[260px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
-                                              bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs">
-                                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
-                                                bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
+                              <div
+                                className="relative w-[260px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
+                                              bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs"
+                              >
+                                {/* Pfeil */}
+                                <div
+                                  className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
+                                                bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10"
+                                />
+                                {/* Header: Datum */}
                                 <div className="font-sans font-semibold mb-1">{datumLabel}</div>
+                                {/* Zeiten */}
                                 {(eintragTag?.beginn || eintragTag?.ende) && (
                                   <div className="font-mono">
                                     {eintragTag?.beginn || '–'} – {eintragTag?.ende || '–'}
                                   </div>
                                 )}
+                                {/* Kommentar */}
                                 {eintragTag?.kommentar && (
                                   <div className="mt-1 whitespace-pre-wrap break-words">{eintragTag.kommentar}</div>
                                 )}
