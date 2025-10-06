@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
-import { ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 const Pill = ({ children, title }) => (
   <span
@@ -79,19 +79,18 @@ const MiniTable = ({ rows }) => (
 );
 
 export default function TagesUebersicht() {
-  const { rolle, sichtUnit: unit } = useRollen();
+  const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
 
-  // === NEU: Gesamt-Klappmechanismus wie in TeamPflegen.jsx ===
+  // Gesamt-Klappzustand (wie TeamPflegen)
   const mainStorageKey = `sp_tages_offen_${unit || 'none'}`;
   const [offen, setOffen] = useState(() => {
-    // Standard: offen, nur bei gespeicherter '0' zu
     try {
       return localStorage.getItem(mainStorageKey) !== '0';
     } catch {
       return true;
     }
   });
-    useEffect(() => {
+  useEffect(() => {
     try {
       localStorage.setItem(mainStorageKey, offen ? '1' : '0');
     } catch {}
@@ -106,34 +105,273 @@ export default function TagesUebersicht() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [data, setData] = useState({ enabled: false, datum: dayjs().format('YYYY-MM-DD'), kampfliste: {}, termine: {}, bedarf: {} });
 
-  // Sichtbarkeitslogik: Employee/Team_Leader sehen NIE diese Komponente
+  // Datenstruktur wie zuvor erwartet
+  const [data, setData] = useState({
+    enabled: true,
+    datum: dayjs().format('YYYY-MM-DD'),
+    kampfliste: { schichten: { frueh: [], spaet: [], nacht: [] }, andere_kuerzel: [], krank: [] },
+    termine: { termine: [] },
+    bedarf: { normalbetrieb: [], zeitlich: [], summiert: [] },
+  });
+
+  // Sichtbarkeit: nur Planner/Admin_Dev
   const darfSehen = useMemo(() => ['Planner', 'Admin_Dev'].includes(rolle), [rolle]);
 
   useEffect(() => {
-    let alive = true;
-    const fetcher = async () => {
-      if (!darfSehen || !unit) {
+    const ladeHeute = async () => {
+      if (!darfSehen || !firma || !unit) {
         setLoading(false);
         return;
       }
       setLoading(true);
       setError('');
-      const { data: payload, error: err } = await supabase.rpc('tagesuebersicht_heute', { p_unit_id: unit });
-      if (!alive) return;
-      if (err) {
-        console.error('tagesuebersicht_heute RPC error', err);
-        setError(err.message || 'Fehler beim Laden');
+
+      const heute = dayjs().format('YYYY-MM-DD');
+      const gestern = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
+
+      try {
+        // --- 1) Stammdaten ---
+        const [{ data: artRows, error: artErr }] = await Promise.all([
+          supabase
+            .from('DB_SchichtArt')
+            .select('id, kuerzel')
+            .eq('firma_id', Number(firma))
+            .eq('unit_id', Number(unit)),
+        ]);
+        if (artErr) throw artErr;
+
+        const kuerzelByArtId = new Map();
+        (artRows || []).forEach(r => kuerzelByArtId.set(r.id, r.kuerzel));
+
+        // --- 2) SOLL-Plan für heute: Gruppe -> Kürzel ---
+        const { data: sollRows, error: sollErr } = await supabase
+          .from('DB_SollPlan')
+          .select('schichtgruppe, kuerzel')
+          .eq('firma_id', Number(firma))
+          .eq('unit_id', Number(unit))
+          .eq('datum', heute);
+        if (sollErr) throw sollErr;
+
+        const kuerzelByGruppe = new Map();
+        (sollRows || []).forEach(r => kuerzelByGruppe.set(r.schichtgruppe, r.kuerzel));
+
+        // --- 3) Zuweisungen heute: wer gehört zu welcher Gruppe? ---
+        const { data: zuwRows, error: zuwErr } = await supabase
+          .from('DB_SchichtZuweisung')
+          .select('user_id, schichtgruppe')
+          .eq('firma_id', Number(firma))
+          .eq('unit_id', Number(unit))
+          .lte('von_datum', heute)
+          .or(`bis_datum.is.null, bis_datum.gte.${heute}`);
+        if (zuwErr) throw zuwErr;
+
+        const gruppeByUser = new Map();
+        (zuwRows || []).forEach(r => gruppeByUser.set(String(r.user_id), r.schichtgruppe));
+
+        // --- 4) Kampfliste heute + gestern (Overlay) ---
+        const [klHeute, klGestern] = await Promise.all([
+          supabase
+            .from('DB_Kampfliste')
+            .select('user, ist_schicht, created_at')
+            .eq('firma_id', Number(firma))
+            .eq('unit_id', Number(unit))
+            .eq('datum', heute)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('DB_Kampfliste')
+            .select('user, ist_schicht, created_at')
+            .eq('firma_id', Number(firma))
+            .eq('unit_id', Number(unit))
+            .eq('datum', gestern)
+            .order('created_at', { ascending: false }),
+        ]);
+        if (klHeute.error) throw klHeute.error;
+        if (klGestern.error) throw klGestern.error;
+
+        const latestKuerzelByUserHeute = new Map();
+        for (const row of klHeute.data || []) {
+          const uid = String(row.user);
+          if (!latestKuerzelByUserHeute.has(uid)) {
+            latestKuerzelByUserHeute.set(uid, kuerzelByArtId.get(row.ist_schicht) || null);
+          }
+        }
+        const latestKuerzelByUserGestern = new Map();
+        for (const row of klGestern.data || []) {
+          const uid = String(row.user);
+          if (!latestKuerzelByUserGestern.has(uid)) {
+            latestKuerzelByUserGestern.set(uid, kuerzelByArtId.get(row.ist_schicht) || null);
+          }
+        }
+
+        // --- 5) Kandidaten-User-Ids ---
+        const userIdsSet = new Set([
+          ...Array.from(gruppeByUser.keys()),
+          ...Array.from(latestKuerzelByUserHeute.keys()),
+        ]);
+        const userIds = Array.from(userIdsSet);
+
+        // --- 6) Userdaten ---
+        let userNameMap = new Map();
+        let userVisibleMap = new Map();
+        if (userIds.length) {
+          const { data: userRows, error: userErr } = await supabase
+            .from('DB_User')
+            .select('user_id, vorname, nachname, user_visible')
+            .in('user_id', userIds);
+          if (userErr) throw userErr;
+
+          (userRows || []).forEach(u => {
+            userNameMap.set(String(u.user_id), `${u.nachname || ''}, ${u.vorname || ''}`.trim());
+            userVisibleMap.set(String(u.user_id), u.user_visible !== false);
+          });
+        }
+
+        // --- 7) Finale Kürzel pro User: Overlay (Kampfliste) > Plan ---
+        const finalKuerzelByUser = new Map();
+        for (const uid of userIds) {
+          const over = latestKuerzelByUserHeute.get(uid);
+          if (over) {
+            finalKuerzelByUser.set(uid, over);
+          } else {
+            const grp = gruppeByUser.get(uid);
+            const base = grp ? kuerzelByGruppe.get(grp) : null;
+            if (base) finalKuerzelByUser.set(uid, base);
+          }
+        }
+
+        // --- 8) Aufteilen in F/S/N und „andere“ + Krank ---
+        const F = [];
+        const S = [];
+        const N = [];
+        const andereMap = new Map(); // kuerzel -> [namen]
+        const krankArr = []; // { name, neu }
+
+        const isVisible = (uid) => userVisibleMap.get(uid) !== false;
+
+        // Hilfsfunktion: „Andere“ sammeln (ohne '-')
+        const addAndere = (kuerzel, name) => {
+          if (!kuerzel || kuerzel.trim() === '-') return; // <<<< '-' ausblenden
+          if (!andereMap.has(kuerzel)) andereMap.set(kuerzel, []);
+          andereMap.get(kuerzel).push(name);
+        };
+
+        for (const uid of userIds) {
+          if (!isVisible(uid)) continue;
+          const name = userNameMap.get(uid) || `User ${uid}`;
+          const k = finalKuerzelByUser.get(uid);
+          if (!k) continue;
+
+          if (k === 'F') F.push(name);
+          else if (k === 'S') S.push(name);
+          else if (k === 'N') N.push(name);
+          else if (k === 'K' || k === 'KO') {
+            const gesternK = latestKuerzelByUserGestern.get(uid);
+            krankArr.push({
+              name,
+              neu: !(gesternK === 'K' || gesternK === 'KO'),
+            });
+          } else {
+            addAndere(k, name);
+          }
+        }
+
+        // andere_kuerzel -> Liste mit { kuerzel, anzahl, namen[] } (Sicherheit: '-' filtern)
+        const andere = Array
+          .from(andereMap.entries())
+          .filter(([k]) => k && k.trim() !== '-') // <<<< Sicherheit
+          .map(([kuerzel, namen]) => ({
+            kuerzel,
+            anzahl: namen.length,
+            namen: namen.sort((a, b) => a.localeCompare(b, 'de')),
+          }))
+          .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
+
+        // Schichtlisten sortieren
+        F.sort((a, b) => a.localeCompare(b, 'de'));
+        S.sort((a, b) => a.localeCompare(b, 'de'));
+        N.sort((a, b) => a.localeCompare(b, 'de'));
+        krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
+        // --- 9) Bedarf heute ---
+        const { data: bedarfRows, error: bedErr } = await supabase
+          .from('DB_Bedarf')
+          .select('id, quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
+          .eq('firma_id', Number(firma))
+          .eq('unit_id', Number(unit));
+        if (bedErr) throw bedErr;
+
+        const { data: matrixRows, error: matrixErr } = await supabase
+          .from('DB_Qualifikationsmatrix')
+          .select('id, quali_kuerzel, qualifikation');
+        if (matrixErr) throw matrixErr;
+
+        const qmById = new Map();
+        (matrixRows || []).forEach(q => {
+          qmById.set(q.id, { kuerzel: q.quali_kuerzel, label: q.qualifikation });
+        });
+
+        const isWithin = (row) => (!row.von || row.von <= heute) && (!row.bis || row.bis >= heute);
+        const heuteAlle = (bedarfRows || []).filter(isWithin);
+
+        const hatZeitlich = heuteAlle.some(b => b.normalbetrieb === false);
+        const aktivSet = hatZeitlich
+          ? heuteAlle.filter(b => b.normalbetrieb === false)
+          : heuteAlle.filter(b => b.normalbetrieb !== false);
+
+        const mapped = aktivSet.map(b => ({
+          id: b.id,
+          quali_kuerzel: qmById.get(b.quali_id)?.kuerzel || '???',
+          quali_label: qmById.get(b.quali_id)?.label || null,
+          anzahl: b.anzahl || 0,
+          // namebedarf NICHT mehr pro Zeile rendern
+          namebedarf: null,
+          farbe: b.farbe || null,
+          von: b.von || null,
+          bis: b.bis || null,
+        }));
+
+        const normalbetrieb = hatZeitlich ? [] : mapped;
+        const zeitlich = hatZeitlich ? mapped : [];
+
+        const summeMap = new Map();
+        for (const e of mapped) {
+          const key = e.quali_kuerzel;
+          summeMap.set(key, (summeMap.get(key) || 0) + (e.anzahl || 0));
+        }
+        const summiert = Array.from(summeMap.entries()).map(([quali_kuerzel, total_anzahl]) => ({
+          quali_kuerzel,
+          total_anzahl,
+        })).sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
+
+        // Termine (noch leer)
+        const termine = [];
+
+        setData({
+          enabled: true,
+          datum: heute,
+          kampfliste: {
+            schichten: { frueh: F, spaet: S, nacht: N },
+            andere_kuerzel: andere,
+            krank: krankArr,
+          },
+          termine: { termine },
+          bedarf: {
+            normalbetrieb,
+            zeitlich,
+            summiert,
+          },
+        });
+      } catch (e) {
+        console.error('Tagesübersicht laden fehlgeschlagen', e);
+        setError(e.message || 'Fehler beim Laden');
+      } finally {
         setLoading(false);
-        return;
       }
-      setData(payload || { enabled: false });
-      setLoading(false);
     };
-    fetcher();
-    return () => { alive = false; };
-  }, [darfSehen, unit]);
+
+    ladeHeute();
+  }, [darfSehen, firma, unit]);
 
   if (!darfSehen) return null;
 
@@ -152,7 +390,7 @@ export default function TagesUebersicht() {
 
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-      {/* === NEU: Header klickbar, Chevron links – identisch zur Logik in TeamPflegen.jsx === */}
+      {/* Header klickbar (wie gehabt) */}
       <div
         className="flex items-center justify-between gap-2 mb-2 cursor-pointer"
         onClick={() => setOffen(o => !o)}
@@ -168,7 +406,6 @@ export default function TagesUebersicht() {
         <div className="text-xs opacity-70">{counter}</div>
       </div>
 
-      {/* Inhalt nur sichtbar, wenn offen */}
       {!offen ? null : (
         <>
           {loading ? (
@@ -219,7 +456,7 @@ export default function TagesUebersicht() {
                 )}
               </Section>
 
-              {/* Termine */}
+              {/* Termine (noch leer) */}
               <Section id="termine" title="Termine heute" counter={`${termine.length}`}>
                 {termine.length === 0 ? (
                   <div className="text-sm opacity-70">Keine Termine heute.</div>
@@ -247,74 +484,70 @@ export default function TagesUebersicht() {
               </Section>
 
               {/* Bedarf */}
- <Section id="bedarf" title="Bedarf heute">
-  <div className={`grid grid-cols-1 ${showZeitlich ? '' : 'md:grid-cols-2'} gap-3`}>
-    {/* Normalbetrieb: nur zeigen, wenn KEIN Zeitlich vorhanden ist */}
-    {!showZeitlich && (
-      <div>
-        <div className="text-xs uppercase opacity-70 mb-1">Normalbetrieb</div>
-        {nb.length === 0 ? (
-          <div className="text-sm opacity-70">Keine Einträge.</div>
-        ) : (
-          <ul className="text-sm space-y-1">
-            {nb.map((e) => (
-              <li key={`nb-${e.id}`} className="flex items-center justify-between">
-                <div>
-                  <span className="font-mono mr-2">{e.quali_kuerzel}</span>
-                  {e.quali_label && e.quali_label !== e.quali_kuerzel && (
-                    <span className="opacity-80">{e.quali_label}</span>
+              <Section id="bedarf" title="Bedarf heute">
+                <div className={`grid grid-cols-1 ${showZeitlich ? '' : 'md:grid-cols-2'} gap-3`}>
+                  {!showZeitlich && (
+                    <div>
+                      <div className="text-xs uppercase opacity-70 mb-1">Normalbetrieb</div>
+                      {nb.length === 0 ? (
+                        <div className="text-sm opacity-70">Keine Einträge.</div>
+                      ) : (
+                        <ul className="text-sm space-y-1">
+                          {nb.map((e) => (
+                            <li key={`nb-${e.id}`} className="flex items-center justify-between">
+                              <div>
+                                <span className="font-mono mr-2">{e.quali_kuerzel}</span>
+                                {e.quali_label && e.quali_label !== e.quali_kuerzel && (
+                                  <span className="opacity-80">{e.quali_label}</span>
+                                )}
+                                {/* namebedarf NICHT mehr pro Zeile */}
+                              </div>
+                              <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
-                  {e.namebedarf ? <span className="opacity-60"> • {e.namebedarf}</span> : null}
+
+                  {showZeitlich && (
+                    <div>
+                      <div className="text-xs uppercase opacity-70 mb-1">Zeitlich</div>
+                      <ul className="text-sm space-y-1">
+                        {zb.map((e) => (
+                          <li key={`zb-${e.id}`} className="flex items-center justify-between">
+                            <div>
+                              <span className="font-mono mr-2">{e.quali_kuerzel}</span>
+                              {e.quali_label && e.quali_label !== e.quali_kuerzel && (
+                                <span className="opacity-80">{e.quali_label}</span>
+                              )}
+                              {/* kein namebedarf pro Zeile */}
+                              <span className="opacity-60"> • {dayjs(e.von).format('DD.MM.')}–{dayjs(e.bis).format('DD.MM.')}</span>
+                            </div>
+                            <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    )}
 
-    {/* Zeitlich: nur zeigen, wenn vorhanden (und dann exklusiv) */}
-    {showZeitlich && (
-      <div>
-        <div className="text-xs uppercase opacity-70 mb-1">Zeitlich</div>
-        <ul className="text-sm space-y-1">
-          {zb.map((e) => (
-            <li key={`zb-${e.id}`} className="flex items-center justify-between">
-              <div>
-                <span className="font-mono mr-2">{e.quali_kuerzel}</span>
-                {e.quali_label && e.quali_label !== e.quali_kuerzel && (
-                  <span className="opacity-80">{e.quali_label}</span>
-                )}
-                {e.namebedarf ? <span className="opacity-60"> • {e.namebedarf}</span> : null}
-                <span className="opacity-60"> • {dayjs(e.von).format('DD.MM.')}–{dayjs(e.bis).format('DD.MM.')}</span>
-              </div>
-              <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
-  </div>
-
-  {/* Summiert bleibt wie ist; Server rechnet bereits „Zeitlich ersetzt Normalbetrieb“ */}
-  <div className="mt-3">
-    <div className="text-xs uppercase opacity-70 mb-1">Summiert</div>
-    {summe.length === 0 ? (
-      <div className="text-sm opacity-70">Keine Summen.</div>
-    ) : (
-      <div className="flex flex-wrap">
-        {summe.map((s, i) => (
-          <Pill key={i}>
-            <span className="font-mono mr-1">{s.quali_kuerzel}</span>
-            <span>{s.total_anzahl}</span>
-          </Pill>
-        ))}
-      </div>
-    )}
-  </div>
-</Section>
-
+                <div className="mt-3">
+                  <div className="text-xs uppercase opacity-70 mb-1">Summiert</div>
+                  {summe.length === 0 ? (
+                    <div className="text-sm opacity-70">Keine Summen.</div>
+                  ) : (
+                    <div className="flex flex-wrap">
+                      {summe.map((s, i) => (
+                        <Pill key={i}>
+                          <span className="font-mono mr-1">{s.quali_kuerzel}</span>
+                          <span>{s.total_anzahl}</span>
+                        </Pill>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Section>
             </div>
           )}
         </>
