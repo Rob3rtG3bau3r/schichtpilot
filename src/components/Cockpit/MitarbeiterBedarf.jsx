@@ -1,4 +1,4 @@
-// src/components/Dashboard/MitarbeiterBedarf.jsx (Lazy-Tooltips + Cache)
+// src/components/Dashboard/MitarbeiterBedarf.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
@@ -17,7 +17,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
 
-  // Globale Maps für Lazy-Tooltip-Builder
+  // Tooltip-Datenquellen (für sprechende Namen/Bezeichnungen)
   const [userNameMapState, setUserNameMapState] = useState({});
   const [matrixMapState, setMatrixMapState] = useState({});
 
@@ -25,7 +25,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const [allowTooltip, setAllowTooltip] = useState(false);
   const [allowAnalyse, setAllowAnalyse] = useState(false);
 
-  // Modal
+  // Analyse-Modal
   const [modalOffen, setModalOffen] = useState(false);
   const [modalDatum, setModalDatum] = useState('');
   const [modalSchicht, setModalSchicht] = useState('');
@@ -34,8 +34,8 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
 
-  // ===== Tooltip infra: Cache + Show/Hide Timer =====
-  const [tipData, setTipData] = useState(null);   // { text, top, left, flip, header, width }
+  // ===== Tooltip infra =====
+  const [tipData, setTipData] = useState(null); // { text, top, left, flip, header, width }
   const tipHideTimer = useRef(null);
   const tipShowTimer = useRef(null);
   const tooltipCache = useRef(new Map()); // key -> text
@@ -58,7 +58,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
     const rect = el.getBoundingClientRect();
     let left = rect.right + 8;
-    let top  = alignTop ? rect.top + 8 : rect.top + rect.height / 2 - 12;
+    let top = alignTop ? rect.top + 8 : rect.top + rect.height / 2 - 12;
     let flip = false;
 
     const vw = window.innerWidth;
@@ -81,38 +81,39 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     tipShowTimer.current = setTimeout(() => {
       let txt = tooltipCache.current.get(key);
       if (!txt) {
-        try { txt = buildFn(); } catch { txt = ''; }
+        try {
+          txt = buildFn();
+        } catch {
+          txt = '';
+        }
         if (txt) tooltipCache.current.set(key, txt);
       }
       if (txt) showTipAt(el, key, txt, header, alignTop, width);
-    }, 180); // Show-Delay
+    }, 180);
   };
 
   const scheduleHide = () => {
     clearShowTimer();
     clearHideTimer();
-    tipHideTimer.current = setTimeout(() => {
-      setTipData(null);
-    }, 120);
+    tipHideTimer.current = setTimeout(() => setTipData(null), 120);
   };
 
-  // Cache bei Kontextwechsel leeren
+  // Cache leeren bei Kontextwechsel
   useEffect(() => {
     tooltipCache.current = new Map();
   }, [firma, unit, jahr, monat, refreshKey]);
 
-  // Tage aufbauen
+  // Tage des Monats
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
-    const neueTage = [];
-    for (let tag = 1; tag <= tageImMonat; tag++) {
-      const d = new Date(jahr, monat, tag);
-      neueTage.push(dayjs(d).format('YYYY-MM-DD'));
+    const arr = [];
+    for (let d = 1; d <= tageImMonat; d++) {
+      arr.push(dayjs(new Date(jahr, monat, d)).format('YYYY-MM-DD'));
     }
-    setTage(neueTage);
+    setTage(arr);
   }, [jahr, monat]);
 
-  // Feature-Flags laden
+  // Feature-Flags
   useEffect(() => {
     let alive = true;
     const loadFlags = async () => {
@@ -134,46 +135,110 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         setAllowTooltip(!!tip);
         setAllowAnalyse(!!ana);
       } catch (e) {
-        console.error('Feature-Flags laden fehlgeschlagen', e);
         if (!alive) return;
         setAllowTooltip(false);
         setAllowAnalyse(false);
       }
     };
     loadFlags();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [firma, unit]);
 
-  // Daten laden
+  // Utility
+  const chunkArray = (arr, size) => {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  };
+
+  // ===== Daten laden (Plan + Zuweisung als Basis, Kampfliste überschreibt) =====
   const ladeMitarbeiterBedarf = async () => {
     if (!firma || !unit || tage.length === 0) return;
 
-    // --- Dienste (Kampfliste) in Blöcken laden ---
-    const ladeDiensteGebatcht = async (alleTage) => {
-      const batchSize = 5;
-      const batches = [];
-      for (let i = 0; i < alleTage.length; i += batchSize) {
-        const start = alleTage[i];
-        const end = alleTage[Math.min(i + batchSize - 1, alleTage.length - 1)];
-        batches.push({ start, end });
-      }
-      let gesamtDienste = [];
-      for (const batch of batches) {
-        const { data } = await supabase
-          .from('DB_Kampfliste')
-          .select('datum, ist_schicht(kuerzel), user')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .gte('datum', batch.start)
-          .lte('datum', batch.end);
-        if (data?.length) gesamtDienste.push(...data);
-      }
-      return gesamtDienste;
-    };
+    const monthStart = tage[0];
+    const monthEnd = tage[tage.length - 1];
 
-    const dienste = await ladeDiensteGebatcht(tage);
+    // 1) SOLL-PLAN
+    const { data: soll } = await supabase
+      .from('DB_SollPlan')
+      .select('datum, schichtgruppe, kuerzel')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit)
+      .gte('datum', monthStart)
+      .lte('datum', monthEnd);
 
-    // --- Bedarf & Matrix laden ---
+    const planByDate = new Map(); // date -> Map(group -> kuerzel)
+    (soll || []).forEach((r) => {
+      const d = r.datum?.slice(0, 10);
+      if (!d) return;
+      if (!planByDate.has(d)) planByDate.set(d, new Map());
+      planByDate.get(d).set(r.schichtgruppe, r.kuerzel);
+    });
+
+    // 2) ZUWEISUNGEN (wer gehört an welchem Tag zu welcher Gruppe) – nur gültige Zeiträume des Monats
+    const { data: zuw } = await supabase
+      .from('DB_SchichtZuweisung')
+      .select('user_id, schichtgruppe, von_datum, bis_datum')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit)
+      .lte('von_datum', monthEnd)
+      .or(`bis_datum.is.null, bis_datum.gte.${monthStart}`);
+
+    // Pro Tag: Map(userId -> { gruppe, von_datum }) — nur jüngste Zuweisung pro User
+    const membersByDate = new Map();
+    (tage || []).forEach((d) => membersByDate.set(d, new Map()));
+
+    for (const z of zuw || []) {
+      for (const d of tage) {
+        if (dayjs(z.von_datum).isAfter(d, 'day')) continue;
+        if (z.bis_datum && dayjs(z.bis_datum).isBefore(d, 'day')) continue;
+
+        const map = membersByDate.get(d);
+        const prev = map.get(z.user_id);
+        if (!prev || dayjs(z.von_datum).isAfter(prev.von_datum, 'day')) {
+          map.set(z.user_id, { gruppe: z.schichtgruppe, von_datum: z.von_datum });
+        }
+      }
+    }
+
+    // 3) KAMPFLISTE-OVERLAY (Änderungen)
+    const { data: kampf } = await supabase
+      .from('DB_Kampfliste')
+      .select('datum, user, ist_schicht(kuerzel)')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit)
+      .gte('datum', monthStart)
+      .lte('datum', monthEnd);
+
+    const override = new Map(); // `${d}|${uid}` -> kuerzel
+    (kampf || []).forEach((r) => {
+      const d = r.datum?.slice(0, 10);
+      if (!d) return;
+      override.set(`${d}|${r.user}`, r.ist_schicht?.kuerzel || null);
+    });
+
+    // 4) FINAL: DIENSTE (liste)
+    const dienste = [];
+    const allUserIdsSet = new Set();
+
+    for (const d of tage) {
+      const planForDay = planByDate.get(d) || new Map();
+      const mMap = membersByDate.get(d) || new Map();
+
+      for (const [uid, info] of mMap) {
+        const key = `${d}|${uid}`;
+        const over = override.get(key);
+        const baseKuerzel = planForDay.get(info.gruppe) || null;
+        const kuerzel = over ?? baseKuerzel;
+        if (!kuerzel) continue;
+        dienste.push({ datum: d, user: uid, ist_schicht: { kuerzel } });
+        allUserIdsSet.add(uid);
+      }
+    }
+
+    // 5) Bedarf & Matrix
     const { data: bedarf } = await supabase
       .from('DB_Bedarf')
       .select('quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
@@ -182,7 +247,9 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
     const { data: qualiMatrix } = await supabase
       .from('DB_Qualifikationsmatrix')
-      .select('id, quali_kuerzel, betriebs_relevant, position, qualifikation ');
+      .select('id, quali_kuerzel, betriebs_relevant, position, qualifikation, firma_id, unit_id')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit);
 
     const matrixMap = {};
     qualiMatrix?.forEach((q) => {
@@ -195,76 +262,56 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     });
     setMatrixMapState(matrixMap);
 
-    // --- Qualifikationen & User (Sichtbarkeit/Namen) ---
-// --- Qualifikationen & User (Sichtbarkeit/Namen) ---
-const userIds = [...new Set(dienste.map((d) => d.user))];
+    // 6) Qualis (bis Monatsende) & Namen/Sichtbarkeit
+    const userIds = Array.from(allUserIdsSet);
+    const monatsEndeIso = dayjs(monthEnd).endOf('day').toISOString();
 
-// Monatsende als obere Grenze (Quali gilt ab created_at; keine Untergrenze nötig)
-const monatsEndeIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
-
-// Helper hast du weiter unten bereits; falls nicht vorhanden, belassen wir ihn wie bei DB_User
-const chunkArray = (arr, size) => {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-};
-
-// Serverseitig gefilterte Qualis (nur relevante User bis Monatsende)
-let qualis = [];
-if (userIds.length > 0) {
-  const qualChunks = chunkArray(userIds, 200); // 100–200 ist gut
-  for (const batch of qualChunks) {
-    const { data, error } = await supabase
-      .from('DB_Qualifikation')
-      .select('user_id, quali, created_at')
-      .in('user_id', batch)
-      .lte('created_at', monatsEndeIso);
-
-    if (error) {
-      console.error('Qualis laden (gefiltert) fehlgeschlagen', error);
-      continue;
+    let qualis = [];
+    if (userIds.length > 0) {
+      for (const part of chunkArray(userIds, 200)) {
+        const { data, error } = await supabase
+          .from('DB_Qualifikation')
+          .select('user_id, quali, created_at')
+          .in('user_id', part)
+          .lte('created_at', monatsEndeIso);
+        if (!error && data?.length) qualis.push(...data);
+      }
     }
-    if (data?.length) qualis.push(...data);
-  }
-}
-// Hinweis: Falls userIds leer ist, bleibt qualis = []
-
 
     let userNameMap = {};
     let userVisibleMap = {};
     if (userIds.length > 0) {
-      const chunks = chunkArray(userIds, 100);
-      for (const batch of chunks) {
+      for (const part of chunkArray(userIds, 150)) {
         const { data: userDaten } = await supabase
           .from('DB_User')
           .select('user_id, nachname, user_visible')
-          .in('user_id', batch);
+          .in('user_id', part);
         userDaten?.forEach((u) => {
           userNameMap[u.user_id] = u.nachname || `User ${u.user_id}`;
-          userVisibleMap[u.user_id] = (u.user_visible ?? true);
+          userVisibleMap[u.user_id] = u.user_visible ?? true;
         });
       }
     }
     setUserNameMapState(userNameMap);
 
+    // 7) Bewertung/Status
     const status = { F: {}, S: {}, N: {} };
 
     for (const datum of tage) {
-      // Bedarfe am Tag (Spezial vs Normalbetrieb)
-      const bedarfHeuteAlle = bedarf.filter(
+      const bedarfHeuteAlle = (bedarf || []).filter(
         (b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis)
       );
       const hatSpezial = bedarfHeuteAlle.some((b) => b.normalbetrieb === false);
       const bedarfHeute = bedarfHeuteAlle.filter((b) => b.normalbetrieb === !hatSpezial);
 
       for (const schicht of ['F', 'S', 'N']) {
-        // Aktive User (Schicht/Tag), unsichtbare raus
+        // aktive User dedupliziert + nur sichtbare
         const aktiveUserRaw = dienste
           .filter((d) => d.datum === datum && d.ist_schicht?.kuerzel === schicht)
           .map((d) => d.user);
-        const aktiveUser = aktiveUserRaw.filter((uid) => userVisibleMap[uid] !== false);
+        const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => userVisibleMap[uid] !== false);
 
-        // Quali-Map nur mit gültigen Qualis ab created_at (pro Zelle speichern → lazy Tooltip)
+        // Qualis je User (nur bis Datum gültig)
         const userQualiMap = {};
         const tag = dayjs(datum);
         qualis
@@ -276,7 +323,6 @@ if (userIds.length > 0) {
             userQualiMap[q.user_id].push(q.quali);
           });
 
-        // Bedarf (nur betriebsrelevant) priorisiert
         const bedarfSortiert = bedarfHeute
           .map((b) => ({
             ...b,
@@ -287,7 +333,6 @@ if (userIds.length > 0) {
           .filter((b) => b.relevant)
           .sort((a, b) => a.position - b.position);
 
-        // User-Reihenfolge
         const verwendeteUser = new Set();
         const userSortMap = aktiveUser.map((userId) => {
           const userQualis = userQualiMap[userId] || [];
@@ -307,7 +352,6 @@ if (userIds.length > 0) {
           .sort((a, b) => a.anzahl - b.anzahl || a.posSumme - b.posSumme)
           .map((u) => u.userId);
 
-        // Abdeckung pro Quali
         const abdeckung = {};
         for (const b of bedarfSortiert) {
           abdeckung[b.quali_id] = [];
@@ -322,7 +366,6 @@ if (userIds.length > 0) {
           }
         }
 
-        // Bewertung
         let statusfarbe = 'bg-green-500';
         let totalMissing = 0;
         const fehlend = [];
@@ -340,16 +383,16 @@ if (userIds.length > 0) {
           }
         }
 
-        // Überschuss gesamt
+        // Kopfzahl-Ecke (unabhängig von Quali)
         let topRight = null;
-        if (totalMissing === 0 && bedarfSortiert.length > 0) {
+        if (bedarfSortiert.length > 0) {
           const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
           const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
           if (ueberschussGesamt === 1) topRight = 'blau-1';
           else if (ueberschussGesamt >= 2) topRight = 'blau-2';
         }
 
-        // Zusatz-Qualifikationen (nicht betriebsrelevant)
+        // Zusatzqualis (nicht betriebsrelevant)
         const zusatzFehlt = [];
         bedarfHeute
           .filter((b) => !matrixMap[b.quali_id]?.relevant)
@@ -364,8 +407,6 @@ if (userIds.length > 0) {
           });
 
         const nichtVerwendete = aktiveUser.filter((id) => !verwendeteUser.has(id));
-
-        // Kein Tooltip-String mehr speichern → nur strukturierte Meta-Daten
         const bottom = topMissingKuerzel
           ? `${topMissingKuerzel}${totalMissing > 1 ? '+' : ''}`
           : null;
@@ -378,29 +419,24 @@ if (userIds.length > 0) {
           fehlend,
           meta: {
             aktiveUserIds: aktiveUser,
-            abdeckung,                   // quali_id -> [userIds]
+            abdeckung,
             nichtVerwendeteIds: nichtVerwendete,
-            userQualiMap,                // user_id -> [qualiIds]
+            userQualiMap,
             zusatzFehltKuerzel: zusatzFehlt,
           },
         };
       }
     }
 
-    // Farbleiste oben (Sonder-/Zeitbedarfe) – Lazy-Tooltip Daten
+    // 8) Farbleiste (Sonder-/Zeitbedarfe)
     const leiste = {};
     for (const tag of tage) {
-      const tagBedarfe = bedarf.filter(
-        (b) =>
-          b.farbe &&
-          !b.normalbetrieb &&
-          (!b.von || tag >= b.von) &&
-          (!b.bis || tag <= b.bis)
+      const tagBedarfe = (bedarf || []).filter(
+        (b) => b.farbe && !b.normalbetrieb && (!b.von || tag >= b.von) && (!b.bis || tag <= b.bis)
       );
 
       if (tagBedarfe.length > 0) {
         const eventName = [...new Set(tagBedarfe.map((b) => b.namebedarf))].join(', ');
-
         const farben = tagBedarfe.map((b) => b.farbe);
         const step = 100 / farben.length;
         const gradient = `linear-gradient(to right, ${farben
@@ -428,10 +464,16 @@ if (userIds.length > 0) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tage, firma, unit, refreshKey]);
 
-  // Tooltip-Builder (Cell)
-  const buildCellTooltip = (kuerzel, datum, cell) => {
+  // Tooltip-Builder (Zelle)
+  const buildCellTooltip = (_kuerzel, datum, cell) => {
     if (!cell?.meta) return '';
-    const { aktiveUserIds = [], abdeckung = {}, nichtVerwendeteIds = [], userQualiMap = {}, zusatzFehltKuerzel = [] } = cell.meta;
+    const {
+      aktiveUserIds = [],
+      abdeckung = {},
+      nichtVerwendeteIds = [],
+      userQualiMap = {},
+      zusatzFehltKuerzel = [],
+    } = cell.meta;
 
     const lines = [];
     lines.push(`👥 Anzahl MA: ${aktiveUserIds.length}`);
@@ -473,7 +515,6 @@ if (userIds.length > 0) {
     return lines.join('\n');
   };
 
-  // Modal öffnen (Feature-Gate)
   const handleModalOeffnen = (datum, kuerzel) => {
     if (!allowAnalyse) return;
     const cell = bedarfStatus[kuerzel]?.[datum];
@@ -497,9 +538,9 @@ if (userIds.length > 0) {
         <Info size={20} />
       </button>
 
-      {/* Farbleiste ganz oben */}
+      {/* Farbleiste oben */}
       <div className="flex w-full">
-        <div className="w-[176px] min-w-[176px]"></div>
+        <div className="w-[176px] min-w-[176px]" />
         <div className="flex gap-[2px] min-w-fit">
           {tage.map((datum) => {
             const eintrag = bedarfsLeiste[datum];
@@ -511,7 +552,8 @@ if (userIds.length > 0) {
                 className="relative w-[48px] min-w-[48px] h-[6px] rounded-t"
                 style={{ background: eintrag?.gradient || (eintrag?.farbe || 'transparent') }}
                 onMouseEnter={(e) =>
-                  allowTooltip && eintrag &&
+                  allowTooltip &&
+                  eintrag &&
                   scheduleShow(e.currentTarget, key, () => buildBarTooltip(datum, eintrag), header, true)
                 }
                 onMouseLeave={allowTooltip ? scheduleHide : undefined}
@@ -523,7 +565,7 @@ if (userIds.length > 0) {
 
       {['F', 'S', 'N'].map((kuerzel) => (
         <div key={kuerzel} className="flex w-full">
-          <div className="w-[176px] min-w-[176px] text-gray-900 dark:text-gray-300 text-left px-2 py text-xs">
+          <div className="w-[176px] min-w-[176px] text-gray-900 dark:text-gray-300 text-left px-2 text-xs">
             {kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'}
           </div>
           <div className="flex gap-[2px] min-w-fit">
@@ -539,7 +581,8 @@ if (userIds.length > 0) {
                   key={datum}
                   onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
                   onMouseEnter={(e) =>
-                    allowTooltip && cell &&
+                    allowTooltip &&
+                    cell &&
                     scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
                   }
                   onMouseLeave={allowTooltip ? scheduleHide : undefined}
@@ -570,12 +613,14 @@ if (userIds.length > 0) {
         </div>
       ))}
 
-      {/* Tooltip-Portal nur, wenn Feature aktiv */}
+      {/* Tooltip-Portal */}
       {allowTooltip &&
         tipData &&
         createPortal(
           <div
-            onMouseEnter={() => { clearHideTimer(); }}
+            onMouseEnter={() => {
+              clearHideTimer();
+            }}
             onMouseLeave={scheduleHide}
             style={{ position: 'fixed', top: tipData.top, left: tipData.left, zIndex: 100000, pointerEvents: 'auto' }}
           >
@@ -584,7 +629,6 @@ if (userIds.length > 0) {
                          bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs"
               style={{ width: tipData.width || 280 }}
             >
-              {/* Pfeil */}
               <div
                 className="absolute w-2 h-2 rotate-45 ring-1 ring-black/10 dark:ring-white/10"
                 style={{
@@ -594,16 +638,14 @@ if (userIds.length > 0) {
                     : { left: '-4px', background: 'rgba(255,255,255,0.95)' }),
                 }}
               />
-              {/* Header */}
               {tipData.header && <div className="font-sans font-semibold mb-1">{tipData.header}</div>}
-              {/* Inhalt */}
               <pre className="whitespace-pre-wrap font-mono">{tipData.text}</pre>
             </div>
           </div>,
           document.body
         )}
 
-      {/* Analyse-Modal nur, wenn Feature aktiv */}
+      {/* Analyse-Modal */}
       {allowAnalyse && (
         <BedarfsAnalyseModal
           offen={modalOffen}
@@ -620,18 +662,26 @@ if (userIds.length > 0) {
           <div className="bg-white dark:bg-gray-900 text-black dark:text-white p-6 rounded-lg max-w-lg w-full shadow-xl">
             <h3 className="text-lg font-bold mb-2">Bedarfsbewertung – Legende</h3>
             <ul className="list-disc list-inside text-sm space-y-1">
-              <li><span className="font-bold text-red-500">Rot</span>: Bedarf nicht gedeckt</li>
-              <li><span className="font-bold text-green-300">Grün</span>: Bedarf exakt gedeckt</li>
-              <li><span className="font-bold text-yellow-400">Gelbe Ecke</span>: Zusatzquali fehlt</li>
-              <li><span className="font-bold text-green-300">Grüne Ecke</span>: +1 Besetzung (qualifikationsunabhängig)</li>
-              <li><span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung (qualifikationsunabhängig)</li>
+              <li>
+                <span className="font-bold text-red-500">Rot</span>: Bedarf nicht gedeckt
+              </li>
+              <li>
+                <span className="font-bold text-green-300">Grün</span>: Bedarf exakt gedeckt
+              </li>
+              <li>
+                <span className="font-bold text-yellow-400">Gelbe Ecke</span>: Zusatzquali fehlt
+              </li>
+              <li>
+                <span className="font-bold text-green-300">Grüne Ecke</span>: +1 Besetzung (qualifikationsunabhängig)
+              </li>
+              <li>
+                <span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung
+                (qualifikationsunabhängig)
+              </li>
               <li>Hover zeigt fehlende/erfüllte Qualifikationen sowie eingesetzte Personen.</li>
             </ul>
             <div className="text-right mt-4">
-              <button
-                onClick={() => setInfoOffen(false)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-              >
+              <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
                 Schließen
               </button>
             </div>
