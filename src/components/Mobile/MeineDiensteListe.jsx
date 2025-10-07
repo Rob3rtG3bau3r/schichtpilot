@@ -56,16 +56,83 @@ export default function MeineDiensteListe() {
     }
   }, [gespeicherteId, startDatum]);
 
-  const ladeDienste = async () => {
-    const { data } = await supabase
-      .from('DB_Kampfliste')
-      .select(`datum, ist_schicht(kuerzel, farbe_bg, farbe_text), startzeit_ist, endzeit_ist, kommentar`)
-      .eq('user', gespeicherteId)
-      .gte('datum', startDatum.format('YYYY-MM-DD'))
-      .lte('datum', startDatum.endOf('month').format('YYYY-MM-DD'))
-      .order('datum', { ascending: true });
-    if (data) setEintraege(data);
-  };
+// in MeineDiensteListe.jsx
+const ladeDienste = async () => {
+  if (!gespeicherteId || !firma || !unit || !startDatum) {
+    setEintraege([]);
+    return;
+  }
+
+  const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
+  const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+
+  // 1) Komponierten Tagesplan aus der View holen (wie in KampfListe)
+  const { data: viewRows, error: viewErr } = await supabase
+    .from('v_tagesplan')
+    .select(`
+      datum,
+      user_id,
+      ist_schichtart_id,
+      ist_startzeit,
+      ist_endzeit,
+      hat_aenderung,
+      kommentar,
+      ist_created_at,
+      ist_created_by
+    `)
+    .eq('firma_id', Number(firma))
+    .eq('unit_id', Number(unit))
+    .eq('user_id', String(gespeicherteId))
+    .gte('datum', monthStart)
+    .lte('datum', monthEnd)
+    .order('datum', { ascending: true });
+
+  if (viewErr) {
+    console.error('❌ v_tagesplan (mobil):', viewErr.message || viewErr);
+    setEintraege([]);
+    return;
+  }
+
+  // 2) Schichtarten (Kürzel/Farben) nachladen
+  const schichtIds = Array.from(new Set(
+    (viewRows || []).map(r => r.ist_schichtart_id).filter(Boolean)
+  ));
+  let schichtMap = new Map();
+  if (schichtIds.length) {
+    const { data: schichten, error: sErr } = await supabase
+      .from('DB_SchichtArt')
+      .select('id, kuerzel, farbe_bg, farbe_text')
+      .eq('firma_id', Number(firma))
+      .eq('unit_id', Number(unit))
+      .in('id', schichtIds);
+    if (sErr) {
+      console.error('❌ DB_SchichtArt (mobil):', sErr.message || sErr);
+    } else {
+      schichtMap = new Map((schichten || []).map(s => [s.id, s]));
+    }
+  }
+
+  // 3) In das Mobile-Format mappen (RenderKalender erwartet diese Felder)
+  const mapped = (viewRows || []).map(r => {
+    const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
+    return {
+      datum: r.datum,
+      ist_schicht_id: r.ist_schichtart_id || null,
+      ist_schicht: s
+        ? { kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
+        : null, // RenderKalender fällt dann sauber auf Defaults zurück
+      startzeit_ist: r.ist_startzeit || null,
+      endzeit_ist:   r.ist_endzeit   || null,
+      kommentar:     r.kommentar     || null,
+      aenderung:     !!r.hat_aenderung,
+      created_at:    r.ist_created_at || null,
+      created_by:    r.ist_created_by || null,
+    };
+  });
+
+  setEintraege(mapped);
+};
+
 
   const ladeBedarfStatus = async () => {
     if (firma && unit && gespeicherteId) {
