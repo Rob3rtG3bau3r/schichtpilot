@@ -1,18 +1,18 @@
-// Datei: bedarfsauswertung.js
+// Datei: src/components/Mobile/Utils/bedarfsauswertung.js
 import dayjs from 'dayjs';
 import { supabase } from '../../../supabaseClient';
 
 export const ermittleBedarfUndStatus = async (userId, firma, unit, monat) => {
   const startDatum = dayjs(monat).startOf('month');
-  const endDatum = dayjs(monat).endOf('month');
+  const endDatum   = dayjs(monat).endOf('month');
   const start = startDatum.format('YYYY-MM-DD');
-  const end = endDatum.format('YYYY-MM-DD');
+  const end   = endDatum.format('YYYY-MM-DD');
 
-  const bedarfMap = {}; // { datum: { F: anzahl, S: anzahl, N: anzahl } }
-  const belegungMap = {}; // { datum: { F: anzahl, S: anzahl, N: anzahl } }
-  const statusMap = {}; // Rueckgabe
+  const bedarfMap   = {}; // { datum: { F,S,N } }
+  const belegungMap = {}; // { datum: { F,S,N } }
+  const statusMap   = {}; // Rückgabe
 
-  // 1. Lade Bedarf (nur betriebsrelevante)
+  // 1) Bedarf laden (wie vorher) – nur betriebsrelevante Qualis zählen
   const { data: bedarfRaw, error: bedarfError } = await supabase
     .from('DB_Bedarf')
     .select('quali_id, anzahl, von, bis, normalbetrieb, quali_id(id, betriebs_relevant)')
@@ -28,91 +28,132 @@ export const ermittleBedarfUndStatus = async (userId, firma, unit, monat) => {
     const datum = tag.format('YYYY-MM-DD');
     bedarfMap[datum] = { F: 0, S: 0, N: 0 };
 
-    for (const eintrag of bedarfRaw) {
-      const giltHeute = eintrag.normalbetrieb || (eintrag.von && eintrag.bis && datum >= eintrag.von && datum <= eintrag.bis);
-      if (!giltHeute || !eintrag.quali_id?.betriebs_relevant) continue;
+    for (const e of bedarfRaw || []) {
+      const giltHeute =
+        e.normalbetrieb ||
+        (e.von && e.bis && datum >= e.von && datum <= e.bis);
 
-      bedarfMap[datum].F += parseInt(eintrag.anzahl);
-      bedarfMap[datum].S += parseInt(eintrag.anzahl);
-      bedarfMap[datum].N += parseInt(eintrag.anzahl);
+      if (!giltHeute || !e.quali_id?.betriebs_relevant) continue;
+
+      const add = parseInt(e.anzahl, 10) || 0;
+      bedarfMap[datum].F += add;
+      bedarfMap[datum].S += add;
+      bedarfMap[datum].N += add;
     }
   }
 
-  // 2. Lade Kampfliste gebatcht (alle User)
-  const alleEintraege = [];
-  let from = 0;
-  let limit = 1000;
-  while (true) {
-    const { data: kampfBatch, error } = await supabase
-      .from('DB_Kampfliste')
-      .select('user, datum, ist_schicht(kuerzel)')
+  // 2) Belegung unit-weit aus v_tagesplan (NEU) – monatsweise, ggf. in 4 Ranges
+  const daysInMonth = startDatum.daysInMonth();
+  const dToStr = (d) => startDatum.date(d).format('YYYY-MM-DD');
+  const q1 = Math.floor(daysInMonth / 4);
+  const q2 = Math.floor(daysInMonth / 2);
+  const q3 = Math.floor((3 * daysInMonth) / 4);
+  const ranges = [
+    [1, q1],
+    [q1 + 1, q2],
+    [q2 + 1, q3],
+    [q3 + 1, daysInMonth],
+  ].filter(([a, b]) => a <= b);
+
+  const fetchViewRange = async (a, b) => {
+    const { data, error } = await supabase
+      .from('v_tagesplan')
+      .select('datum, user_id, ist_schichtart_id')
       .eq('firma_id', firma)
       .eq('unit_id', unit)
-      .gte('datum', start)
-      .lte('datum', end)
-      .range(from, from + limit - 1);
+      .gte('datum', dToStr(a))
+      .lte('datum', dToStr(b));
 
     if (error) {
-      console.error('❌ Fehler beim Laden der Kampfliste:', error.message);
-      return {};
+      console.error('❌ v_tagesplan:', error.message || error);
+      return [];
     }
-    if (!kampfBatch.length) break;
-    alleEintraege.push(...kampfBatch);
-    from += limit;
+    return data || [];
+  };
+
+  const chunks = await Promise.all(ranges.map(([a, b]) => fetchViewRange(a, b)));
+  const viewRows = chunks.flat();
+
+  // 2b) SchichtArt-IDs → Kürzel (F/S/N/…) mappen
+  const schichtIds = Array.from(
+    new Set(viewRows.map(r => r.ist_schichtart_id).filter(Boolean))
+  );
+  let idToKuerzel = new Map();
+  if (schichtIds.length) {
+    const { data: arts, error: artErr } = await supabase
+      .from('DB_SchichtArt')
+      .select('id, kuerzel')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit)
+      .in('id', schichtIds);
+
+    if (artErr) {
+      console.error('❌ DB_SchichtArt:', artErr.message || artErr);
+    } else {
+      idToKuerzel = new Map((arts || []).map(a => [a.id, a.kuerzel]));
+    }
   }
 
-  // 3. Lade Qualifikationen aller Nutzer
-  const userIds = [...new Set(alleEintraege.map(e => e.user))];
-  const { data: qualiData } = await supabase
-    .from('DB_Qualifikation')
-    .select('user_id, quali(betriebs_relevant)')
-    .in('user_id', userIds);
+  // 3) Qualifikationen aller in der View vorkommenden Nutzer laden (betriebsrelevant)
+  const userIds = Array.from(new Set(viewRows.map(r => String(r.user_id))));
+  let relevanteUser = new Set();
+  if (userIds.length) {
+    const { data: qualiData, error: qErr } = await supabase
+      .from('DB_Qualifikation')
+      .select('user_id, quali(betriebs_relevant)')
+      .in('user_id', userIds);
 
-  const relevanteUser = new Set(
-    qualiData.filter(q => q.quali?.betriebs_relevant).map(q => q.user_id)
-  );
+    if (qErr) {
+      console.error('❌ DB_Qualifikation:', qErr.message || qErr);
+    } else {
+      relevanteUser = new Set(
+        (qualiData || [])
+          .filter(q => q.quali?.betriebs_relevant)
+          .map(q => String(q.user_id))
+      );
+    }
+  }
 
-  for (const eintrag of alleEintraege) {
-    const datum = dayjs(eintrag.datum).format('YYYY-MM-DD');
-    const schicht = eintrag.ist_schicht?.kuerzel;
-    const user = eintrag.user;
-    if (!['F', 'S', 'N'].includes(schicht)) continue;
-    if (!relevanteUser.has(user)) continue;
+  // 4) Belegung zählen (wie vorher) – aber aus der View + Mappings
+  for (const r of viewRows) {
+    const datum = dayjs(r.datum).format('YYYY-MM-DD');
+    const kuerzel = r.ist_schichtart_id ? idToKuerzel.get(r.ist_schichtart_id) : null;
+    const uid = String(r.user_id);
+
+    if (!['F', 'S', 'N'].includes(kuerzel || '')) continue;
+    if (!relevanteUser.has(uid)) continue;
 
     if (!belegungMap[datum]) belegungMap[datum] = { F: 0, S: 0, N: 0 };
-    belegungMap[datum][schicht]++;
+    belegungMap[datum][kuerzel] += 1;
   }
 
-  // 4. Hol für den eigenen User seine Einträge
-  const eigene = alleEintraege.filter(e => e.user === userId);
+  // 4b) Eigene Dienste-Map (für Überdeckung nur auf eigener Schicht prüfen)
   const eigeneMap = {};
-  eigene.forEach(e => {
-    eigeneMap[dayjs(e.datum).format('YYYY-MM-DD')] = e.ist_schicht?.kuerzel || '-';
-  });
+  for (const r of viewRows) {
+    if (String(r.user_id) !== String(userId)) continue;
+    const datum = dayjs(r.datum).format('YYYY-MM-DD');
+    const kuerzel = r.ist_schichtart_id ? idToKuerzel.get(r.ist_schichtart_id) : null;
+    eigeneMap[datum] = kuerzel || '-';
+  }
 
-  // 5. Bewertung je Tag
+  // 5) Bewertung je Tag (identisch zu vorher)
   for (const tag in bedarfMap) {
     const soll = bedarfMap[tag];
-    const ist = belegungMap[tag] || { F: 0, S: 0, N: 0 };
+    const ist  = belegungMap[tag] || { F: 0, S: 0, N: 0 };
     const userDienst = eigeneMap[tag] || '-';
 
     statusMap[tag] = { fehlendProSchicht: {}, ueber: [] };
 
     ['F', 'S', 'N'].forEach(schicht => {
       if (userDienst === '-') {
-        // frei → Unterdeckung prüfen
+        // frei → Unterdeckung für alle Schichten anzeigen, die fehlen können
         if (ist[schicht] < soll[schicht]) statusMap[tag].fehlendProSchicht[schicht] = true;
       } else if (userDienst === schicht) {
-        // Dienst → Überdeckung prüfen
+        // eigener Dienst → Überdeckung nur auf eigener Schicht anzeigen
         if (ist[schicht] > soll[schicht]) statusMap[tag].ueber.push(schicht);
       }
     });
   }
-
-  // Nur für Debug: 15.07.2025 zeigen
-  //const testTag = '2025-07-15';
-  //console.log(`📅 Bedarf am ${testTag}:`, bedarfMap[testTag]);
-  //console.log(`👥 Belegung am ${testTag}:`, belegungMap[testTag]);
 
   return statusMap;
 };
