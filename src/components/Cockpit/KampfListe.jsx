@@ -611,7 +611,7 @@ const KampfListe = ({
                                 borderLeft: '10px solid transparent',
                                 zIndex: 10,
                               }}
-                              title="Geändert"
+                              //title="Geändert"
                             />
                           </>
                         )}
