@@ -168,18 +168,32 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
                     (e.quali_ids?.length ? `\n- Qualifikationen: ${e.quali_ids.map(id => qualiMap[id] || id).join(', ')}` : '') +
                     (e.team?.length ? `\n- Teams: ${e.team.join(', ')}` : '');
 
-                  return (
-                    <div
-                      key={'t-' + idx}
-                      className="absolute bottom-0 left-0 w-0 h-0"
-                      style={{
-                        borderLeft: '16px solid transparent',
-                        borderTop: `16px solid ${e.farbe}`,
-                        transform: 'rotate(180deg)',
-                      }}
-                      title={tooltip}
-                    />
-                  );
+return (
+  <div key={'t-' + idx} className="absolute bottom-0 left-0">
+    {/* Weißes „Hintergrund“-Dreieck (etwas größer) */}
+    <div
+      className="absolute bottom-0 left-0 w-0 h-0 pointer-events-none"
+      style={{
+        borderLeft: '14px solid transparent',   // +2px größer
+        borderTop:  '14px solid #fff',           // weißer Rand
+        transform:  'rotate(180deg)',
+        zIndex: 5,
+      }}
+      aria-hidden
+    />
+    {/* Farbiges Dreieck (dein bisheriges) */}
+    <div
+      className="absolute bottom-0 left-0 w-0 h-0"
+      style={{
+        borderLeft: '12px solid transparent',
+        borderTop:  `12px solid ${e.farbe}`,
+        transform:  'rotate(180deg)',
+        zIndex: 10,
+      }}
+      title={tooltip}
+    />
+  </div>
+);
                 })}
 
               <span className="text-[12px] leading-none">{t.wochentag}</span>

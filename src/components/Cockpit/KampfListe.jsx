@@ -602,7 +602,7 @@ const KampfListe = ({
                           <>
                             <div
                               className="absolute top-0 right-0 w-0 h-0"
-                              style={{ borderTop: '13px solid white', borderLeft: '13px solid transparent', zIndex: 5 }}
+                              style={{ borderTop: '12px solid white', borderLeft: '12px solid transparent', zIndex: 5 }}
                             />
                             <div
                               className="absolute top-0 right-0 w-0 h-0"
@@ -620,7 +620,7 @@ const KampfListe = ({
                           <>
                             <div
                               className="absolute top-0 left-0 w-0 h-0"
-                              style={{ borderTop: '13px solid white', borderRight: '13px solid transparent', zIndex: 5 }}
+                              style={{ borderTop: '12px solid white', borderRight: '12px solid transparent', zIndex: 5 }}
                             />
                             <div
                               className="absolute top-0 left-0 w-0 h-0"
