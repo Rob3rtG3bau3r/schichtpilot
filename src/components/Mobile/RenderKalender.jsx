@@ -1,3 +1,4 @@
+// src/components/Mobile/RenderKalender.jsx
 import React from 'react';
 import dayjs from 'dayjs';
 
@@ -9,14 +10,10 @@ const RenderKalender = ({
   bedarfStatus,
   infoOffenIndex,
   setInfoOffenIndex,
-  urlaubModal,
   setUrlaubModal,
-  hilfeModal,
   setHilfeModal,
 }) => {
-  if (!startDatum || typeof startDatum.daysInMonth !== 'function') {
-    return null;
-  }
+  if (!startDatum || typeof startDatum.daysInMonth !== 'function') return null;
 
   const daysInMonth = startDatum.daysInMonth();
   const firstDay = startDatum.startOf('month').day();
@@ -27,7 +24,7 @@ const RenderKalender = ({
   // Leere Felder vor dem 1. des Monats
   for (let i = 0; i < offset; i++) {
     kalenderTage.push(
-      <div key={`empty-${i}`} className="h-20 bg-gray-200 dark:bg-gray-700 rounded"></div>
+      <div key={`empty-${i}`} className="h-20 bg-gray-200 dark:bg-gray-700 rounded" />
     );
   }
 
@@ -35,18 +32,20 @@ const RenderKalender = ({
   for (let day = 1; day <= daysInMonth; day++) {
     const datum = startDatum.date(day).format('YYYY-MM-DD');
     const eintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === datum);
+
     const kuerzel = eintrag?.ist_schicht?.kuerzel || '';
     const farbe = eintrag?.ist_schicht?.farbe_bg || '#ccc';
     const farbeText = eintrag?.ist_schicht?.farbe_text || '#000';
     const start = eintrag?.startzeit_ist ? dayjs(`2000-01-01T${eintrag.startzeit_ist}`) : null;
     let ende = eintrag?.endzeit_ist ? dayjs(`2000-01-01T${eintrag.endzeit_ist}`) : null;
     if (start && ende && ende.isBefore(start)) ende = ende.add(1, 'day');
+    const hatKommentar = !!(eintrag?.kommentar && String(eintrag.kommentar).trim().length > 0);
 
     const istHeute = datum === dayjs().format('YYYY-MM-DD');
     const istVergangenheit = dayjs(datum).isBefore(dayjs(), 'day');
     const status = bedarfStatus?.[datum] || {};
 
-    // --- NEU: Nachbar-Tage prüfen (für F/N-Regel) ---
+    // Nachbar-Tage prüfen (F/N-Regel)
     const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
     const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
     const prevEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum);
@@ -54,10 +53,10 @@ const RenderKalender = ({
     const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
     const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
 
-    const hideFrueh = prevKuerzel === 'N'; // Keine F anzeigen, wenn vorher N
-    const hideNacht = nextKuerzel === 'F'; // Keine N anzeigen, wenn nachher F
+    const hideFrueh = prevKuerzel === 'N';
+    const hideNacht = nextKuerzel === 'F';
 
-    // Gefilterte Fehlstände für Icon-Logik
+    // Fehlstände für Icons filtern
     const fehlend = status?.fehlendProSchicht || {};
     const gefiltertFehlend = {
       F: hideFrueh ? 0 : fehlend.F,
@@ -67,7 +66,6 @@ const RenderKalender = ({
 
     const hatUnterbesetzung =
       !istVergangenheit &&
-      gefiltertFehlend &&
       Object.values(gefiltertFehlend).some(
         (v) => v === true || (typeof v === 'number' && v > 0)
       );
@@ -83,13 +81,16 @@ const RenderKalender = ({
         }`}
         onClick={() => setInfoOffenIndex(day - 1)}
       >
+
         <div className="flex justify-between items-center text-[10px] mb-1">
           <span className="text-gray-600 dark:text-gray-200 font-semibold">{day}</span>
           <span className="flex gap-1">
+            {hatKommentar && <span title="Kommentar vorhanden">💬</span>}
             {hatUeberbesetzung && <span title="Überdeckung – Urlaub möglich">🌿</span>}
             {hatUnterbesetzung && <span title="Unterbesetzung">❗</span>}
           </span>
         </div>
+
         {kuerzel && (
           <div
             className="rounded text-center text-[11px] mb-1 truncate"
@@ -132,45 +133,35 @@ const RenderKalender = ({
               const kuerzel = eintrag?.ist_schicht?.kuerzel || '-';
               const farbe = eintrag?.ist_schicht?.farbe_bg || '#999';
               const farbeText = eintrag?.ist_schicht?.farbe_text || '#ffffff';
-              const start = eintrag?.startzeit_ist
-                ? dayjs(`2000-01-01T${eintrag.startzeit_ist}`)
-                : null;
-              let ende = eintrag?.endzeit_ist
-                ? dayjs(`2000-01-01T${eintrag.endzeit_ist}`)
-                : null;
+              const start = eintrag?.startzeit_ist ? dayjs(`2000-01-01T${eintrag.startzeit_ist}`) : null;
+              let ende = eintrag?.endzeit_ist ? dayjs(`2000-01-01T${eintrag.endzeit_ist}`) : null;
               if (start && ende && ende.isBefore(start)) ende = ende.add(1, 'day');
               const dauerMin = start && ende ? ende.diff(start, 'minute') : 0;
               const stunden = Math.floor(dauerMin / 60);
               const minuten = dauerMin % 60;
-              const status = bedarfStatus[datum];
+              const status = bedarfStatus[datum] || {};
               const istVergangenheit = dayjs(datum).isBefore(dayjs(), 'day');
 
-              // --- NEU: Nachbar-Tage prüfen (für F/N-Regel im Modal) ---
+              // F/N-Regel für Modal
               const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
               const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
-              const prevEintrag = eintraege.find(
-                (e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum
-              );
-              const nextEintrag = eintraege.find(
-                (e) => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum
-              );
+              const prevEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum);
+              const nextEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum);
               const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
               const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
 
-              const hideFrueh = prevKuerzel === 'N'; // Keine F anzeigen, wenn vorher N
-              const hideNacht = nextKuerzel === 'F'; // Keine N anzeigen, wenn nachher F
+              const hideFrueh = prevKuerzel === 'N';
+              const hideNacht = nextKuerzel === 'F';
 
               return (
                 <>
                   <h2 className="text-sm font-bold mb-2 text-gray-800 dark:text-gray-200">
                     {wochenTagKurz[woTag]} {dayjs(datum).format('DD.MM.YYYY')}
                   </h2>
+
                   <div className="mb-1 text-xs">
                     <strong>Schicht:</strong>{' '}
-                    <span
-                      className="px-2 py-1 rounded"
-                      style={{ backgroundColor: farbe, color: farbeText }}
-                    >
+                    <span className="px-2 py-1 rounded" style={{ backgroundColor: farbe, color: farbeText }}>
                       {kuerzel}
                     </span>
                   </div>
@@ -181,7 +172,15 @@ const RenderKalender = ({
                     <strong>Dauer:</strong> {dauerMin > 0 ? `${stunden}h ${minuten}min` : '–'}
                   </div>
 
-                  {/* Unterbesetzung (gefiltert nach F/N-Regel) */}
+                  {/* Kommentar im Modal */}
+                  {eintrag?.kommentar?.trim?.() && (
+                    <div className="mb-1 text-xs">
+                      <strong>Kommentar:</strong>{' '}
+                      <span className="whitespace-pre-wrap break-words">{eintrag.kommentar}</span>
+                    </div>
+                  )}
+
+                  {/* Unterbesetzung (gefiltert) */}
                   {status?.fehlendProSchicht && !istVergangenheit && (
                     <div className="mt-2">
                       {[
@@ -197,12 +196,7 @@ const RenderKalender = ({
                             key={key}
                             className="cursor-pointer bg-gray-300 dark:bg-gray-500 text-black shadow-xl opacity-90 border-2 border-red-500 dark:border-red-400 rounded-xl px-2 py-1 mb-1"
                             onClick={() =>
-                              setHilfeModal({
-                                offen: true,
-                                tag: wochenTagKurz[woTag],
-                                datum,
-                                schicht: key,
-                              })
+                              setHilfeModal({ offen: true, tag: wochenTagKurz[woTag], datum, schicht: key })
                             }
                           >
                             {name}: Fehlt {typeof fehlt === 'number' ? `${fehlt} Person(en)` : ''}
@@ -218,12 +212,7 @@ const RenderKalender = ({
                       🌿{' '}
                       <button
                         onClick={() =>
-                          setUrlaubModal({
-                            offen: true,
-                            tag: wochenTagKurz[woTag],
-                            datum,
-                            schicht: kuerzel,
-                          })
+                          setUrlaubModal({ offen: true, tag: wochenTagKurz[woTag], datum, schicht: kuerzel })
                         }
                         className="font-semibold underline"
                       >
@@ -233,10 +222,7 @@ const RenderKalender = ({
                   )}
 
                   <div className="text-right mt-3">
-                    <button
-                      onClick={() => setInfoOffenIndex(null)}
-                      className="text-blue-600 hover:underline text-sm"
-                    >
+                    <button onClick={() => setInfoOffenIndex(null)} className="text-blue-600 hover:underline text-sm">
                       Schließen
                     </button>
                   </div>
@@ -251,4 +237,3 @@ const RenderKalender = ({
 };
 
 export default RenderKalender;
-

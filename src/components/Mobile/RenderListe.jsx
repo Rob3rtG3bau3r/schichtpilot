@@ -80,6 +80,7 @@ const RenderListe = ({
                 <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: farbe, color: farbeText }}>
                   {start && ende ? `${start.format('HH:mm')} - ${ende.format('HH:mm')}` : '–'}
                 </span>
+                {eintrag?.kommentar?.trim() && <span title="Kommentar vorhanden">💬</span>}
               </div>
               <div className="flex items-center gap-1">
                 {status?.ueber?.length > 0 && kuerzel !== '-' && !istVergangenheit && (
