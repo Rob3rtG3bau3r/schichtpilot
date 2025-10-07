@@ -133,7 +133,6 @@ const ladeDienste = async () => {
   setEintraege(mapped);
 };
 
-
   const ladeBedarfStatus = async () => {
     if (firma && unit && gespeicherteId) {
       const status = await ermittleBedarfUndStatus(

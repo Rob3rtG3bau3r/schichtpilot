@@ -118,260 +118,185 @@ export default function TagesUebersicht() {
   // Sichtbarkeit: nur Planner/Admin_Dev
   const darfSehen = useMemo(() => ['Planner', 'Admin_Dev'].includes(rolle), [rolle]);
 
-  useEffect(() => {
-    const ladeHeute = async () => {
-      if (!darfSehen || !firma || !unit) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      setError('');
+useEffect(() => {
+  const ladeHeute = async () => {
+    if (!darfSehen || !firma || !unit) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
 
-      const heute = dayjs().format('YYYY-MM-DD');
-      const gestern = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
+    const heute   = dayjs().format('YYYY-MM-DD');
+    const gestern = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
 
-      try {
-        // --- 1) Stammdaten ---
-        const [{ data: artRows, error: artErr }] = await Promise.all([
-          supabase
-            .from('DB_SchichtArt')
-            .select('id, kuerzel')
-            .eq('firma_id', Number(firma))
-            .eq('unit_id', Number(unit)),
-        ]);
-        if (artErr) throw artErr;
+    try {
+      // 1) Schichtarten (ID -> Kürzel)
+      const { data: artRows, error: artErr } = await supabase
+        .from('DB_SchichtArt')
+        .select('id, kuerzel')
+        .eq('firma_id', Number(firma))
+        .eq('unit_id', Number(unit));
+      if (artErr) throw artErr;
+      const kuerzelByArtId = new Map((artRows || []).map(r => [r.id, r.kuerzel]));
 
-        const kuerzelByArtId = new Map();
-        (artRows || []).forEach(r => kuerzelByArtId.set(r.id, r.kuerzel));
-
-        // --- 2) SOLL-Plan für heute: Gruppe -> Kürzel ---
-        const { data: sollRows, error: sollErr } = await supabase
-          .from('DB_SollPlan')
-          .select('schichtgruppe, kuerzel')
+      // 2) v_tagesplan heute & gestern (NEU: statt DB_Kampfliste/SollPlan/Zuweisung)
+      const [{ data: vtHeute, error: vtErr }, { data: vtGestern, error: vgErr }] = await Promise.all([
+        supabase
+          .from('v_tagesplan')
+          .select('user_id, ist_schichtart_id')
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
-          .eq('datum', heute);
-        if (sollErr) throw sollErr;
-
-        const kuerzelByGruppe = new Map();
-        (sollRows || []).forEach(r => kuerzelByGruppe.set(r.schichtgruppe, r.kuerzel));
-
-        // --- 3) Zuweisungen heute: wer gehört zu welcher Gruppe? ---
-        const { data: zuwRows, error: zuwErr } = await supabase
-          .from('DB_SchichtZuweisung')
-          .select('user_id, schichtgruppe')
+          .eq('datum', heute),
+        supabase
+          .from('v_tagesplan')
+          .select('user_id, ist_schichtart_id')
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
-          .lte('von_datum', heute)
-          .or(`bis_datum.is.null, bis_datum.gte.${heute}`);
-        if (zuwErr) throw zuwErr;
+          .eq('datum', gestern),
+      ]);
+      if (vtErr) throw vtErr;
+      if (vgErr) throw vgErr;
 
-        const gruppeByUser = new Map();
-        (zuwRows || []).forEach(r => gruppeByUser.set(String(r.user_id), r.schichtgruppe));
-
-        // --- 4) Kampfliste heute + gestern (Overlay) ---
-        const [klHeute, klGestern] = await Promise.all([
-          supabase
-            .from('DB_Kampfliste')
-            .select('user, ist_schicht, created_at')
-            .eq('firma_id', Number(firma))
-            .eq('unit_id', Number(unit))
-            .eq('datum', heute)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('DB_Kampfliste')
-            .select('user, ist_schicht, created_at')
-            .eq('firma_id', Number(firma))
-            .eq('unit_id', Number(unit))
-            .eq('datum', gestern)
-            .order('created_at', { ascending: false }),
-        ]);
-        if (klHeute.error) throw klHeute.error;
-        if (klGestern.error) throw klGestern.error;
-
-        const latestKuerzelByUserHeute = new Map();
-        for (const row of klHeute.data || []) {
-          const uid = String(row.user);
-          if (!latestKuerzelByUserHeute.has(uid)) {
-            latestKuerzelByUserHeute.set(uid, kuerzelByArtId.get(row.ist_schicht) || null);
-          }
-        }
-        const latestKuerzelByUserGestern = new Map();
-        for (const row of klGestern.data || []) {
-          const uid = String(row.user);
-          if (!latestKuerzelByUserGestern.has(uid)) {
-            latestKuerzelByUserGestern.set(uid, kuerzelByArtId.get(row.ist_schicht) || null);
-          }
-        }
-
-        // --- 5) Kandidaten-User-Ids ---
-        const userIdsSet = new Set([
-          ...Array.from(gruppeByUser.keys()),
-          ...Array.from(latestKuerzelByUserHeute.keys()),
-        ]);
-        const userIds = Array.from(userIdsSet);
-
-        // --- 6) Userdaten ---
-        let userNameMap = new Map();
-        let userVisibleMap = new Map();
-        if (userIds.length) {
-          const { data: userRows, error: userErr } = await supabase
-            .from('DB_User')
-            .select('user_id, vorname, nachname, user_visible')
-            .in('user_id', userIds);
-          if (userErr) throw userErr;
-
-          (userRows || []).forEach(u => {
-            userNameMap.set(String(u.user_id), `${u.nachname || ''}, ${u.vorname || ''}`.trim());
-            userVisibleMap.set(String(u.user_id), u.user_visible !== false);
-          });
-        }
-
-        // --- 7) Finale Kürzel pro User: Overlay (Kampfliste) > Plan ---
-        const finalKuerzelByUser = new Map();
-        for (const uid of userIds) {
-          const over = latestKuerzelByUserHeute.get(uid);
-          if (over) {
-            finalKuerzelByUser.set(uid, over);
-          } else {
-            const grp = gruppeByUser.get(uid);
-            const base = grp ? kuerzelByGruppe.get(grp) : null;
-            if (base) finalKuerzelByUser.set(uid, base);
-          }
-        }
-
-        // --- 8) Aufteilen in F/S/N und „andere“ + Krank ---
-        const F = [];
-        const S = [];
-        const N = [];
-        const andereMap = new Map(); // kuerzel -> [namen]
-        const krankArr = []; // { name, neu }
-
-        const isVisible = (uid) => userVisibleMap.get(uid) !== false;
-
-        // Hilfsfunktion: „Andere“ sammeln (ohne '-')
-        const addAndere = (kuerzel, name) => {
-          if (!kuerzel || kuerzel.trim() === '-') return; // <<<< '-' ausblenden
-          if (!andereMap.has(kuerzel)) andereMap.set(kuerzel, []);
-          andereMap.get(kuerzel).push(name);
-        };
-
-        for (const uid of userIds) {
-          if (!isVisible(uid)) continue;
-          const name = userNameMap.get(uid) || `User ${uid}`;
-          const k = finalKuerzelByUser.get(uid);
-          if (!k) continue;
-
-          if (k === 'F') F.push(name);
-          else if (k === 'S') S.push(name);
-          else if (k === 'N') N.push(name);
-          else if (k === 'K' || k === 'KO') {
-            const gesternK = latestKuerzelByUserGestern.get(uid);
-            krankArr.push({
-              name,
-              neu: !(gesternK === 'K' || gesternK === 'KO'),
-            });
-          } else {
-            addAndere(k, name);
-          }
-        }
-
-        // andere_kuerzel -> Liste mit { kuerzel, anzahl, namen[] } (Sicherheit: '-' filtern)
-        const andere = Array
-          .from(andereMap.entries())
-          .filter(([k]) => k && k.trim() !== '-') // <<<< Sicherheit
-          .map(([kuerzel, namen]) => ({
-            kuerzel,
-            anzahl: namen.length,
-            namen: namen.sort((a, b) => a.localeCompare(b, 'de')),
-          }))
-          .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
-
-        // Schichtlisten sortieren
-        F.sort((a, b) => a.localeCompare(b, 'de'));
-        S.sort((a, b) => a.localeCompare(b, 'de'));
-        N.sort((a, b) => a.localeCompare(b, 'de'));
-        krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));
-
-        // --- 9) Bedarf heute ---
-        const { data: bedarfRows, error: bedErr } = await supabase
-          .from('DB_Bedarf')
-          .select('id, quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
-          .eq('firma_id', Number(firma))
-          .eq('unit_id', Number(unit));
-        if (bedErr) throw bedErr;
-
-        const { data: matrixRows, error: matrixErr } = await supabase
-          .from('DB_Qualifikationsmatrix')
-          .select('id, quali_kuerzel, qualifikation');
-        if (matrixErr) throw matrixErr;
-
-        const qmById = new Map();
-        (matrixRows || []).forEach(q => {
-          qmById.set(q.id, { kuerzel: q.quali_kuerzel, label: q.qualifikation });
-        });
-
-        const isWithin = (row) => (!row.von || row.von <= heute) && (!row.bis || row.bis >= heute);
-        const heuteAlle = (bedarfRows || []).filter(isWithin);
-
-        const hatZeitlich = heuteAlle.some(b => b.normalbetrieb === false);
-        const aktivSet = hatZeitlich
-          ? heuteAlle.filter(b => b.normalbetrieb === false)
-          : heuteAlle.filter(b => b.normalbetrieb !== false);
-
-        const mapped = aktivSet.map(b => ({
-          id: b.id,
-          quali_kuerzel: qmById.get(b.quali_id)?.kuerzel || '???',
-          quali_label: qmById.get(b.quali_id)?.label || null,
-          anzahl: b.anzahl || 0,
-          // namebedarf NICHT mehr pro Zeile rendern
-          namebedarf: null,
-          farbe: b.farbe || null,
-          von: b.von || null,
-          bis: b.bis || null,
-        }));
-
-        const normalbetrieb = hatZeitlich ? [] : mapped;
-        const zeitlich = hatZeitlich ? mapped : [];
-
-        const summeMap = new Map();
-        for (const e of mapped) {
-          const key = e.quali_kuerzel;
-          summeMap.set(key, (summeMap.get(key) || 0) + (e.anzahl || 0));
-        }
-        const summiert = Array.from(summeMap.entries()).map(([quali_kuerzel, total_anzahl]) => ({
-          quali_kuerzel,
-          total_anzahl,
-        })).sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
-
-        // Termine (noch leer)
-        const termine = [];
-
-        setData({
-          enabled: true,
-          datum: heute,
-          kampfliste: {
-            schichten: { frueh: F, spaet: S, nacht: N },
-            andere_kuerzel: andere,
-            krank: krankArr,
-          },
-          termine: { termine },
-          bedarf: {
-            normalbetrieb,
-            zeitlich,
-            summiert,
-          },
-        });
-      } catch (e) {
-        console.error('Tagesübersicht laden fehlgeschlagen', e);
-        setError(e.message || 'Fehler beim Laden');
-      } finally {
-        setLoading(false);
+      const kByUserHeute = new Map();
+      for (const r of vtHeute || []) {
+        const uid = String(r.user_id);
+        const kz  = r.ist_schichtart_id ? kuerzelByArtId.get(r.ist_schichtart_id) : '-';
+        kByUserHeute.set(uid, kz || '-');
       }
-    };
+      const kByUserGestern = new Map();
+      for (const r of vtGestern || []) {
+        const uid = String(r.user_id);
+        const kz  = r.ist_schichtart_id ? kuerzelByArtId.get(r.ist_schichtart_id) : '-';
+        kByUserGestern.set(uid, kz || '-');
+      }
 
-    ladeHeute();
-  }, [darfSehen, firma, unit]);
+      // 3) Kandidaten-User = alle aus v_tagesplan HEUTE
+      const userIds = Array.from(new Set((vtHeute || []).map(r => String(r.user_id))));
+
+      // 4) Userdaten (Name/Visibility)
+      let userNameMap = new Map(), userVisibleMap = new Map();
+      if (userIds.length) {
+        const { data: userRows, error: userErr } = await supabase
+          .from('DB_User')
+          .select('user_id, vorname, nachname, user_visible')
+          .in('user_id', userIds);
+        if (userErr) throw userErr;
+        (userRows || []).forEach(u => {
+          userNameMap.set(String(u.user_id), `${u.nachname || ''}, ${u.vorname || ''}`.trim());
+          userVisibleMap.set(String(u.user_id), u.user_visible !== false);
+        });
+      }
+      const isVisible = (uid) => userVisibleMap.get(uid) !== false;
+
+      // 5) Aufteilen in F/S/N / Andere / Krank
+      const F = [], S = [], N = [];
+      const andereMap = new Map(); // kuerzel -> namen[]
+      const krankArr  = [];        // { name, neu }
+
+      const addAndere = (kuerzel, name) => {
+        if (!kuerzel || kuerzel.trim() === '-') return;
+        if (!andereMap.has(kuerzel)) andereMap.set(kuerzel, []);
+        andereMap.get(kuerzel).push(name);
+      };
+
+      for (const uid of userIds) {
+        if (!isVisible(uid)) continue;
+        const name = userNameMap.get(uid) || `User ${uid}`;
+        const k    = kByUserHeute.get(uid) || '-';
+
+        if (k === 'F') F.push(name);
+        else if (k === 'S') S.push(name);
+        else if (k === 'N') N.push(name);
+        else if (k === 'K' || k === 'KO') {
+          const prev = kByUserGestern.get(uid);
+          krankArr.push({ name, neu: !(prev === 'K' || prev === 'KO') });
+        } else {
+          addAndere(k, name);
+        }
+      }
+
+      const andere = Array.from(andereMap.entries())
+        .filter(([k]) => k && k.trim() !== '-')
+        .map(([kuerzel, namen]) => ({
+          kuerzel,
+          anzahl: namen.length,
+          namen: namen.sort((a, b) => a.localeCompare(b, 'de')),
+        }))
+        .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
+
+      F.sort((a, b) => a.localeCompare(b, 'de'));
+      S.sort((a, b) => a.localeCompare(b, 'de'));
+      N.sort((a, b) => a.localeCompare(b, 'de'));
+      krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
+      // 6) Bedarf heute (unverändert)
+      const { data: bedarfRows, error: bedErr } = await supabase
+        .from('DB_Bedarf')
+        .select('id, quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
+        .eq('firma_id', Number(firma))
+        .eq('unit_id', Number(unit));
+      if (bedErr) throw bedErr;
+
+      const { data: matrixRows, error: matrixErr } = await supabase
+        .from('DB_Qualifikationsmatrix')
+        .select('id, quali_kuerzel, qualifikation');
+      if (matrixErr) throw matrixErr;
+
+      const qmById = new Map((matrixRows || []).map(q => [q.id, { kuerzel: q.quali_kuerzel, label: q.qualifikation }]));
+
+      const isWithin = (row) => (!row.von || row.von <= heute) && (!row.bis || row.bis >= heute);
+      const heuteAlle = (bedarfRows || []).filter(isWithin);
+      const hatZeitlich = heuteAlle.some(b => b.normalbetrieb === false);
+      const aktivSet = hatZeitlich
+        ? heuteAlle.filter(b => b.normalbetrieb === false)
+        : heuteAlle.filter(b => b.normalbetrieb !== false);
+
+      const mapped = aktivSet.map(b => ({
+        id: b.id,
+        quali_kuerzel: qmById.get(b.quali_id)?.kuerzel || '???',
+        quali_label:   qmById.get(b.quali_id)?.label  || null,
+        anzahl: b.anzahl || 0,
+        namebedarf: null,
+        farbe: b.farbe || null,
+        von: b.von || null,
+        bis: b.bis || null,
+      }));
+      const normalbetrieb = hatZeitlich ? [] : mapped;
+      const zeitlich = hatZeitlich ? mapped : [];
+
+      const summeMap = new Map();
+      for (const e of mapped) {
+        summeMap.set(e.quali_kuerzel, (summeMap.get(e.quali_kuerzel) || 0) + (e.anzahl || 0));
+      }
+      const summiert = Array.from(summeMap.entries())
+        .map(([quali_kuerzel, total_anzahl]) => ({ quali_kuerzel, total_anzahl }))
+        .sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
+
+      // 7) Termine (noch leer)
+      const termine = [];
+
+      setData({
+        enabled: true,
+        datum: heute,
+        kampfliste: {
+          schichten: { frueh: F, spaet: S, nacht: N },
+          andere_kuerzel: andere,
+          krank: krankArr,
+        },
+        termine: { termine },
+        bedarf: { normalbetrieb, zeitlich, summiert },
+      });
+    } catch (e) {
+      console.error('Tagesübersicht laden fehlgeschlagen', e);
+      setError(e.message || 'Fehler beim Laden');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  ladeHeute();
+}, [darfSehen, firma, unit]);
 
   if (!darfSehen) return null;
 
