@@ -629,7 +629,7 @@ const KampfListe = ({
                                 borderRight: '10px solid transparent',
                                 zIndex: 10,
                               }}
-                              title="Kommentar vorhanden"
+                              //title="Kommentar vorhanden"
                             />
                           </>
                         )}
