@@ -3,7 +3,8 @@ import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { Info } from 'lucide-react';
-import { berechneFuerJahre } from '../../utils/berechnungen_schichtzuweisung';
+// ⬇️ nutzt deine bestehende Monatsfunktion
+import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
 
 dayjs.extend(isSameOrBefore);
 
@@ -25,11 +26,14 @@ const SchichtzuweisungFormular = ({
   const [maxDatumEnde, setMaxDatumEnde] = useState('');
   const [kundenCheckInfo, setKundenCheckInfo] = useState(null);
   const [modalOffen, setModalOffen] = useState(false);
+
+  // Fortschritt für Recalc
   const [gesamtAnzahl, setGesamtAnzahl] = useState(0);
   const [aktuellerFortschritt, setAktuellerFortschritt] = useState(0);
+
   const [endet, setEndet] = useState(false);
 
-  // Feedback im Formular
+  // Feedback
   const [feedback, setFeedback] = useState('');
   const [feedbackTone, setFeedbackTone] = useState('success'); // 'success' | 'error' | 'info'
   const showFeedback = (text, tone = 'success', ms = 1500) => {
@@ -38,10 +42,11 @@ const SchichtzuweisungFormular = ({
     if (ms) setTimeout(() => setFeedback(''), ms);
   };
 
-  // Schichtwechsel-Entscheidung im Formular (kein alert/confirm)
+  // Schichtwechsel-Entscheidung (inline)
   const [wechselInfo, setWechselInfo] = useState(null); // { prevGroup, newGroup, startDate, prevId }
   const [decisionBusy, setDecisionBusy] = useState(false);
 
+  /* --------------------------- Laden der Teams --------------------------- */
   useEffect(() => {
     const ladeTeams = async () => {
       if (!firma || !unit) return;
@@ -52,7 +57,7 @@ const SchichtzuweisungFormular = ({
         .eq('id', unit)
         .single();
 
-      if (error || !data) {
+    if (error || !data) {
         setTeams([]);
         return;
       }
@@ -70,6 +75,7 @@ const SchichtzuweisungFormular = ({
     ladeTeams();
   }, [firma, unit]);
 
+  /* -------------------- MaxDatumEnde des Teams für SollPlan ------------------- */
   useEffect(() => {
     const fetchMaxDatum = async () => {
       if (!team || !firma || !unit) return;
@@ -102,7 +108,7 @@ const SchichtzuweisungFormular = ({
     return out;
   };
 
-  // Kampfliste -> Verlauf kopieren und löschen (ab Datum)
+  /* ---------------- Kampfliste -> Verlauf kopieren und löschen ---------------- */
   const moveFutureKampflisteToVerlaufAndDelete = async (userId, firmaId, unitId, startDate) => {
     const { data: future, error: fErr } = await supabase
       .from('DB_Kampfliste')
@@ -142,9 +148,82 @@ const SchichtzuweisungFormular = ({
     return { moved: verlaufRows.length, deleted: ids.length };
   };
 
-  // Finalisiert das Speichern (nach Entscheidung 'delete' | 'keep' oder ohne Wechsel)
+  /* -------------------------- Stunden-Recalc -------------------------- */
+  const monthsInRange = (vonISO, bisISO) => {
+    const list = [];
+    let cur = dayjs(vonISO).startOf('month');
+    const end = dayjs(bisISO).startOf('month');
+    while (cur.isSameOrBefore(end, 'month')) {
+      list.push({ jahr: cur.year(), monat: cur.month() + 1 });
+      cur = cur.add(1, 'month');
+    }
+    return list;
+  };
+
+  // 🔁 NEU: soll_m1..12 = m1..12 + summe_sollplan angleichen (pro Jahr)
+  const syncSollToIstForYear = async (userId, firmaId, unitId, jahr) => {
+    const { data, error } = await supabase
+      .from('DB_Stunden')
+      .select('m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12')
+      .eq('user_id', userId)
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId)
+      .eq('jahr', jahr)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return;
+
+    const m1  = data.m1  ?? 0,  m2  = data.m2  ?? 0,  m3  = data.m3  ?? 0,  m4  = data.m4  ?? 0;
+    const m5  = data.m5  ?? 0,  m6  = data.m6  ?? 0,  m7  = data.m7  ?? 0,  m8  = data.m8  ?? 0;
+    const m9  = data.m9  ?? 0,  m10 = data.m10 ?? 0,  m11 = data.m11 ?? 0,  m12 = data.m12 ?? 0;
+    const sumSoll = m1+m2+m3+m4+m5+m6+m7+m8+m9+m10+m11+m12;
+
+    await supabase
+      .from('DB_Stunden')
+      .update({
+        soll_m1: m1,  soll_m2: m2,  soll_m3: m3,  soll_m4: m4,
+        soll_m5: m5,  soll_m6: m6,  soll_m7: m7,  soll_m8: m8,
+        soll_m9: m9,  soll_m10: m10, soll_m11: m11, soll_m12: m12,
+        summe_sollplan: sumSoll
+      })
+      .eq('user_id', userId)
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId)
+      .eq('jahr', jahr);
+  };
+
+  // Für jeden Monat DB_Stunden neu berechnen; danach soll_* spiegeln
+  const recalcStundenForRange = async (userId, firmaId, unitId, vonISO, bisISO) => {
+    const monate = monthsInRange(vonISO, bisISO);
+    setGesamtAnzahl(monate.length);
+    setAktuellerFortschritt(0);
+
+    for (let i = 0; i < monate.length; i++) {
+      const { jahr, monat } = monate[i];
+      try {
+        await berechneUndSpeichereStunden(userId, jahr, monat, firmaId, unitId);
+      } catch (e) {
+        console.warn(`Recalc DB_Stunden fehlgeschlagen: ${jahr}-${String(monat).padStart(2, '0')}`, e?.message || e);
+      } finally {
+        setAktuellerFortschritt(i + 1);
+      }
+    }
+
+    // ➕ NEU: für alle betroffenen Jahre soll_* = m_* setzen
+    const jahre = Array.from(new Set(monate.map(m => m.jahr)));
+    for (const jahr of jahre) {
+      try {
+        await syncSollToIstForYear(userId, firmaId, unitId, jahr);
+      } catch (e) {
+        console.warn(`Soll-Spiegelung fehlgeschlagen für ${jahr}:`, e?.message || e);
+      }
+    }
+  };
+
+  /* --------------- Finalisieren nach Entscheidung 'delete'|'keep' --------------- */
   const finalizeSave = async (opt) => {
-    if (!wechselInfo) return; // Safety
+    if (!wechselInfo) return;
     setDecisionBusy(true);
 
     const { prevGroup, newGroup, startDate, prevId } = wechselInfo;
@@ -153,13 +232,11 @@ const SchichtzuweisungFormular = ({
     try {
       let futureMsg = '';
 
-      // Optional: künftige Kampfliste aufräumen
       if (opt === 'delete') {
         const { moved, deleted } = await moveFutureKampflisteToVerlaufAndDelete(userId, firma, unit, startDate);
         futureMsg = ` | Kampfliste: ${deleted} Einträge gelöscht (Verlauf: ${moved})`;
       }
 
-      // Alte Zuweisung bis Vortag beenden (nur bei echtem Wechsel)
       if (prevId) {
         const bisVortag = dayjs(startDate).subtract(1, 'day').format('YYYY-MM-DD');
         const { error: updErr } = await supabase
@@ -169,7 +246,6 @@ const SchichtzuweisungFormular = ({
         if (updErr) throw updErr;
       }
 
-      // Neue Zuweisung anlegen
       const { error: insertError } = await supabase.from('DB_SchichtZuweisung').insert({
         user_id: userId,
         schichtgruppe: newGroup,
@@ -183,9 +259,16 @@ const SchichtzuweisungFormular = ({
       });
       if (insertError) throw insertError;
 
-      showFeedback('✅ Schichtgruppe erfolgreich zugewiesen!' + futureMsg, 'success', 1500);
+      // Recalc + Soll-Spiegelung
+      const effVon = startDate;
+      const effBis = (endet && datumEnde) ? datumEnde : (maxDatumEnde || startDate);
+      setIsLoading(true);
+      showFeedback('🔄 Berechne Stunden …', 'info', 0);
+      await recalcStundenForRange(userId, firma, unit, effVon, effBis);
+      showFeedback('✅ Schichtgruppe zugewiesen, Stunden neu berechnet & Soll übernommen!' + futureMsg, 'success', 2000);
+
       setWechselInfo(null);
-      if (typeof onRefresh === 'function') onRefresh();
+      onRefresh?.();
     } catch (e) {
       showFeedback('❌ Fehler: ' + (e?.message || String(e)), 'error', 2500);
     } finally {
@@ -194,7 +277,7 @@ const SchichtzuweisungFormular = ({
     }
   };
 
-  // Startet den Prozess: prüft Schichtwechsel und zeigt ggf. Entscheidung
+  /* -------------------------- Submit ohne Wechsel -------------------------- */
   const handleSubmit = async () => {
     setIsLoading(true);
 
@@ -214,7 +297,6 @@ const SchichtzuweisungFormular = ({
     const startDate = dayjs(datumStart).format('YYYY-MM-DD');
 
     try {
-      // Aktive Zuweisung am Startdatum prüfen
       const { data: activeAssn, error: assnErr } = await supabase
         .from('DB_SchichtZuweisung')
         .select('id, schichtgruppe, von_datum, bis_datum')
@@ -232,19 +314,17 @@ const SchichtzuweisungFormular = ({
       const schichtWechsel = !!(prev && prev.schichtgruppe !== team);
 
       if (schichtWechsel) {
-        // Entscheidung inline anzeigen, nicht als alert/confirm
         setWechselInfo({
           prevGroup: prev.schichtgruppe,
           newGroup: team,
           startDate,
           prevId: prev.id
         });
-        showFeedback('', 'info', 0); // evtl. vorherige Meldung löschen
-        // hier NICHT final speichern – auf Benutzerentscheidung warten
+        showFeedback('', 'info', 0);
+        setIsLoading(false);
         return;
       }
 
-      // Kein Wechsel → direkt speichern
       const { error: insertError } = await supabase.from('DB_SchichtZuweisung').insert({
         user_id: userId,
         schichtgruppe: team,
@@ -258,8 +338,14 @@ const SchichtzuweisungFormular = ({
       });
       if (insertError) throw insertError;
 
-      showFeedback('✅ Schichtgruppe erfolgreich zugewiesen!', 'success', 1500);
-      if (typeof onRefresh === 'function') onRefresh();
+      // Recalc + Soll-Spiegelung
+      const effVon = startDate;
+      const effBis = (endet && datumEnde) ? datumEnde : (maxDatumEnde || startDate);
+      showFeedback('🔄 Berechne Stunden …', 'info', 0);
+      await recalcStundenForRange(userId, firma, unit, effVon, effBis);
+
+      showFeedback('✅ Schichtgruppe zugewiesen, Stunden neu berechnet & Soll übernommen!', 'success', 2000);
+      onRefresh?.();
     } catch (error) {
       showFeedback('❌ Fehler: ' + (error?.message || String(error)), 'error', 2500);
     } finally {
@@ -288,7 +374,7 @@ const SchichtzuweisungFormular = ({
         value={team}
         onChange={(e) => {
           setTeam(e.target.value);
-          onTeamSelect(e.target.value);
+          onTeamSelect?.(e.target.value);
         }}
         className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
       >
@@ -388,6 +474,21 @@ const SchichtzuweisungFormular = ({
         {isLoading ? 'Mitarbeiter wird zugewiesen' : 'Zuweisung durchführen'}
       </button>
 
+      {/* Fortschritt für Recalc */}
+      {(gesamtAnzahl > 0) && (
+        <div className="mt-3">
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+            Stunden-Neuberechnung: {aktuellerFortschritt} / {gesamtAnzahl} Monate
+          </div>
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2 overflow-hidden">
+            <div
+              className="bg-blue-600 h-2 transition-all"
+              style={{ width: `${(aktuellerFortschritt / gesamtAnzahl) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <h2 className="text-xs p-2 text-gray-600 dark:text-gray-500">Das Zuweisen eines Teams kann zeitintensiv sein.</h2>
 
       {feedback && (
@@ -416,6 +517,7 @@ const SchichtzuweisungFormular = ({
             <h2 className="text-lg font-bold mb-2">Information zur Zuweisung</h2>
             <p className="text-sm mb-4">
               Auswahl Team, Zeitraum, Prüfung auf Schichtwechsel und optionales Aufräumen zukünftiger Kampflisten (mit Verlauf).
+              Nach dem Speichern werden automatisch die <b>DB_Stunden</b> neu berechnet und die <b>SOLL-Monate</b> an die <b>IST-Monate</b> angeglichen.
             </p>
             <button
               onClick={() => setModalOffen(false)}
