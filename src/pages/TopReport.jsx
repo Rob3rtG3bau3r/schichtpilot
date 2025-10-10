@@ -18,7 +18,8 @@ const Panel = ({ title, children, right }) => (
 const Card = ({ title, items, topN = 5 }) => {
   const [open, setOpen] = useState(false);
   const top = (items?.top ?? []).slice(0, topN);
-  const rest = (items?.rest ?? []).slice(0, Math.max(0, 10 - top.length)); // bis 10 gesamt
+  // Rest füllt jetzt bis topN auf (nicht mehr hart auf 10 gedeckelt)
+  const rest = (items?.rest ?? []).slice(0, Math.max(0, topN - top.length));
 
   const renderRow = (r, key) => {
     const label = r.name ?? r.kuerzel ?? r.monat ?? r.user ?? '—';
@@ -132,6 +133,7 @@ export default function TopReport() {
           >
             <option value={3}>Top 3</option>
             <option value={5}>Top 5</option>
+            <option value={12}>Top 12</option>
           </select>
           <button
             onClick={load}
@@ -156,9 +158,7 @@ export default function TopReport() {
         {!loading && !error && enabled && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             <Card title="Top User – Stunden" items={payload?.top_hours_users} topN={limit} />
-            <Card title="Top Frühschicht-Tage (User)" items={payload?.top_days_users?.F} topN={limit} />
-            <Card title="Top Spätschicht-Tage (User)" items={payload?.top_days_users?.S} topN={limit} />
-            <Card title="Top Nachtschicht-Tage (User)" items={payload?.top_days_users?.N} topN={limit} />
+            {/* Früh/Spät/Nacht entfernt */}
             <Card title="Top Kürzel (Tage)" items={payload?.top_codes} topN={limit} />
             <Card title="Monate mit den meisten Stunden" items={payload?.top_months_hours_high} topN={limit} />
             <Card title="Monate mit den wenigsten Stunden" items={payload?.top_months_hours_low} topN={limit} />
