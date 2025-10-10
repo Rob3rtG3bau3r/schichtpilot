@@ -69,9 +69,9 @@ const MobileMeineAnfragen = () => {
   }, [anfragen, filter]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-200 dark:bg-gray-700">
+    <div className="flex flex-col min-h-screen bg-gray-200 dark:bg-gray-900">
       {/* Filterauswahl */}
-      <div className="flex justify-around py-2 text-sm text-gray-900 dark:text-gray-200 bg-white dark:bg-gray-800 border-b dark:border-gray-600">
+      <div className="flex justify-around py-2 text-sm text-gray-900 dark:text-gray-200 bg-white dark:bg-gray-900 border-b dark:border-gray-600">
         <button
           className={filter === 'ausstehend' ? 'text-blue-600 font-semibold bg-blue-600 bg-opacity-20 py-1 px-2 border border-blue-500 rounded' : ''}
           onClick={() => setFilter('ausstehend')}

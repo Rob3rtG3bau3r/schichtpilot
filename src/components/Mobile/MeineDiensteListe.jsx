@@ -191,8 +191,8 @@ const ladeDienste = async () => {
   }
 
   return (
-    <div className="bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200 text-sm h-screen flex flex-col overflow-hidden">
-      <div className="sticky top-0 z-30 bg-gray-200 dark:bg-gray-800 px-4 pb-1 shadow-md">
+    <div className="bg-gray-200 dark:bg-gray-900 text-gray-900 dark:text-gray-200 text-sm h-screen flex flex-col overflow-hidden">
+      <div className="sticky top-0 z-30 bg-gray-200 dark:bg-gray-900 px-4 pb-1 shadow-md">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             <button onClick={zurueckZuHeute}><ArrowLeft className="w-5 h-5" /></button>
