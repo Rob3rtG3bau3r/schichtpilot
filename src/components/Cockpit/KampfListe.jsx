@@ -652,7 +652,8 @@ const KampfListe = ({
                                               bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs">
                                 <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
                                                 bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
-                                <div className="font-sans font-semibold mb-1">{datumLabel}</div>
+                                <div className="text-[11px] text-gray-500 dark:text-gray-200 mb-1">{datumLabel}</div>
+                                <div className="text-xs font-sans font-semibold mb-0.5">{e.vollName}</div>
                                 {(eintragTag?.beginn || eintragTag?.ende) && (
                                   <div className="font-mono">
                                     {eintragTag?.beginn || '–'} – {eintragTag?.ende || '–'}

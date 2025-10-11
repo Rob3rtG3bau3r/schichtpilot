@@ -3,7 +3,7 @@ import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { Info } from 'lucide-react';
-// ⬇️ nutzt deine bestehende Monatsfunktion
+// nutzt deine bestehende Monatsfunktion
 import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
 
 dayjs.extend(isSameOrBefore);
@@ -18,7 +18,7 @@ const SchichtzuweisungFormular = ({
   isLoading,
   className,
   datumStart,
-  setDatumStart
+  setDatumStart,
 }) => {
   const [team, setTeam] = useState('');
   const [teams, setTeams] = useState([]);
@@ -57,7 +57,7 @@ const SchichtzuweisungFormular = ({
         .eq('id', unit)
         .single();
 
-    if (error || !data) {
+      if (error || !data) {
         setTeams([]);
         return;
       }
@@ -122,12 +122,23 @@ const SchichtzuweisungFormular = ({
     if (!future || future.length === 0) return { moved: 0, deleted: 0 };
 
     const allowed = [
-      'created_at','created_by','user','firma_id','unit_id','datum','schichtgruppe',
-      'soll_schicht','ist_schicht','kommentar','startzeit_ist','endzeit_ist',
-      'dauer_ist','dauer_soll'
+      'created_at',
+      'created_by',
+      'user',
+      'firma_id',
+      'unit_id',
+      'datum',
+      'schichtgruppe',
+      'soll_schicht',
+      'ist_schicht',
+      'kommentar',
+      'startzeit_ist',
+      'endzeit_ist',
+      'dauer_ist',
+      'dauer_soll',
     ];
     const nowIso = new Date().toISOString();
-    const verlaufRows = future.map(row => {
+    const verlaufRows = future.map((row) => {
       const r = {};
       for (const k of allowed) if (row[k] !== undefined) r[k] = row[k];
       r.change_on = nowIso;
@@ -139,7 +150,7 @@ const SchichtzuweisungFormular = ({
       if (insErr) throw insErr;
     }
 
-    const ids = future.map(x => x.id).filter(Boolean);
+    const ids = future.map((x) => x.id).filter(Boolean);
     for (const part of chunk(ids, 500)) {
       const { error: delErr } = await supabase.from('DB_Kampfliste').delete().in('id', part);
       if (delErr) throw delErr;
@@ -148,19 +159,21 @@ const SchichtzuweisungFormular = ({
     return { moved: verlaufRows.length, deleted: ids.length };
   };
 
-  /* -------------------------- Stunden-Recalc -------------------------- */
+  /* ---------------------- HINZUGEFÜGT: Monats-/SOLL-Helper ---------------------- */
+
+  // Monate zwischen zwei ISO-Daten (inklusive), als {jahr, monat}
   const monthsInRange = (vonISO, bisISO) => {
     const list = [];
     let cur = dayjs(vonISO).startOf('month');
     const end = dayjs(bisISO).startOf('month');
     while (cur.isSameOrBefore(end, 'month')) {
-      list.push({ jahr: cur.year(), monat: cur.month() + 1 });
+      list.push({ jahr: cur.year(), monat: cur.month() + 1 }); // 1..12
       cur = cur.add(1, 'month');
     }
     return list;
   };
 
-  // 🔁 NEU: soll_m1..12 = m1..12 + summe_sollplan angleichen (pro Jahr)
+  // SOLL-Spiegelung: soll_m1..12 = m1..12 und summe_sollplan neu setzen
   const syncSollToIstForYear = async (userId, firmaId, unitId, jahr) => {
     const { data, error } = await supabase
       .from('DB_Stunden')
@@ -174,18 +187,26 @@ const SchichtzuweisungFormular = ({
     if (error) throw error;
     if (!data) return;
 
-    const m1  = data.m1  ?? 0,  m2  = data.m2  ?? 0,  m3  = data.m3  ?? 0,  m4  = data.m4  ?? 0;
-    const m5  = data.m5  ?? 0,  m6  = data.m6  ?? 0,  m7  = data.m7  ?? 0,  m8  = data.m8  ?? 0;
-    const m9  = data.m9  ?? 0,  m10 = data.m10 ?? 0,  m11 = data.m11 ?? 0,  m12 = data.m12 ?? 0;
-    const sumSoll = m1+m2+m3+m4+m5+m6+m7+m8+m9+m10+m11+m12;
+    const { m1 = 0, m2 = 0, m3 = 0, m4 = 0, m5 = 0, m6 = 0, m7 = 0, m8 = 0, m9 = 0, m10 = 0, m11 = 0, m12 = 0 } = data;
+    const sumSoll = m1 + m2 + m3 + m4 + m5 + m6 + m7 + m8 + m9 + m10 + m11 + m12;
 
     await supabase
       .from('DB_Stunden')
       .update({
-        soll_m1: m1,  soll_m2: m2,  soll_m3: m3,  soll_m4: m4,
-        soll_m5: m5,  soll_m6: m6,  soll_m7: m7,  soll_m8: m8,
-        soll_m9: m9,  soll_m10: m10, soll_m11: m11, soll_m12: m12,
-        summe_sollplan: sumSoll
+        soll_m1: m1,
+        soll_m2: m2,
+        soll_m3: m3,
+        soll_m4: m4,
+        soll_m5: m5,
+        soll_m6: m6,
+        soll_m7: m7,
+        soll_m8: m8,
+        soll_m9: m9,
+        soll_m10: m10,
+        soll_m11: m11,
+        soll_m12: m12,
+        summe_sollplan: sumSoll,
+        updated_at: new Date().toISOString(),
       })
       .eq('user_id', userId)
       .eq('firma_id', firmaId)
@@ -193,9 +214,21 @@ const SchichtzuweisungFormular = ({
       .eq('jahr', jahr);
   };
 
-  // Für jeden Monat DB_Stunden neu berechnen; danach soll_* spiegeln
+  // Enddatum auf 31.12.(aktuelles Jahr + 1) begrenzen
+  const clampToTwoYears = (fromISO, toISO) => {
+    const start = dayjs(fromISO);
+    const reqEnd = toISO ? dayjs(toISO) : start; // falls leer => start
+    const hardCutoff = dayjs().year(dayjs().year() + 1).endOf('year'); // 31.12. nächstes Jahr
+    const boundedEnd = reqEnd.isAfter(hardCutoff) ? hardCutoff : reqEnd;
+    const finalEnd = boundedEnd.isBefore(start, 'day') ? start : boundedEnd;
+    return { from: start.format('YYYY-MM-DD'), to: finalEnd.format('YYYY-MM-DD') };
+  };
+
+  // Für jeden Monat DB_Stunden neu berechnen; danach soll_* spiegeln (auf 2 Jahre gekappt)
   const recalcStundenForRange = async (userId, firmaId, unitId, vonISO, bisISO) => {
-    const monate = monthsInRange(vonISO, bisISO);
+    const { from, to } = clampToTwoYears(vonISO, bisISO);
+
+    const monate = monthsInRange(from, to);
     setGesamtAnzahl(monate.length);
     setAktuellerFortschritt(0);
 
@@ -204,14 +237,17 @@ const SchichtzuweisungFormular = ({
       try {
         await berechneUndSpeichereStunden(userId, jahr, monat, firmaId, unitId);
       } catch (e) {
-        console.warn(`Recalc DB_Stunden fehlgeschlagen: ${jahr}-${String(monat).padStart(2, '0')}`, e?.message || e);
+        console.warn(
+          `Recalc DB_Stunden fehlgeschlagen: ${jahr}-${String(monat).padStart(2, '0')}`,
+          e?.message || e
+        );
       } finally {
         setAktuellerFortschritt(i + 1);
       }
     }
 
-    // ➕ NEU: für alle betroffenen Jahre soll_* = m_* setzen
-    const jahre = Array.from(new Set(monate.map(m => m.jahr)));
+    // SOLL-Spiegelung pro Jahr
+    const jahre = Array.from(new Set(monate.map((m) => m.jahr)));
     for (const jahr of jahre) {
       try {
         await syncSollToIstForYear(userId, firmaId, unitId, jahr);
@@ -259,9 +295,9 @@ const SchichtzuweisungFormular = ({
       });
       if (insertError) throw insertError;
 
-      // Recalc + Soll-Spiegelung
+      // Recalc + Soll-Spiegelung (automatisch gekappt)
       const effVon = startDate;
-      const effBis = (endet && datumEnde) ? datumEnde : (maxDatumEnde || startDate);
+      const effBis = endet && datumEnde ? datumEnde : maxDatumEnde || startDate;
       setIsLoading(true);
       showFeedback('🔄 Berechne Stunden …', 'info', 0);
       await recalcStundenForRange(userId, firma, unit, effVon, effBis);
@@ -318,7 +354,7 @@ const SchichtzuweisungFormular = ({
           prevGroup: prev.schichtgruppe,
           newGroup: team,
           startDate,
-          prevId: prev.id
+          prevId: prev.id,
         });
         showFeedback('', 'info', 0);
         setIsLoading(false);
@@ -338,9 +374,9 @@ const SchichtzuweisungFormular = ({
       });
       if (insertError) throw insertError;
 
-      // Recalc + Soll-Spiegelung
+      // Recalc + Soll-Spiegelung (automatisch gekappt)
       const effVon = startDate;
-      const effBis = (endet && datumEnde) ? datumEnde : (maxDatumEnde || startDate);
+      const effBis = endet && datumEnde ? datumEnde : maxDatumEnde || startDate;
       showFeedback('🔄 Berechne Stunden …', 'info', 0);
       await recalcStundenForRange(userId, firma, unit, effVon, effBis);
 
@@ -354,7 +390,9 @@ const SchichtzuweisungFormular = ({
   };
 
   return (
-    <div className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}>
+    <div
+      className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}
+    >
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">Team zuweisen</h2>
         <button onClick={() => setModalOffen(true)} title="Info">
@@ -364,7 +402,9 @@ const SchichtzuweisungFormular = ({
 
       {kundenCheckInfo && (
         <div className="bg-gray-100 dark:bg-gray-800 text-sm rounded p-2 mb-2">
-          <p><strong>Unternehmen:</strong></p>
+          <p>
+            <strong>Unternehmen:</strong>
+          </p>
           <p>{kundenCheckInfo.db}</p>
         </div>
       )}
@@ -380,7 +420,9 @@ const SchichtzuweisungFormular = ({
       >
         <option value="">Team wählen</option>
         {teams.map((t, i) => (
-          <option key={i} value={t}>{t}</option>
+          <option key={i} value={t}>
+            {t}
+          </option>
         ))}
       </select>
 
@@ -430,7 +472,8 @@ const SchichtzuweisungFormular = ({
       {wechselInfo && (
         <div className="mb-3 p-3 rounded-lg border bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700 text-yellow-900 dark:text-yellow-200">
           <div className="text-sm mb-2">
-            <strong>Schichtwechsel erkannt:</strong> von <em>{wechselInfo.prevGroup}</em> zu <em>{wechselInfo.newGroup}</em> ab {dayjs(wechselInfo.startDate).format('DD.MM.YYYY')}.
+            <strong>Schichtwechsel erkannt:</strong> von <em>{wechselInfo.prevGroup}</em> zu{' '}
+            <em>{wechselInfo.newGroup}</em> ab {dayjs(wechselInfo.startDate).format('DD.MM.YYYY')}.
             <br />
             Wie sollen <em>zukünftige</em> Kampflisten-Einträge ab diesem Datum behandelt werden?
           </div>
@@ -452,7 +495,10 @@ const SchichtzuweisungFormular = ({
             </button>
             <button
               disabled={decisionBusy}
-              onClick={() => { setWechselInfo(null); setIsLoading(false); }}
+              onClick={() => {
+                setWechselInfo(null);
+                setIsLoading(false);
+              }}
               className="ml-auto px-3 py-1 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm"
             >
               Abbrechen
@@ -465,17 +511,15 @@ const SchichtzuweisungFormular = ({
         onClick={handleSubmit}
         disabled={isLoading || !!wechselInfo}
         className={`px-4 py-2 rounded w-full flex items-center justify-center gap-2 text-white ${
-          (isLoading || !!wechselInfo) ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+          isLoading || !!wechselInfo ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
         }`}
       >
-        {isLoading && (
-          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-        )}
+        {isLoading && <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
         {isLoading ? 'Mitarbeiter wird zugewiesen' : 'Zuweisung durchführen'}
       </button>
 
       {/* Fortschritt für Recalc */}
-      {(gesamtAnzahl > 0) && (
+      {gesamtAnzahl > 0 && (
         <div className="mt-3">
           <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
             Stunden-Neuberechnung: {aktuellerFortschritt} / {gesamtAnzahl} Monate
@@ -516,8 +560,9 @@ const SchichtzuweisungFormular = ({
           >
             <h2 className="text-lg font-bold mb-2">Information zur Zuweisung</h2>
             <p className="text-sm mb-4">
-              Auswahl Team, Zeitraum, Prüfung auf Schichtwechsel und optionales Aufräumen zukünftiger Kampflisten (mit Verlauf).
-              Nach dem Speichern werden automatisch die <b>DB_Stunden</b> neu berechnet und die <b>SOLL-Monate</b> an die <b>IST-Monate</b> angeglichen.
+              Auswahl Team, Zeitraum, Prüfung auf Schichtwechsel und optionales Aufräumen zukünftiger Kampflisten (mit
+              Verlauf). Nach dem Speichern werden automatisch die <b>DB_Stunden</b> neu berechnet und die <b>SOLL-Monate</b>{' '}
+              an die <b>IST-Monate</b> angeglichen.
             </p>
             <button
               onClick={() => setModalOffen(false)}
