@@ -69,14 +69,19 @@ const StatistikModal = ({ user, onClose }) => {
         {/* Info-Zeilen */}
         <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded mb-4 text-sm">
           <div className="flex flex-wrap gap-4 mb-2">
-            <span>Std. Jahres zum Ende: <b>{restStd}</b></span>
-            <span>Geleistete Std.: <b>{summeIst}</b></span>
-            <span>Zu erbringende Std.: <b>{stunden.stunden_gesamt || 0}</b></span>
+            <span>Vorgabe Jahresstunden: <b>{stunden.stunden_gesamt || 0}</b></span>
+            <span>Ist-Stunden: <b>{summeIst}</b></span>
+            <span>Stunden zum Jahresende: <b>
+                {Number.isFinite(restStd)
+                ? restStd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : '–'} h
+              </b>
+            </span>       
           </div>
           <div className="flex flex-wrap gap-4">
             <span>Urlaub übrig: <b>{urlaubUebrig}</b></span>
             <span>Urlaub eingetragen: <b>{urlaubSumme}</b></span>
-            <span>Urlaub Gesamt: <b>{urlaub.urlaub_gesamt || 0}</b></span>
+            <span>Urlaub gesamt: <b>{urlaub.urlaub_gesamt || 0}</b></span>
           </div>
         </div>
 
@@ -90,9 +95,9 @@ const StatistikModal = ({ user, onClose }) => {
               <YAxis yAxisId="right" orientation="right" />
               <Tooltip />
               <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="ist" stroke="#4CAF50" name="Ist Stunden" />
-              <Line yAxisId="left" type="monotone" dataKey="soll" stroke="#2196F3" name="Soll Stunden" />
-              <Line yAxisId="left" type="monotone" dataKey="ziel" stroke="#f44336" name="Vorgabe" strokeDasharray="5 5" />
+              <Line yAxisId="left" type="monotone" dataKey="ist" stroke="#4CAF50" name="Ist-Stunden" />
+              <Line yAxisId="left" type="monotone" dataKey="soll" stroke="#2196F3" name="Stunden laut Sollplan" />
+              <Line yAxisId="left" type="monotone" dataKey="ziel" stroke="#f44336" name="Vorgabe Jahresstunden" strokeDasharray="5 5" />
               <Line yAxisId="right" type="monotone" dataKey="urlaub" stroke="#FF9800" name="Urlaub (Tage)" />
             </LineChart>
           </ResponsiveContainer>

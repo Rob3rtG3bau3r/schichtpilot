@@ -114,7 +114,7 @@ const BieteMichAnModal = ({ offen, onClose, tag, datum, schicht }) => {
         created_by: user_id,
         datum,
         schicht: schichtCode,
-        antrag: "Ich biete mich freiwillig an",
+        antrag: "Ich biete mich freiwillig an.",
         genehmigt: null,
         kommentar: "",
         firma_id,
