@@ -247,7 +247,7 @@ const TeamPflegen = () => {
               .map((m) => (
                 <div
                   key={m.user_id}
-                  className="bg-gray-300 dark:bg-gray-900 p-4 rounded-md shadow-xl border border-gray-400 dark:border-gray-600 flex justify-between items-center"
+                  className="bg-gray-200 dark:bg-gray-900 p-4 rounded-md shadow-xl border border-gray-300 dark:border-gray-600 flex justify-between items-center"
                 >
                   <div>
                     <div className="font-medium">

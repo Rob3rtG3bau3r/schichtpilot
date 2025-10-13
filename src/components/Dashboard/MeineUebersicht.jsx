@@ -193,7 +193,7 @@ const diffClass = (v) =>
 {/* Tabelle */}
 <div className="mb-2">
   <div
-    className="cursor-pointer flex items-center gap-2 mb-1 font-semibold"
+    className="cursor-pointer flex items-center gap-2 mb-1 font-semibold "
     onClick={() => setTabelleOffen(!tabelleOffen)}
   >
     {tabelleOffen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
@@ -204,9 +204,9 @@ const diffClass = (v) =>
     <table className="w-full border-collapse bg-gray-300 dark:bg-gray-900 text-xs text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-700 text-sm mb-4 shadow-xl">
       <thead className="bg-gray-400 dark:bg-gray-300">
         <tr>
-          <th className="text-gray-900 border">Monat</th>
+          <th className="text-gray-900 border ">Monat</th>
           {monate.map((m) => (
-            <th key={m} className="text-gray-900 border">{m}</th>
+            <th key={m} className="text-gray-900 border ">{m}</th>
           ))}
         </tr>
       </thead>
@@ -262,7 +262,7 @@ const diffClass = (v) =>
               Chart
             </div>
             {chartOffen && (
-              <div className="h-96 w-full bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 rounded-xl shadow-xl p-2">
+              <div className="h-96 w-full bg-gray-200 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 rounded-xl shadow-xl p-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
