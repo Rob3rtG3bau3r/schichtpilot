@@ -24,7 +24,7 @@ const RenderKalender = ({
   // Leere Felder vor dem 1. des Monats
   for (let i = 0; i < offset; i++) {
     kalenderTage.push(
-      <div key={`empty-${i}`} className="h-20 bg-gray-200 dark:bg-gray-700 rounded" />
+      <div key={`empty-${i}`} className="h-20 bg-gray-200 dark:bg-gray-900 rounded" />
     );
   }
 
