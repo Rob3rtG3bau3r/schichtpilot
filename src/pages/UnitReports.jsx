@@ -202,13 +202,14 @@ const fullYearRows = useMemo(() => {
       soll: Number(r.soll_stunden_sum ?? 0),
       krankK: kStunden,
       krankKO: koStunden,
-      krankStdKO: kStunden + koStunden, // falls du das irgendwo noch nutzt
+      krankStdKO: kStunden + koStunden,
+      dauer10: Number(r.dauer10_count ?? 0),
+      dauer11: Number(r.dauer11_count ?? 0),
       dauer12: Number(r.dauer12_count ?? 0),
       kuerzelStunden: r.kuerzel_stunden || {},
     };
   });
 }, [months]);
-
 
   const cumBoth = useMemo(() => {
     let runIst = 0, runSoll = 0;
@@ -318,27 +319,30 @@ const monthTopKuerzel = useMemo(() => {
     );
   };
 
-  const YearTile = () => {
-    const ready = atLeastOneReady;
-    return (
-      <button
-        onClick={() => ready && setShowYear(true)}
-        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border
-                    bg-gray-200 dark:bg-gray-600
-                    ${ready ? 'hover:bg-gray-500 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
-                    leading-none transition-colors`}
-        disabled={!ready}
-        title={ready ? 'Jahresbericht anzeigen' : 'Noch kein Monat finalisiert'}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="inline-flex w-5 justify-center">
-            {ready ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Circle className="w-4 h-4" />}
-          </span>
-          <span className="font-medium whitespace-nowrap truncate">Jahr</span>
-        </div>
-      </button>
-    );
-  };
+const YearTile = () => {
+  const ready = atLeastOneReady;
+  const selected = showYear && ready;
+  return (
+    <button
+      onClick={() => ready && setShowYear(true)}
+      className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border
+                  bg-gray-200 dark:bg-gray-600
+                  ${ready ? 'hover:bg-gray-500 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
+                  ${selected ? 'ring-2 ring-blue-500' : 'ring-0'}
+                  leading-none transition-colors`}
+      disabled={!ready}
+      title={ready ? 'Jahresbericht anzeigen' : 'Noch kein Monat finalisiert'}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="inline-flex w-5 justify-center">
+          {ready ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Circle className="w-4 h-4" />}
+        </span>
+        <span className="font-medium whitespace-nowrap truncate">Jahr</span>
+      </div>
+    </button>
+  );
+};
+
 
   // --- Render ---------------------------------------------------------------
   return (
@@ -685,7 +689,7 @@ const monthTopKuerzel = useMemo(() => {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="urlaubstage" name="Urlaubstage" fill="#3b82f6"/>
+                <Bar dataKey="urlaubstage" name="Urlaubstage" fill="#f59e0b" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -707,8 +711,8 @@ const monthTopKuerzel = useMemo(() => {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="kumIst" name="Ist kumuliert" dot={false} stroke="#10b981"/>
-                <Line type="monotone" dataKey="kumSoll" name="Soll kumuliert" dot={false} stroke="#373affff" />
+                  <Line type="monotone" dataKey="kumIst"  name="Ist kumuliert"       dot={false} stroke="#fbbf24" />
+                  <Line type="monotone" dataKey="kumSoll" name="Vorgabe kumuliert"   dot={false} stroke="#60a5fa" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -745,48 +749,52 @@ const monthTopKuerzel = useMemo(() => {
       </Card>
 
       {/* Krank K+KO */}
-      <Card>
-        <div className='px-3 pt-2 pb-3'>
-          <div className='flex items-center justify-between mb-2'>
-            <div className='font-medium'>Krank (K + KO) in Stunden je Monat</div>
-            <Muted>h</Muted>
-          </div>
-          <div className='h-56'>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={fullYearRows}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="krankStdKO" name="K+KO Stunden" fill="#ef4444" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </Card>
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Krank (K & KO) in Stunden je Monat</div>
+      <Muted>h</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={fullYearRows}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="label" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="krankK"  name="K (h)"  fill="#ef4444" />
+          <Bar dataKey="krankKO" name="KO (h)" fill="#f59e0b" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
 
       {/* 12h-Dienste */}
-      <Card>
-        <div className='px-3 pt-2 pb-3'>
-          <div className='flex items-center justify-between mb-2'>
-            <div className='font-medium'>12h-Dienste je Monat (Anzahl)</div>
-            <Muted>Count</Muted>
-          </div>
-          <div className='h-56'>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={fullYearRows}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="dauer12" name="12h Dienste" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </Card>
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Lange Dienste je Monat (Anzahl)</div>
+      <Muted>Count</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={fullYearRows}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="label" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="dauer10" name=">10h" fill="#fbbf24" />
+          <Bar dataKey="dauer11" name=">11h" fill="#f59e0b" />
+          <Bar dataKey="dauer12" name="≥12h" fill="#ef4444" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
+
     </div>
   </div>
 )}
