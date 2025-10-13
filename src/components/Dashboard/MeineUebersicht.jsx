@@ -135,9 +135,14 @@ const MeineUebersicht = () => {
 <div className="bg-gradient-to-r from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-700 p-3 border border-gray-400 rounded-xl shadow-xl mb-2">
   {/* Erste Zeile */}
   <div className="flex flex-wrap gap-4 items-center text-xs md:text-[16px] text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-600 pb-2 mb-2">
+    
     <div className="flex items-center gap-1">
       <span className="text-blue-600">⏱</span>
-      <span>Std. Jahres zum Ende:</span> <b>{restStd} h</b>
+      <span>Std. Jahres zum Ende:</span> <b>
+  {Number.isFinite(restStd)
+    ? restStd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '–'} h
+</b>
     </div>
     <div className="flex items-center gap-1">
       <span className="text-green-600">✔</span>
