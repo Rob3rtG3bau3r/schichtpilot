@@ -138,7 +138,7 @@ const MeineUebersicht = () => {
     
     <div className="flex items-center gap-1">
       <span className="text-blue-600">⏱</span>
-      <span>Std. Jahres zum Ende:</span> <b>
+      <span>Std. zum Jahres Ende:</span> <b>
   {Number.isFinite(restStd)
     ? restStd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '–'} h
@@ -170,7 +170,7 @@ const MeineUebersicht = () => {
     </div>
     <div className="flex items-center gap-1">
       <span className="text-orange-500">📅</span>
-      <span>Urlaub Gesamt:</span> <b>{urlaub_gesamt}</b>
+      <span>Urlaub gesamt:</span> <b>{urlaub_gesamt}</b>
     </div>
     <div className="flex items-center gap-1">
       <span className="text-purple-500">↩</span>
