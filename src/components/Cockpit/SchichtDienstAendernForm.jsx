@@ -1,5 +1,5 @@
 // src/components/Dashboard/SchichtDienstAendernForm.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import duration from 'dayjs/plugin/duration';
@@ -89,14 +89,19 @@ const SchichtDienstAendernForm = ({
   useEffect(() => {
     if (loading) {
       startRef.current = performance.now();
-      timerRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 50);
+      // weniger Re-Renders, gleicher Info-Wert
+      timerRef.current = setInterval(() => setElapsedMs(performance.now() - startRef.current), 100);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
       setElapsedMs(0);
     }
     return () => timerRef.current && clearInterval(timerRef.current);
   }, [loading]);
-  const fmtElapsed = (ms) => `${Math.floor(ms / 1000)}:${String(Math.floor(ms % 1000)).padStart(3, '0')}`;
+const fmtElapsed = (ms) => {
+  const sek = ms / 1000;
+  // auf 1 Nachkommastelle runden; für deutsche Schreibweise Komma statt Punkt:
+  return sek.toFixed(1).replace('.', ',');
+};
 
   // Drag & Dock
   const modalRef = useRef(null);
@@ -156,15 +161,16 @@ const SchichtDienstAendernForm = ({
 
   /* ------------------------------ Data loads ------------------------------ */
 
-  // Schichtarten
+  // Schichtarten (selektive Spalten + stabile Sortierlogik)
   useEffect(() => {
     const run = async () => {
       if (!offen || !firma || !unit) return;
       const { data, error } = await supabase
         .from('DB_SchichtArt')
-        .select('*')
+        .select('id, kuerzel, startzeit, endzeit, farbe_bg, farbe_text, beschreibung, sollplan_relevant, ignoriert_arbeitszeit')
         .eq('firma_id', firma)
         .eq('unit_id', unit);
+
       if (error) { console.error(error); return; }
       const sortiert = (data || []).sort((a, b) => {
         if (a.sollplan_relevant && !b.sollplan_relevant) return -1;
@@ -176,11 +182,28 @@ const SchichtDienstAendernForm = ({
     run();
   }, [offen, firma, unit]);
 
+  // Lookup-Map für O(1)-Zugriff
+  const schichtByKuerzel = useMemo(() => {
+    const m = new Map();
+    schichtarten.forEach(s => m.set(s.kuerzel, s));
+    return m;
+  }, [schichtarten]);
+
+  // Mini-Cache für Soll (reduziert Roundtrips beim Navigieren)
+  const sollMiniCache = useRef(new Map()); // key: `${userId}|${datum}|${firma}|${unit}`
+  const ladeSollAusSollPlanFuerUser_cached = async (p) => {
+    const k = `${p.userId}|${p.datum}|${p.firmaId}|${p.unitId}`;
+    if (sollMiniCache.current.has(k)) return sollMiniCache.current.get(k);
+    const v = await ladeSollAusSollPlanFuerUser(p);
+    sollMiniCache.current.set(k, v);
+    return v;
+  };
+
   // Eintrag übernehmen + Soll aus SollPlan
   useEffect(() => {
     if (!eintrag || schichtarten.length === 0) return;
 
-    const schicht = schichtarten.find((s) => s.kuerzel === eintrag.ist_schicht);
+    const schicht = schichtByKuerzel.get(eintrag.ist_schicht);
     const ignoriert = schicht?.ignoriert_arbeitszeit || false;
 
     setMehrereTage(false);
@@ -193,7 +216,7 @@ const SchichtDienstAendernForm = ({
     });
 
     (async () => {
-      const soll = await ladeSollAusSollPlanFuerUser({
+      const soll = await ladeSollAusSollPlanFuerUser_cached({
         userId: eintrag.user,
         datum: eintrag.datum,
         firmaId: firma,
@@ -203,7 +226,7 @@ const SchichtDienstAendernForm = ({
     })();
 
     setKommentar(eintrag.kommentar || '');
-  }, [eintrag, schichtarten, firma, unit]);
+  }, [eintrag, schichtarten, firma, unit, schichtByKuerzel]);
 
   /* ------------------------------ UI helpers ------------------------------ */
 
@@ -216,17 +239,19 @@ const SchichtDienstAendernForm = ({
     }));
   };
 
-  const berechneDauer = () => {
-    const s = dayjs(`2024-01-01T${auswahl.start}`);
-    const e0 = dayjs(`2024-01-01T${auswahl.ende}`);
-    const e = e0.isBefore(s) ? e0.add(1, 'day') : e0;
-    return dayjs.duration(e.diff(s)).asHours();
-  };
-
-  const dauer = berechneDauer();
-  let dauerFarbe = 'bg-green-700', hinweistext = '';
-  if (dauer >= 12) { dauerFarbe = 'bg-red-700'; hinweistext = 'Betriebsleitung und Betriebsrat sind zu informieren.'; }
-  else if (dauer >= 10) { dauerFarbe = 'bg-orange-600'; hinweistext = 'Max. 10 h nach §3 ArbZG, Ausnahme: §7'; }
+  const { dauer, dauerFarbe, hinweistext } = useMemo(() => {
+    const toHours = (start, ende) => {
+      const s = dayjs(`2024-01-01T${start}`);
+      const e0 = dayjs(`2024-01-01T${ende}`);
+      const e = e0.isBefore(s) ? e0.add(1, 'day') : e0;
+      return dayjs.duration(e.diff(s)).asHours();
+    };
+    const d = (auswahl.start && auswahl.ende) ? toHours(auswahl.start, auswahl.ende) : 0;
+    let f = 'bg-green-700', h = '';
+    if (d >= 12) { f = 'bg-red-700'; h = 'Betriebsleitung und Betriebsrat sind zu informieren.'; }
+    else if (d >= 10) { f = 'bg-orange-600'; h = 'Max. 10 h nach §3 ArbZG, Ausnahme: §7'; }
+    return { dauer: d, dauerFarbe: f, hinweistext: h };
+  }, [auswahl.start, auswahl.ende]);
 
   // Sperrlogik
   const diffTage = eintrag ? dayjs().startOf('day').diff(dayjs(eintrag.datum), 'day') : 0;
@@ -240,11 +265,10 @@ const SchichtDienstAendernForm = ({
     if (speichernGesperrt) return;
     setLoading(true);
 
-    const aktuelleFirma = firma;
-    const aktuelleUnit = unit;
+    const f = firma;
+    const u = unit;
 
-    const selectedSchicht = schichtarten.find((s) => s.kuerzel === auswahl.kuerzel); // enthält id, startzeit, endzeit, ignoriert_arbeitszeit
-    const now = new Date().toISOString();
+    // Auth nur 1x
     const { data: authUser } = await supabase.auth.getUser();
     const createdBy = authUser?.user?.id;
     if (!createdBy) {
@@ -253,40 +277,68 @@ const SchichtDienstAendernForm = ({
       return;
     }
 
+    const selectedSchicht = schichtByKuerzel.get(auswahl.kuerzel); // enthält id, startzeit, endzeit, ignoriert_arbeitszeit
+    const now = new Date().toISOString();
+
     const startDatum = dayjs(eintrag.datum);
-    const endDatum = mehrereTage && enddatum ? dayjs(enddatum) : startDatum;
+    const endDatum = (mehrereTage && enddatum) ? dayjs(enddatum) : startDatum;
 
-    const dirtyStunden = new Set(); // JSON.stringify({user,jahr,monat,firma,unit})
-    const dirtyUrlaub = new Set();  // JSON.stringify({user,jahr,firma,unit})
+    // Dateliste
+    const dates = [];
+    for (let d = startDatum; d.isSameOrBefore(endDatum); d = d.add(1, 'day')) {
+      dates.push(d.format('YYYY-MM-DD'));
+    }
 
-    for (let datum = startDatum; datum.isSameOrBefore(endDatum); datum = datum.add(1, 'day')) {
-      const datumStr = datum.format('YYYY-MM-DD');
+    // Alte Kampflisten-Zeilen für Zeitraum in 1 Query
+    const { data: oldRows, error: oldErr } = await supabase
+      .from('DB_Kampfliste')
+      .select(`
+        user, datum, firma_id, unit_id, ist_schicht, soll_schicht,
+        startzeit_ist, endzeit_ist, dauer_ist, dauer_soll, kommentar,
+        created_at, schichtgruppe,
+        ist_rel:ist_schicht ( id, kuerzel, startzeit, endzeit )
+      `)
+      .eq('user', eintrag.user)
+      .eq('firma_id', f)
+      .eq('unit_id', u)
+      .in('datum', dates);
 
-      // 1) Vorherigen Eintrag holen (inkl Join, damit wir altes Kürzel kennen)
-      const { data: oldRow } = await supabase
-        .from('DB_Kampfliste')
-        .select(`
-          *,
-          ist_rel:ist_schicht ( id, kuerzel, startzeit, endzeit )
-        `)
-        .eq('user', eintrag.user)
-        .eq('datum', datumStr)
-        .eq('firma_id', aktuelleFirma)
-        .eq('unit_id', aktuelleUnit)
-        .maybeSingle();
+    if (oldErr) console.error(oldErr);
+    const oldByDate = new Map((oldRows ?? []).map(r => [r.datum, r]));
 
-      const oldIstKuerzel = oldRow?.ist_rel?.kuerzel || null;
+    // Caches (verhindert doppelte Roundtrips beim Zeitraum)
+    const gruppeCache = new Map(); // date -> schichtgruppe | null
+    const sollCache   = new Map(); // date -> {kuerzel,start,ende}
 
-      // 2) Soll (Kürzel + ggf. Zeiten) via Schichtgruppe am Tag
-      const sollPlan = await ladeSollAusSollPlanFuerUser({
+    const getSoll = async (dateStr) => {
+      if (sollCache.has(dateStr)) return sollCache.get(dateStr);
+      const v = await ladeSollAusSollPlanFuerUser({
         userId: eintrag.user,
-        datum: datumStr,
-        firmaId: aktuelleFirma,
-        unitId: aktuelleUnit
+        datum: dateStr,
+        firmaId: f,
+        unitId: u
       });
+      sollCache.set(dateStr, v);
+      return v;
+    };
+
+    const recalcStundenSet = new Set(); // JSON.stringify({user,jahr,monat,firma,unit})
+    const recalcUrlaubSet  = new Set(); // JSON.stringify({user,jahr,firma,unit})
+
+    const verlaufBatch = [];
+    const deleteDates  = [];
+    const insertBatch  = [];
+
+    for (const datumStr of dates) {
+      const dObj = dayjs(datumStr);
+      const oldRow = oldByDate.get(datumStr) ?? null;
+      const oldIstKuerzel = oldRow?.ist_rel?.kuerzel ?? null;
+
+      // Soll (Kürzel + ggf. Zeiten) via Schichtgruppe am Tag
+      const sollPlan = await getSoll(datumStr);
       const sollK = (sollPlan.kuerzel && sollPlan.kuerzel !== '-') ? sollPlan.kuerzel : (oldRow?.soll_schicht ?? null);
 
-      // 3) Dauer_Soll (best effort aus SollPlan-Zeiten)
+      // Dauer_Soll (nur falls noch nicht vorhanden)
       let dauerSoll = oldRow?.dauer_soll ?? null;
       if (!dauerSoll && sollPlan.start && sollPlan.ende) {
         const s = dayjs(`2024-01-01T${sollPlan.start}`);
@@ -294,7 +346,7 @@ const SchichtDienstAendernForm = ({
         dauerSoll = dayjs.duration(e.diff(s)).asHours();
       }
 
-      // 4) Start/Ende bestimmen – ignoriert_arbeitszeit beachten
+      // Start/Ende bestimmen – ignoriert_arbeitszeit beachten
       let aktuelleStart = auswahl.start;
       let aktuelleEnde  = auswahl.ende;
       if (selectedSchicht?.ignoriert_arbeitszeit) {
@@ -310,7 +362,7 @@ const SchichtDienstAendernForm = ({
           ?? aktuelleEnde;
       }
 
-      // 5) Dauer berechnen/übernehmen
+      // Dauer berechnen/übernehmen
       let aktuelleDauer = null;
       if (aktuelleStart && aktuelleEnde) {
         const s = dayjs(`2024-01-01T${aktuelleStart}`);
@@ -320,28 +372,30 @@ const SchichtDienstAendernForm = ({
         aktuelleDauer = oldRow?.dauer_ist ?? (dauerSoll ?? null);
       }
 
-      // 6) Urlaub auf freien Tagen überspringen
-      if ((sollK === null || sollK === '-') && auswahl.kuerzel === 'U') continue;
+      // Urlaub auf freien Tagen überspringen
+      if ((sollK === null || sollK === '-') && auswahl.kuerzel === 'U') {
+        continue;
+      }
 
-      // 7) Dirty-Flags
+      // Dirty-Flags
       const alterDauerIst = oldRow?.dauer_ist ?? null;
-      const jahr = datum.year();
-      const monat = datum.month() + 1;
+      const jahr = dObj.year();
+      const monat = dObj.month() + 1;
       if (!PERF_SKIP_RECALC && alterDauerIst !== aktuelleDauer) {
-        dirtyStunden.add(JSON.stringify({ user: eintrag.user, jahr, monat, firma: aktuelleFirma, unit: aktuelleUnit }));
+        recalcStundenSet.add(JSON.stringify({ user: eintrag.user, jahr, monat, firma: f, unit: u }));
       }
       if (!PERF_SKIP_RECALC && (auswahl.kuerzel === 'U' || oldIstKuerzel === 'U')) {
-        dirtyUrlaub.add(JSON.stringify({ user: eintrag.user, jahr, firma: aktuelleFirma, unit: aktuelleUnit }));
+        recalcUrlaubSet.add(JSON.stringify({ user: eintrag.user, jahr, firma: f, unit: u }));
       }
 
-      // 8) ALTEN Eintrag in Verlauf archivieren (nur der alte Zustand)
+      // ALTEN Eintrag in Verlauf archivieren (nur alter Zustand)
       if (oldRow) {
-        await supabase.from('DB_KampflisteVerlauf').insert({
+        verlaufBatch.push({
           user: oldRow.user,
           datum: oldRow.datum,
           firma_id: oldRow.firma_id,
           unit_id: oldRow.unit_id,
-          ist_schicht: oldRow.ist_schicht,   // BIGINT (FK auf DB_SchichtArt.id)
+          ist_schicht: oldRow.ist_schicht,   // BIGINT (FK)
           soll_schicht: oldRow.soll_schicht, // TEXT (Kürzel)
           startzeit_ist: oldRow.startzeit_ist,
           endzeit_ist: oldRow.endzeit_ist,
@@ -355,22 +409,15 @@ const SchichtDienstAendernForm = ({
         });
       }
 
-      // 9) Replace (delete → insert) – KEIN upsert nötig
-      await supabase
-        .from('DB_Kampfliste')
-        .delete()
-        .eq('user', eintrag.user)
-        .eq('datum', datumStr)
-        .eq('firma_id', aktuelleFirma)
-        .eq('unit_id', aktuelleUnit);
-
-      const insertRes = await supabase.from('DB_Kampfliste').insert({
+      // Delete + Insert sammeln
+      deleteDates.push(datumStr);
+      insertBatch.push({
         user: eintrag.user,
         datum: datumStr,
-        firma_id: aktuelleFirma,
-        unit_id: aktuelleUnit,
-        soll_schicht: sollK ?? null,                   // TEXT (Kürzel)
-        ist_schicht: selectedSchicht?.id ?? null,      // *** BIGINT (ID!) ***
+        firma_id: f,
+        unit_id: u,
+        soll_schicht: sollK ?? null,
+        ist_schicht: schichtarten.find(s => s.kuerzel === auswahl.kuerzel)?.id ?? null, // ID abspeichern
         startzeit_ist: aktuelleStart ?? null,
         endzeit_ist: aktuelleEnde ?? null,
         dauer_ist: aktuelleDauer ?? null,
@@ -378,27 +425,44 @@ const SchichtDienstAendernForm = ({
         aenderung:
           ['U', 'K', 'KO'].includes(auswahl.kuerzel)
             ? false
-            : !(selectedSchicht?.startzeit === aktuelleStart && selectedSchicht?.endzeit === aktuelleEnde),
+            : !(schichtarten.find(s => s.kuerzel === auswahl.kuerzel)?.startzeit === aktuelleStart &&
+                 schichtarten.find(s => s.kuerzel === auswahl.kuerzel)?.endzeit === aktuelleEnde),
         created_at: now,
         created_by: createdBy,
         schichtgruppe: eintrag.schichtgruppe,
         kommentar,
       });
-
-      if (insertRes.error) {
-        console.error('❌ Insert DB_Kampfliste fehlgeschlagen:', insertRes.error.message);
-      }
     }
 
-    // 10) Batch-Recalc
+    // Batch-Writes
+    if (verlaufBatch.length) {
+      const vr = await supabase.from('DB_KampflisteVerlauf').insert(verlaufBatch);
+      if (vr.error) console.error('❌ Insert DB_KampflisteVerlauf fehlgeschlagen:', vr.error.message);
+    }
+    if (deleteDates.length) {
+      const dr = await supabase
+        .from('DB_Kampfliste')
+        .delete()
+        .eq('user', eintrag.user)
+        .eq('firma_id', f)
+        .eq('unit_id', u)
+        .in('datum', deleteDates);
+      if (dr.error) console.error('❌ Delete DB_Kampfliste fehlgeschlagen:', dr.error.message);
+    }
+    if (insertBatch.length) {
+      const ir = await supabase.from('DB_Kampfliste').insert(insertBatch);
+      if (ir.error) console.error('❌ Insert DB_Kampfliste fehlgeschlagen:', ir.error.message);
+    }
+
+    // Batch-Recalc (dedupliziert)
     if (!PERF_SKIP_RECALC) {
-      for (const k of dirtyStunden) {
-        const { user, jahr, monat, firma: f, unit: u } = JSON.parse(k);
-        await berechneUndSpeichereStunden(user, jahr, monat, f, u);
+      for (const k of recalcStundenSet) {
+        const { user, jahr, monat, firma: ff, unit: uu } = JSON.parse(k);
+        await berechneUndSpeichereStunden(user, jahr, monat, ff, uu);
       }
-      for (const k of dirtyUrlaub) {
-        const { user, jahr, firma: f, unit: u } = JSON.parse(k);
-        await berechneUndSpeichereUrlaub(user, jahr, f, u);
+      for (const k of recalcUrlaubSet) {
+        const { user, jahr, firma: ff, unit: uu } = JSON.parse(k);
+        await berechneUndSpeichereUrlaub(user, jahr, ff, uu);
       }
     }
 
@@ -623,7 +687,11 @@ const SchichtDienstAendernForm = ({
             <button onClick={ladeVerlauf} className="text-xs underline text-blue-400 hover:text-blue-200 mt-1">Änderungsverlauf anzeigen</button>
           </div>
           <div className="flex flex-col items-end gap-1 mt-1">
-            {loading && <div className="text-xs text-gray-500 dark:text-gray-300">⏱ Laufzeit: {fmtElapsed(elapsedMs)} s</div>}
+            {loading && (
+  <div className="text-xs text-gray-500 dark:text-gray-300 font-mono tabular-nums">
+    ⏱ Laufzeit: {fmtElapsed(elapsedMs)} s
+  </div>
+)}
             <div className="flex gap-3 items-center">
               {loading && <div className="w-5 h-5 border-2 border-t-transparent border-blue-400 rounded-full animate-spin"></div>}
               <button onClick={onClose} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded transition" disabled={loading}>Schließen</button>
