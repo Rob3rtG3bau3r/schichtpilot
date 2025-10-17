@@ -1,27 +1,16 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/Mobile/MobileLogin.jsx
+import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo.png';
-import CryptoJS from 'crypto-js';
 import InstallButton from "../../components/InstallButton";
 
 const MobileLogin = () => {
   const [email, setEmail] = useState('');
   const [passwort, setPasswort] = useState('');
   const [fehler, setFehler] = useState('');
-  const [showPinSetup, setShowPinSetup] = useState(false);
-  const [pin, setPin] = useState('');
   const navigate = useNavigate();
 
-  // ✅ Wenn PIN schon existiert → direkt zur PIN-Eingabe
-  useEffect(() => {
-    const savedPin = localStorage.getItem('user_pin');
-    if (savedPin) {
-      navigate('/mobile/pin');
-    }
-  }, [navigate]);
-
-  // ✅ Login-Vorgang
   const handleLogin = async () => {
     setFehler('');
 
@@ -43,17 +32,13 @@ const MobileLogin = () => {
 
     try {
       // Firma & Unit laden
-      const { data: userDetails, error: userDetailsError } = await supabase
+      const { data: userDetails } = await supabase
         .from('DB_User')
         .select('firma_id, unit_id')
         .eq('user_id', user.id)
         .single();
 
-      if (userDetailsError) {
-        console.warn('⚠️ Firma oder Unit konnten nicht geladen werden:', userDetailsError.message);
-      }
-
-      // Login-Log und LocalStorage setzen
+      // Login-Log & LocalStorage
       await Promise.all([
         supabase.from('DB_LoginLog').insert({
           user_id: user.id,
@@ -64,36 +49,15 @@ const MobileLogin = () => {
           if (userDetails) {
             localStorage.setItem('firma_id', userDetails.firma_id);
             localStorage.setItem('unit_id', userDetails.unit_id);
-            //console.log('✅ Firma & Unit gespeichert:', userDetails);
           }
         }),
       ]);
 
-      // PIN-Einrichtung aktivieren
-      setShowPinSetup(true);
-    } catch (err) {
-      console.error('❌ Fehler beim Speichern des Login-Logs oder LocalStorage:', err);
-      setFehler('Es ist ein Fehler beim Login-Tracking aufgetreten.');
-    }
-  };
-
-  // ✅ PIN speichern (verschlüsselt)
-  const handleSavePin = () => {
-    if (pin.length < 4 || pin.length > 6) {
-      setFehler('Der PIN muss zwischen 4 und 6 Ziffern lang sein.');
-      return;
-    }
-
-    try {
-      // 🔐 PIN verschlüsseln
-      const encrypted = CryptoJS.AES.encrypt(pin, 'geheimerKey').toString();
-      localStorage.setItem('user_pin', encrypted);
-
-      // Erfolgreich → zur Dienste-Seite
+      // Direkt in die App
       navigate('/mobile/dienste');
     } catch (err) {
-      console.error('Fehler beim Speichern des PIN:', err);
-      setFehler('PIN konnte nicht gespeichert werden.');
+      console.error('Fehler beim Login-Tracking:', err);
+      setFehler('Es ist ein Fehler beim Login-Tracking aufgetreten.');
     }
   };
 
@@ -104,59 +68,38 @@ const MobileLogin = () => {
         <div className="bg-gray-800 text-white rounded-t-xl px-3 py-2 flex items-center justify-between">
           <img src={logo} alt="logo" className="h-8" />
           <h2 className="text-xl font-bold">Login</h2>
-           <InstallButton />
+          <InstallButton />
         </div>
 
         {/* Formular */}
-<div className="p-6 text-left">
-  <input
-    type="email"
-    placeholder="E-Mail"
-    value={email}
-    onChange={(e) => setEmail(e.target.value)}
-    autoComplete="email"
-    inputMode="email"
-    className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
-               dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
-               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-  />
-  <input
-    type="password"
-    placeholder="Passwort"
-    value={passwort}
-    onChange={(e) => setPasswort(e.target.value)}
-    autoComplete="current-password"
-    className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
-               dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
-               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-  />
-  <button
-    onClick={handleLogin}
-    className="w-full bg-blue-600 text-white p-3 rounded mt-1"
-  >
-    Einloggen
-  </button>
-
-          {/* PIN-Setup anzeigen */}
-          {showPinSetup && (
-            <div className="mt-4">
-              <p className="mb-2 font-semibold">PIN festlegen (4–6 Ziffern):</p>
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-    className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
-               dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
-               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <button
-                onClick={handleSavePin}
-                className="w-full bg-green-600 text-white p-2 rounded"
-              >
-                PIN speichern & App starten
-              </button>
-            </div>
-          )}
+        <div className="p-6 text-left">
+          <input
+            type="email"
+            placeholder="E-Mail"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            inputMode="email"
+            className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
+                       dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="password"
+            placeholder="Passwort"
+            value={passwort}
+            onChange={(e) => setPasswort(e.target.value)}
+            autoComplete="current-password"
+            className="w-full p-3 rounded mb-3 border border-gray-300 text-gray-900 placeholder-gray-500 bg-white
+                       dark:border-gray-600 dark:text-white dark:placeholder-gray-300 dark:bg-gray-700
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button
+            onClick={handleLogin}
+            className="w-full bg-blue-600 text-white p-3 rounded mt-1"
+          >
+            Einloggen
+          </button>
 
           {/* Fehleranzeige */}
           {fehler && <p className="text-red-600 mt-2">{fehler}</p>}
