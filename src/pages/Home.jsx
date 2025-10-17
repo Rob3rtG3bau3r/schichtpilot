@@ -216,7 +216,7 @@ const Home = () => {
           },
           {
             title: "Automatische Bedarfsprüfung",
-            text: "Immer sehen, ob genügend Personal eingeteilt ist.",
+            text: "Klarheit über Besetzung und Personalbedarf in Echtzeit.",
           },
           {
             title: "Datenschutzkonform",
@@ -272,7 +272,7 @@ const Home = () => {
       <section className="mt-16 px-6 max-w-4xl text-center">
         <h2 className="text-3xl font-bold mb-6">Wofür ist SchichtPilot ideal?</h2>
         <p className="text-lg text-gray-300 mb-10">
-          Perfekt für Produktion & die Chemische Industrie – aber auch für Pflege oder Sicherheit geeignet.
+          Perfekt für alle, die im vollkontinuierlichen Schichtsystem arbeiten – und den nächsten Schritt in der Planung gehen wollen.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
@@ -294,7 +294,8 @@ const Home = () => {
       <section className="mt-16 px-6 max-w-4xl text-center">
         <h2 className="text-3xl font-bold mb-4">Warum SchichtPilot?</h2>
         <p className="text-gray-300">
-          Weil wir selbst aus der Praxis kommen – unsere Lösung ist für echte Anforderungen in der Schichtplanung gemacht. Einfach, schnell, mobil.
+          Weil wir selbst aus der Praxis kommen – unsere Lösung ist für echte Anforderungen in der Schichtplanung gemacht. 
+        <h3 className="text-xl font-semibold"> Einfach, schnell, mobil. </h3>
         </p>
       </section>
 

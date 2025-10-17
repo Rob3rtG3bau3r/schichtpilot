@@ -40,11 +40,7 @@ const Section = ({ id, title, counter, children, defaultOpen = true }) => {
           <span className="text-xs opacity-70">{counter}</span>
         )}
       </button>
-      {open && (
-        <div className="px-3 pb-3">
-          {children}
-        </div>
-      )}
+      {open && (<div className="px-3 pb-3">{children}</div>)}
     </div>
   );
 };
@@ -66,9 +62,7 @@ const MiniTable = ({ rows }) => (
             <td className="py-1 pr-4">{r.anzahl}</td>
             <td className="py-1">
               <div className="flex flex-wrap">
-                {r.namen.map((n, i) => (
-                  <Pill key={i}>{n}</Pill>
-                ))}
+                {r.namen.map((n, i) => (<Pill key={i}>{n}</Pill>))}
               </div>
             </td>
           </tr>
@@ -81,32 +75,23 @@ const MiniTable = ({ rows }) => (
 export default function TagesUebersicht() {
   const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
 
-  // Gesamt-Klappzustand (wie TeamPflegen)
+  // Gesamt-Klappzustand
   const mainStorageKey = `sp_tages_offen_${unit || 'none'}`;
   const [offen, setOffen] = useState(() => {
-    try {
-      return localStorage.getItem(mainStorageKey) !== '0';
-    } catch {
-      return true;
-    }
+    try { return localStorage.getItem(mainStorageKey) !== '0'; } catch { return true; }
   });
   useEffect(() => {
-    try {
-      localStorage.setItem(mainStorageKey, offen ? '1' : '0');
-    } catch {}
+    try { localStorage.setItem(mainStorageKey, offen ? '1' : '0'); } catch {}
   }, [offen, mainStorageKey]);
   useEffect(() => {
-    try {
-      setOffen(localStorage.getItem(mainStorageKey) !== '0');
-    } catch {
-      setOffen(true);
-    }
-  }, [unit]); // eslint-disable-line react-hooks/exhaustive-deps
+    try { setOffen(localStorage.getItem(mainStorageKey) !== '0'); } catch { setOffen(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Datenstruktur wie zuvor erwartet
+  // Initial-State: WICHTIG -> termine: []
   const [data, setData] = useState({
     enabled: true,
     datum: dayjs().format('YYYY-MM-DD'),
@@ -115,15 +100,12 @@ export default function TagesUebersicht() {
     bedarf: { normalbetrieb: [], zeitlich: [], summiert: [] },
   });
 
-  // Sichtbarkeit: nur Planner/Admin_Dev
+  // Sichtbarkeit
   const darfSehen = useMemo(() => ['Planner', 'Admin_Dev'].includes(rolle), [rolle]);
 
   useEffect(() => {
     const ladeHeute = async () => {
-      if (!darfSehen || !firma || !unit) {
-        setLoading(false);
-        return;
-      }
+      if (!darfSehen || !firma || !unit) { setLoading(false); return; }
       setLoading(true);
       setError('');
 
@@ -131,20 +113,18 @@ export default function TagesUebersicht() {
       const gestern = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
 
       try {
-        // --- 1) Stammdaten ---
+        // --- 1) Schichtarten ---
         const [{ data: artRows, error: artErr }] = await Promise.all([
-          supabase
-            .from('DB_SchichtArt')
+          supabase.from('DB_SchichtArt')
             .select('id, kuerzel')
             .eq('firma_id', Number(firma))
             .eq('unit_id', Number(unit)),
         ]);
         if (artErr) throw artErr;
-
         const kuerzelByArtId = new Map();
         (artRows || []).forEach(r => kuerzelByArtId.set(r.id, r.kuerzel));
 
-        // --- 2) SOLL-Plan für heute: Gruppe -> Kürzel ---
+        // --- 2) SOLL-Plan heute ---
         const { data: sollRows, error: sollErr } = await supabase
           .from('DB_SollPlan')
           .select('schichtgruppe, kuerzel')
@@ -152,39 +132,31 @@ export default function TagesUebersicht() {
           .eq('unit_id', Number(unit))
           .eq('datum', heute);
         if (sollErr) throw sollErr;
-
         const kuerzelByGruppe = new Map();
         (sollRows || []).forEach(r => kuerzelByGruppe.set(r.schichtgruppe, r.kuerzel));
 
-        // --- 3) Zuweisungen heute: wer gehört zu welcher Gruppe? ---
+        // --- 3) Zuweisungen heute ---
         const { data: zuwRows, error: zuwErr } = await supabase
           .from('DB_SchichtZuweisung')
           .select('user_id, schichtgruppe')
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
           .lte('von_datum', heute)
-          .or(`bis_datum.is.null, bis_datum.gte.${heute}`);
+          .or(`bis_datum.is.null,bis_datum.gte.${heute}`);
         if (zuwErr) throw zuwErr;
-
         const gruppeByUser = new Map();
         (zuwRows || []).forEach(r => gruppeByUser.set(String(r.user_id), r.schichtgruppe));
 
-        // --- 4) Kampfliste heute + gestern (Overlay) ---
+        // --- 4) Kampfliste heute/gestern ---
         const [klHeute, klGestern] = await Promise.all([
-          supabase
-            .from('DB_Kampfliste')
+          supabase.from('DB_Kampfliste')
             .select('user, ist_schicht, created_at')
-            .eq('firma_id', Number(firma))
-            .eq('unit_id', Number(unit))
-            .eq('datum', heute)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('DB_Kampfliste')
+            .eq('firma_id', Number(firma)).eq('unit_id', Number(unit))
+            .eq('datum', heute).order('created_at', { ascending: false }),
+          supabase.from('DB_Kampfliste')
             .select('user, ist_schicht, created_at')
-            .eq('firma_id', Number(firma))
-            .eq('unit_id', Number(unit))
-            .eq('datum', gestern)
-            .order('created_at', { ascending: false }),
+            .eq('firma_id', Number(firma)).eq('unit_id', Number(unit))
+            .eq('datum', gestern).order('created_at', { ascending: false }),
         ]);
         if (klHeute.error) throw klHeute.error;
         if (klGestern.error) throw klGestern.error;
@@ -204,7 +176,7 @@ export default function TagesUebersicht() {
           }
         }
 
-        // --- 5) Kandidaten-User-Ids ---
+        // --- 5) Kandidaten-User ---
         const userIdsSet = new Set([
           ...Array.from(gruppeByUser.keys()),
           ...Array.from(latestKuerzelByUserHeute.keys()),
@@ -220,40 +192,33 @@ export default function TagesUebersicht() {
             .select('user_id, vorname, nachname, user_visible')
             .in('user_id', userIds);
           if (userErr) throw userErr;
-
           (userRows || []).forEach(u => {
             userNameMap.set(String(u.user_id), `${u.nachname || ''}, ${u.vorname || ''}`.trim());
             userVisibleMap.set(String(u.user_id), u.user_visible !== false);
           });
         }
 
-        // --- 7) Finale Kürzel pro User: Overlay (Kampfliste) > Plan ---
+        // --- 7) Finale Kürzel ---
         const finalKuerzelByUser = new Map();
         for (const uid of userIds) {
           const over = latestKuerzelByUserHeute.get(uid);
-          if (over) {
-            finalKuerzelByUser.set(uid, over);
-          } else {
+          if (over) finalKuerzelByUser.set(uid, over);
+          else {
             const grp = gruppeByUser.get(uid);
             const base = grp ? kuerzelByGruppe.get(grp) : null;
             if (base) finalKuerzelByUser.set(uid, base);
           }
         }
 
-        // --- 8) Aufteilen in F/S/N und „andere“ + Krank ---
-        const F = [];
-        const S = [];
-        const N = [];
-        const andereMap = new Map(); // kuerzel -> [namen]
-        const krankArr = []; // { name, neu }
-
+        // --- 8) Aufteilen / Sammeln ---
+        const F = [], S = [], N = [];
+        const andereMap = new Map();
+        const krankArr = [];
         const isVisible = (uid) => userVisibleMap.get(uid) !== false;
-
-        // Hilfsfunktion: „Andere“ sammeln (ohne '-')
-        const addAndere = (kuerzel, name) => {
-          if (!kuerzel || kuerzel.trim() === '-') return; // <<<< '-' ausblenden
-          if (!andereMap.has(kuerzel)) andereMap.set(kuerzel, []);
-          andereMap.get(kuerzel).push(name);
+        const addAndere = (kz, name) => {
+          if (!kz || kz.trim() === '-') return;
+          if (!andereMap.has(kz)) andereMap.set(kz, []);
+          andereMap.get(kz).push(name);
         };
 
         for (const uid of userIds) {
@@ -261,25 +226,17 @@ export default function TagesUebersicht() {
           const name = userNameMap.get(uid) || `User ${uid}`;
           const k = finalKuerzelByUser.get(uid);
           if (!k) continue;
-
           if (k === 'F') F.push(name);
           else if (k === 'S') S.push(name);
           else if (k === 'N') N.push(name);
           else if (k === 'K' || k === 'KO') {
             const gesternK = latestKuerzelByUserGestern.get(uid);
-            krankArr.push({
-              name,
-              neu: !(gesternK === 'K' || gesternK === 'KO'),
-            });
-          } else {
-            addAndere(k, name);
-          }
+            krankArr.push({ name, neu: !(gesternK === 'K' || gesternK === 'KO') });
+          } else addAndere(k, name);
         }
 
-        // andere_kuerzel -> Liste mit { kuerzel, anzahl, namen[] } (Sicherheit: '-' filtern)
-        const andere = Array
-          .from(andereMap.entries())
-          .filter(([k]) => k && k.trim() !== '-') // <<<< Sicherheit
+        const andere = Array.from(andereMap.entries())
+          .filter(([k]) => k && k.trim() !== '-')
           .map(([kuerzel, namen]) => ({
             kuerzel,
             anzahl: namen.length,
@@ -287,13 +244,12 @@ export default function TagesUebersicht() {
           }))
           .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
 
-        // Schichtlisten sortieren
         F.sort((a, b) => a.localeCompare(b, 'de'));
         S.sort((a, b) => a.localeCompare(b, 'de'));
         N.sort((a, b) => a.localeCompare(b, 'de'));
         krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
-        // --- 9) Bedarf heute ---
+        // --- 9) Bedarf ---
         const { data: bedarfRows, error: bedErr } = await supabase
           .from('DB_Bedarf')
           .select('id, quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
@@ -324,7 +280,6 @@ export default function TagesUebersicht() {
           quali_kuerzel: qmById.get(b.quali_id)?.kuerzel || '???',
           quali_label: qmById.get(b.quali_id)?.label || null,
           anzahl: b.anzahl || 0,
-          // namebedarf NICHT mehr pro Zeile rendern
           namebedarf: null,
           farbe: b.farbe || null,
           von: b.von || null,
@@ -339,14 +294,36 @@ export default function TagesUebersicht() {
           const key = e.quali_kuerzel;
           summeMap.set(key, (summeMap.get(key) || 0) + (e.anzahl || 0));
         }
-        const summiert = Array.from(summeMap.entries()).map(([quali_kuerzel, total_anzahl]) => ({
-          quali_kuerzel,
-          total_anzahl,
-        })).sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
+        const summiert = Array.from(summeMap.entries())
+          .map(([quali_kuerzel, total_anzahl]) => ({ quali_kuerzel, total_anzahl }))
+          .sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
 
-        // Termine (noch leer)
-        const termine = [];
+        // --- 10) Termine heute (Schema: datum + wiederholend) ---
+        const { data: termRows, error: termErr } = await supabase
+          .from('DB_TerminVerwaltung')
+          .select('id, bezeichnung, farbe, ziel_typ, team, quali_ids, datum, wiederholend, created_at')
+          .eq('firma_id', Number(firma))
+          .eq('unit_id', Number(unit))
+          // Entweder genau heute oder als wiederholender Termin
+         .eq('datum', heute)  
+          .order('created_at', { ascending: false });
+        if (termErr) throw termErr;
 
+        // Nur die, die für "heute" gelten:
+        // - datum == heute
+        // - oder wiederholend == true (täglich sichtbar)
+
+const termineHeute = (termRows || []).map(r => ({
+  id: r.id,
+  bezeichnung: r.bezeichnung || '(ohne Titel)',
+  farbe: r.farbe || null,
+  ziel_typ: r.ziel_typ || (Array.isArray(r.quali_ids) && r.quali_ids.length ? 'Qualifikationen' : 'Team'),
+  team: Array.isArray(r.team) ? r.team : (r.team ? [r.team] : []),
+  quali_ids: Array.isArray(r.quali_ids) ? r.quali_ids : [],
+  datum: r.datum || heute,
+}));
+
+        // EIN setData am Ende
         setData({
           enabled: true,
           datum: heute,
@@ -355,12 +332,8 @@ export default function TagesUebersicht() {
             andere_kuerzel: andere,
             krank: krankArr,
           },
-          termine: { termine },
-          bedarf: {
-            normalbetrieb,
-            zeitlich,
-            summiert,
-          },
+          termine: { termine: termineHeute },
+          bedarf: { normalbetrieb, zeitlich, summiert },
         });
       } catch (e) {
         console.error('Tagesübersicht laden fehlgeschlagen', e);
@@ -390,11 +363,8 @@ export default function TagesUebersicht() {
 
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-      {/* Header klickbar (wie gehabt) */}
-      <div
-        className="flex items-center justify-between gap-2 mb-2 cursor-pointer"
-        onClick={() => setOffen(o => !o)}
-      >
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 mb-2 cursor-pointer" onClick={() => setOffen(o => !o)}>
         <div className="flex items-center gap-2">
           {offen ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
           <span className="text-lg font-semibold">Tagesübersicht</span>
@@ -456,26 +426,27 @@ export default function TagesUebersicht() {
                 )}
               </Section>
 
-              {/* Termine (noch leer) */}
+              {/* Termine */}
               <Section id="termine" title="Termine heute" counter={`${termine.length}`}>
                 {termine.length === 0 ? (
                   <div className="text-sm opacity-70">Keine Termine heute.</div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-1 gap-3">
                     {termine.map(t => (
-                      <div key={t.id} className="rounded-2xl border border-gray-200 dark:border-gray-700 p-3">
+                      <div key={t.id} className="rounded-2xl border border-gray-300 shadow dark:border-gray-800 p-3">
                         <div className="flex items-center justify-between">
                           <div className="font-medium">{t.bezeichnung}</div>
-                          {t.farbe && (
-                            <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: t.farbe }} />
-                          )}
+                          {t.farbe && <span className="w-5 h-5 rounded-full inline-block" style={{ backgroundColor: t.farbe }} />}
                         </div>
-                        <div className="text-xs opacity-70 mt-1">Ziel: {t.ziel_typ}</div>
+                        <div className="text-xs opacity-70 mt-1">
+                          {t.wiederholend ? 'Wiederkehrend • ' : ''}
+                                                 </div>
+                        <div className="text-xs opacity-70 mt-1"> {t.ziel_typ}</div>
                         {t.team?.length > 0 && (
-                          <div className="text-xs mt-1">Team: {t.team.join(', ')}</div>
+                          <div className="text-xs mt-1"> {t.team.join(', ')}</div>
                         )}
                         {t.quali_ids?.length > 0 && (
-                          <div className="text-xs mt-1">Quali-IDs: {t.quali_ids.join(', ')}</div>
+                          <div className="text-xs mt-1"> {t.quali_ids.join(', ')}</div>
                         )}
                       </div>
                     ))}
@@ -500,7 +471,6 @@ export default function TagesUebersicht() {
                                 {e.quali_label && e.quali_label !== e.quali_kuerzel && (
                                   <span className="opacity-80">{e.quali_label}</span>
                                 )}
-                                {/* namebedarf NICHT mehr pro Zeile */}
                               </div>
                               <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
                             </li>
@@ -521,7 +491,6 @@ export default function TagesUebersicht() {
                               {e.quali_label && e.quali_label !== e.quali_kuerzel && (
                                 <span className="opacity-80">{e.quali_label}</span>
                               )}
-                              {/* kein namebedarf pro Zeile */}
                               <span className="opacity-60"> • {dayjs(e.von).format('DD.MM.')}–{dayjs(e.bis).format('DD.MM.')}</span>
                             </div>
                             <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
