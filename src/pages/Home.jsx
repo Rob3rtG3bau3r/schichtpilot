@@ -20,20 +20,20 @@ const erstellePDF = () => {
   doc.text("Nutze einen der folgenden Accounts, um die Demo zu testen:", 20, 30);
 
   const zeilen = [
-    "Employee (nur Ansicht)",
-    "Name: Buzz Lightyear",
-    "E-Mail: buzz@lauter.com",
-    "Passwort: buzz",
+    "Employee (nur Ansicht; Mitarbeiter)",
+    "Name: Noah Bergmann",
+    "E-Mail: Noah@bluewing.com",
+    "Passwort: noah",
     "",
-    "Team Leader (Teamleitung)",
-    "Name: Pete Mitchel",
-    "E-Mail: pete@lauter.com",
-    "Passwort: pete",
+    "Team Leader (Teamleitung; Schichtmeister)",
+    "Name: Elena Petrova",
+    "E-Mail: elena@bluewing.com",
+    "Passwort: elena",
     "",
-    "Planner (Schichtplanung)",
-    "Name: Clara Düsenberg",
-    "E-Mail: clara@lauter.com",
-    "Passwort: clara",
+    "Planner (Betriebsmeister; Planner)",
+    "Name: Martin Ortmann",
+    "E-Mail: martin@bluewing.com",
+    "Passwort: martin",
     "",
     "Kurzanleitung:",
     "1. Einloggen mit einem der Test-Accounts",
@@ -352,21 +352,21 @@ const Home = () => {
                 <div className="bg-gray-700 rounded-xl p-4 space-y-3 shadow-xl">
                   <div>
                     <strong>👤 Employee – Mitarbeiter (nur Ansicht):</strong><br />
-                    Name: Buzz Lightyear<br />
-                    E-Mail: <span className="text-yellow-300">buzz@lauter.com</span><br />
-                    Passwort: <span className="text-yellow-300">buzz</span>
+                    Name: Noah Bergmann<br />
+                    E-Mail: <span className="text-yellow-300">noah@bluewing.com</span><br />
+                    Passwort: <span className="text-yellow-300">noah</span>
                   </div>
                   <div>
                     <strong>👤 Team Leader – Teamleitung:</strong><br />
-                    Name: Pete Mitchel<br />
-                    E-Mail: <span className="text-yellow-300">pete@lauter.com</span><br />
-                    Passwort: <span className="text-yellow-300">pete</span>
+                    Name: Elena Petrova<br />
+                    E-Mail: <span className="text-yellow-300">elena@bluewing.com</span><br />
+                    Passwort: <span className="text-yellow-300">elena</span>
                   </div>
                   <div>
-                    <strong>👤 Planner – Schichtplaner:</strong><br />
-                    Name: Clara Düsenberg<br />
-                    E-Mail: <span className="text-yellow-300">clara@lauter.com</span><br />
-                    Passwort: <span className="text-yellow-300">clara</span>
+                    <strong>👤 Planner – Betriebsmeister:</strong><br />
+                    Name: Martin Ortmann<br />
+                    E-Mail: <span className="text-yellow-300">martin@bluewing.com</span><br />
+                    Passwort: <span className="text-yellow-300">martin</span>
                   </div>
                 </div>
 

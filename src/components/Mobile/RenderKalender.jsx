@@ -1,64 +1,92 @@
-// src/components/Mobile/RenderKalender.jsx
 import React from 'react';
 import dayjs from 'dayjs';
 
-const wochenTagKurz = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const WTAG_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const WTAG_HEADER = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
-const RenderKalender = ({
+/**
+ * Erwartete Props:
+ * - startDatum: dayjs Instanz (Monats-Start)
+ * - eintraege: [{ datum, ist_schicht:{kuerzel, farbe_bg, farbe_text}, startzeit_ist, endzeit_ist, kommentar }]
+ * - bedarfStatus: { 'YYYY-MM-DD': { fehlendProSchicht:{F,S,N}, ueber:[Kürzel,...] } }
+ * - feierMap: { 'YYYY-MM-DD': [{name,typ,farbe}, ...] }
+ * - infoOffenIndex, setInfoOffenIndex
+ * - setUrlaubModal({offen,tag,datum,schicht})
+ * - setHilfeModal({offen,tag,datum,schicht})
+ */
+export default function RenderKalender({
   startDatum,
   eintraege,
   bedarfStatus,
+  feierMap = {},
   infoOffenIndex,
   setInfoOffenIndex,
   setUrlaubModal,
   setHilfeModal,
-}) => {
+}) {
   if (!startDatum || typeof startDatum.daysInMonth !== 'function') return null;
 
   const daysInMonth = startDatum.daysInMonth();
-  const firstDay = startDatum.startOf('month').day();
+  // Montag als Wochenstart: Offset so berechnen, dass Montag links ist
+  const firstDay = startDatum.startOf('month').day(); // 0=So..6=Sa
   const offset = firstDay === 0 ? 6 : firstDay - 1;
 
-  const kalenderTage = [];
+  const cells = [];
 
-  // Leere Felder vor dem 1. des Monats
+  // Leerzellen vor dem 1.
   for (let i = 0; i < offset; i++) {
-    kalenderTage.push(
-      <div key={`empty-${i}`} className="h-20 bg-gray-200 dark:bg-gray-900 rounded" />
-    );
+    cells.push(<div key={`empty-${i}`} className="h-20 rounded bg-gray-200 dark:bg-gray-900" />);
   }
 
-  // Tage rendern
+  const findEintrag = (iso) =>
+    eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === iso);
+
+const feiertagsBadge = (iso) => {
+  const tags = feierMap?.[iso];
+  if (!tags || !tags.length) return null;
+
+  const title = tags.map((t) => `${t.typ}: ${t.name}`).join(' • ');
+  const color = tags[0].farbe || '#16a34a';
+
+  return (
+    // nur der dezente Balken oben – kein Eck-Dreieck mehr
+    <div
+      className="absolute top-0 left-0 right-0 h-1.5 rounded-t"
+      style={{ backgroundColor: color }}
+      title={title}
+    />
+  );
+};
+
+
   for (let day = 1; day <= daysInMonth; day++) {
-    const datum = startDatum.date(day).format('YYYY-MM-DD');
-    const eintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === datum);
+    const iso = startDatum.date(day).format('YYYY-MM-DD');
+    const e = findEintrag(iso);
 
-    const kuerzel = eintrag?.ist_schicht?.kuerzel || '';
-    const farbe = eintrag?.ist_schicht?.farbe_bg || '#ccc';
-    const farbeText = eintrag?.ist_schicht?.farbe_text || '#000';
-    const start = eintrag?.startzeit_ist ? dayjs(`2000-01-01T${eintrag.startzeit_ist}`) : null;
-    let ende = eintrag?.endzeit_ist ? dayjs(`2000-01-01T${eintrag.endzeit_ist}`) : null;
+    const kuerzel = e?.ist_schicht?.kuerzel || '';
+    const farbeBg = e?.ist_schicht?.farbe_bg || '#ccc';
+    const farbeTx = e?.ist_schicht?.farbe_text || '#000';
+
+    const start = e?.startzeit_ist ? dayjs(`2000-01-01T${e.startzeit_ist}`) : null;
+    let ende = e?.endzeit_ist ? dayjs(`2000-01-01T${e.endzeit_ist}`) : null;
     if (start && ende && ende.isBefore(start)) ende = ende.add(1, 'day');
-    const hatKommentar = !!(eintrag?.kommentar && String(eintrag.kommentar).trim().length > 0);
 
-    const istHeute = datum === dayjs().format('YYYY-MM-DD');
-    const istVergangenheit = dayjs(datum).isBefore(dayjs(), 'day');
-    const status = bedarfStatus?.[datum] || {};
+    const hatKommentar = !!(e?.kommentar && String(e.kommentar).trim().length > 0);
+    const istHeute = iso === dayjs().format('YYYY-MM-DD');
+    const istVergangenheit = dayjs(iso).isBefore(dayjs(), 'day');
 
-    // Nachbar-Tage prüfen (F/N-Regel)
-    const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
-    const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
-    const prevEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum);
-    const nextEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum);
-    const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
-    const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
+    const status = bedarfStatus?.[iso] || {};
 
-    const hideFrueh = prevKuerzel === 'N';
-    const hideNacht = nextKuerzel === 'F';
+    // Nachbar-Regel F/N
+    const prevIso = dayjs(iso).subtract(1, 'day').format('YYYY-MM-DD');
+    const nextIso = dayjs(iso).add(1, 'day').format('YYYY-MM-DD');
+    const prevK = findEintrag(prevIso)?.ist_schicht?.kuerzel || null;
+    const nextK = findEintrag(nextIso)?.ist_schicht?.kuerzel || null;
+    const hideFrueh = prevK === 'N';
+    const hideNacht = nextK === 'F';
 
-    // Fehlstände für Icons filtern
     const fehlend = status?.fehlendProSchicht || {};
-    const gefiltertFehlend = {
+    const gefFehl = {
       F: hideFrueh ? 0 : fehlend.F,
       S: fehlend.S,
       N: hideNacht ? 0 : fehlend.N,
@@ -66,27 +94,24 @@ const RenderKalender = ({
 
     const hatUnterbesetzung =
       !istVergangenheit &&
-      Object.values(gefiltertFehlend).some(
-        (v) => v === true || (typeof v === 'number' && v > 0)
-      );
+      Object.values(gefFehl).some((v) => v === true || (typeof v === 'number' && v > 0));
+    const hatUeberdeckung = !istVergangenheit && kuerzel !== '-' && status?.ueber?.includes(kuerzel);
 
-    const hatUeberbesetzung =
-      !istVergangenheit && kuerzel !== '-' && status?.ueber?.includes(kuerzel);
-
-    kalenderTage.push(
+    cells.push(
       <div
-        key={day}
-        className={`border relative h-20 p-1 text-xs cursor-pointer rounded hover:bg-gray-100 ${
-          istHeute ? 'border-blue-400 border-2' : ''
+        key={iso}
+        className={`relative border rounded h-20 p-1 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 ${
+          istHeute ? 'border-blue-400 border-2' : 'border-gray-300 dark:border-gray-700'
         }`}
         onClick={() => setInfoOffenIndex(day - 1)}
       >
+        {feiertagsBadge(iso)}
 
         <div className="flex justify-between items-center text-[10px] mb-1">
-          <span className="text-gray-600 dark:text-gray-200 font-semibold">{day}</span>
+          <span className="text-gray-700 dark:text-gray-200 font-semibold">{day}</span>
           <span className="flex gap-1">
             {hatKommentar && <span title="Kommentar vorhanden">💬</span>}
-            {hatUeberbesetzung && <span title="Überdeckung – Urlaub möglich">🌿</span>}
+            {hatUeberdeckung && <span title="Überdeckung – Urlaub möglich">🌿</span>}
             {hatUnterbesetzung && <span title="Unterbesetzung">❗</span>}
           </span>
         </div>
@@ -94,14 +119,14 @@ const RenderKalender = ({
         {kuerzel && (
           <div
             className="rounded text-center text-[11px] mb-1 truncate"
-            style={{ backgroundColor: farbe, color: farbeText }}
+            style={{ backgroundColor: farbeBg, color: farbeTx }}
           >
             {kuerzel}
           </div>
         )}
         {start && ende && (
           <div className="text-gray-700 dark:text-gray-400 text-[10px]">
-            {`${start.format('HH:mm')} - ${ende.format('HH:mm')}`}
+            {start.format('HH:mm')} - {ende.format('HH:mm')}
           </div>
         )}
       </div>
@@ -110,58 +135,73 @@ const RenderKalender = ({
 
   return (
     <div className="px-4 pb-6">
-      {/* Kopfzeile der Wochentage */}
+      {/* Kopfzeile (Mo-So) */}
       <div className="grid grid-cols-7 gap-1 text-center font-semibold mb-1">
-        {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((w, idx) => (
-          <div key={idx} className="py-1 text-gray-600 dark:text-gray-200">
+        {WTAG_HEADER.map((w) => (
+          <div key={w} className="py-1 text-gray-600 dark:text-gray-200">
             {w}
           </div>
         ))}
       </div>
 
-      {/* Kalender Grid */}
-      <div className="grid grid-cols-7 gap-1">{kalenderTage}</div>
+      {/* Grid */}
+      <div className="grid grid-cols-7 gap-1">{cells}</div>
 
-      {/* Modal-Detailanzeige */}
+      {/* Modal */}
       {infoOffenIndex !== null && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 w-80 max-w-full relative">
             {(() => {
-              const datum = startDatum.date(infoOffenIndex + 1).format('YYYY-MM-DD');
-              const eintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === datum);
-              const woTag = dayjs(datum).day();
-              const kuerzel = eintrag?.ist_schicht?.kuerzel || '-';
-              const farbe = eintrag?.ist_schicht?.farbe_bg || '#999';
-              const farbeText = eintrag?.ist_schicht?.farbe_text || '#ffffff';
-              const start = eintrag?.startzeit_ist ? dayjs(`2000-01-01T${eintrag.startzeit_ist}`) : null;
-              let ende = eintrag?.endzeit_ist ? dayjs(`2000-01-01T${eintrag.endzeit_ist}`) : null;
+              const iso = startDatum.date(infoOffenIndex + 1).format('YYYY-MM-DD');
+              const e = eintraege.find((x) => dayjs(x.datum).format('YYYY-MM-DD') === iso);
+              const w = dayjs(iso).day();
+              const kuerzel = e?.ist_schicht?.kuerzel || '-';
+              const farbeBg = e?.ist_schicht?.farbe_bg || '#999';
+              const farbeTx = e?.ist_schicht?.farbe_text || '#fff';
+              const start = e?.startzeit_ist ? dayjs(`2000-01-01T${e.startzeit_ist}`) : null;
+              let ende = e?.endzeit_ist ? dayjs(`2000-01-01T${e.endzeit_ist}`) : null;
               if (start && ende && ende.isBefore(start)) ende = ende.add(1, 'day');
               const dauerMin = start && ende ? ende.diff(start, 'minute') : 0;
               const stunden = Math.floor(dauerMin / 60);
               const minuten = dauerMin % 60;
-              const status = bedarfStatus[datum] || {};
-              const istVergangenheit = dayjs(datum).isBefore(dayjs(), 'day');
+              const status = bedarfStatus?.[iso] || {};
+              const istVergangenheit = dayjs(iso).isBefore(dayjs(), 'day');
 
-              // F/N-Regel für Modal
-              const prevDatum = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
-              const nextDatum = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
-              const prevEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === prevDatum);
-              const nextEintrag = eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === nextDatum);
-              const prevKuerzel = prevEintrag?.ist_schicht?.kuerzel || null;
-              const nextKuerzel = nextEintrag?.ist_schicht?.kuerzel || null;
+              // F/N-Regel im Modal
+              const prevIso = dayjs(iso).subtract(1, 'day').format('YYYY-MM-DD');
+              const nextIso = dayjs(iso).add(1, 'day').format('YYYY-MM-DD');
+              const prevK = findEintrag(prevIso)?.ist_schicht?.kuerzel || null;
+              const nextK = findEintrag(nextIso)?.ist_schicht?.kuerzel || null;
+              const hideFrueh = prevK === 'N';
+              const hideNacht = nextK === 'F';
 
-              const hideFrueh = prevKuerzel === 'N';
-              const hideNacht = nextKuerzel === 'F';
+              const tags = feierMap?.[iso] || [];
 
               return (
                 <>
                   <h2 className="text-sm font-bold mb-2 text-gray-800 dark:text-gray-200">
-                    {wochenTagKurz[woTag]} {dayjs(datum).format('DD.MM.YYYY')}
+                    {WTAG_KURZ[w]} {dayjs(iso).format('DD.MM.YYYY')}
                   </h2>
+
+                  {/* Feiertage/Ferien Liste */}
+                  {tags.length > 0 && (
+                    <div className="mb-2 space-y-1">
+                      {tags.map((t, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span
+                            className="inline-block w-3 h-3 rounded"
+                            style={{ backgroundColor: t.farbe || '#16a34a' }}
+                          />
+                          <span className="font-medium">{t.typ}:</span>
+                          <span>{t.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="mb-1 text-xs">
                     <strong>Schicht:</strong>{' '}
-                    <span className="px-2 py-1 rounded" style={{ backgroundColor: farbe, color: farbeText }}>
+                    <span className="px-2 py-1 rounded" style={{ backgroundColor: farbeBg, color: farbeTx }}>
                       {kuerzel}
                     </span>
                   </div>
@@ -172,15 +212,14 @@ const RenderKalender = ({
                     <strong>Dauer:</strong> {dauerMin > 0 ? `${stunden}h ${minuten}min` : '–'}
                   </div>
 
-                  {/* Kommentar im Modal */}
-                  {eintrag?.kommentar?.trim?.() && (
+                  {e?.kommentar?.trim?.() && (
                     <div className="mb-1 text-xs">
                       <strong>Kommentar:</strong>{' '}
-                      <span className="whitespace-pre-wrap break-words">{eintrag.kommentar}</span>
+                      <span className="whitespace-pre-wrap break-words">{e.kommentar}</span>
                     </div>
                   )}
 
-                  {/* Unterbesetzung (gefiltert) */}
+                  {/* Unterbesetzung */}
                   {status?.fehlendProSchicht && !istVergangenheit && (
                     <div className="mt-2">
                       {[
@@ -195,9 +234,7 @@ const RenderKalender = ({
                           <div
                             key={key}
                             className="cursor-pointer bg-gray-300 dark:bg-gray-500 text-black shadow-xl opacity-90 border-2 border-red-500 dark:border-red-400 rounded-xl px-2 py-1 mb-1"
-                            onClick={() =>
-                              setHilfeModal({ offen: true, tag: wochenTagKurz[woTag], datum, schicht: key })
-                            }
+                            onClick={() => setHilfeModal({ offen: true, tag: WTAG_KURZ[w], datum: iso, schicht: key })}
                           >
                             {name}: Fehlt {typeof fehlt === 'number' ? `${fehlt} Person(en)` : ''}
                           </div>
@@ -206,14 +243,12 @@ const RenderKalender = ({
                     </div>
                   )}
 
-                  {/* Überdeckung */}
+                  {/* Überdeckung → Urlaub */}
                   {kuerzel !== '-' && !istVergangenheit && status?.ueber?.includes(kuerzel) && (
                     <div className="mt-2 border border-green-300 bg-white dark:bg-gray-900 text-green-700 px-3 py-1 rounded-md shadow-sm text-xs">
                       🌿{' '}
                       <button
-                        onClick={() =>
-                          setUrlaubModal({ offen: true, tag: wochenTagKurz[woTag], datum, schicht: kuerzel })
-                        }
+                        onClick={() => setUrlaubModal({ offen: true, tag: WTAG_KURZ[w], datum: iso, schicht: kuerzel })}
                         className="font-semibold underline"
                       >
                         Ich würde gerne Urlaub nehmen
@@ -234,6 +269,4 @@ const RenderKalender = ({
       )}
     </div>
   );
-};
-
-export default RenderKalender;
+}

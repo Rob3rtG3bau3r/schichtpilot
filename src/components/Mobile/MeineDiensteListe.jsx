@@ -26,6 +26,7 @@ export default function MeineDiensteListe() {
   const [bedarfStatus, setBedarfStatus] = useState({});
   const [urlaubModal, setUrlaubModal] = useState({ offen: false, tag: '', datum: '', schicht: '' });
   const [hilfeModal, setHilfeModal] = useState({ offen: false, tag: '', datum: '', schicht: '' });
+  const [feierMap, setFeierMap] = useState({});
 
   // 💡 WICHTIG: sofort synchron initialisieren (verhindert Flackern)
   const initialAnsicht = (localStorage.getItem('mobile_kalender') ?? 'kalender') === 'kalender';
@@ -53,6 +54,7 @@ export default function MeineDiensteListe() {
     if (gespeicherteId && startDatum) {
       ladeDienste();
       ladeBedarfStatus();
+      ladeFeiertageUndFerien();
     }
   }, [gespeicherteId, startDatum]);
 
@@ -142,6 +144,68 @@ const ladeDienste = async () => {
     }
   };
 
+  const ladeFeiertageUndFerien = async () => {
+  if (!startDatum) {
+    setFeierMap({});
+    return;
+  }
+  const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
+  const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+
+  // Falls du das Bundesland speicherst (z. B. in localStorage), sonst null => alle
+  const bundesland = localStorage.getItem('bundesland') || null;
+
+  // Range-Overlap: von <= monthEnd AND bis >= monthStart
+  let q = supabase
+    .from('DB_FeiertageundFerien')
+    .select('von,bis,name,typ,farbe,bundesland')
+    .lte('von', monthEnd)
+    .gte('bis', monthStart);
+
+  // Wenn ein Bundesland gesetzt ist, filtern – sonst bundesweit alles
+  if (bundesland) {
+    q = q.eq('bundesland', bundesland);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('❌ Feiertage/Ferien:', error.message || error);
+    setFeierMap({});
+    return;
+  }
+
+  // Helper: Default-Farben je Typ (nur falls "farbe" null ist)
+  const defaultColor = (typ) => {
+    if (!typ) return '#16a34a'; // grün
+    const t = typ.toLowerCase();
+    if (t.includes('feiertag')) return '#16a34a'; // grün
+    if (t.includes('ferien'))   return '#f59e0b'; // amber
+    return '#16a34a';
+  };
+
+  // Spannen in einzelne Tage auflösen
+  const map = {};
+  (data || []).forEach(row => {
+    const start = dayjs(row.von);
+    const end   = dayjs(row.bis);
+    const color = row.farbe || defaultColor(row.typ);
+
+    // Sicherheit: max 400 Tage, um Ausreißer zu vermeiden
+    const days = Math.min(end.diff(start, 'day') + 1, 400);
+    for (let i = 0; i < days; i++) {
+      const d = start.add(i, 'day').format('YYYY-MM-DD');
+      // Wenn bereits etwas drin ist (z. B. Ferien + Feiertag), mergen wir kurz
+      if (!map[d]) {
+        map[d] = [{ name: row.name, typ: row.typ, farbe: color }];
+      } else {
+        map[d].push({ name: row.name, typ: row.typ, farbe: color });
+      }
+    }
+  });
+
+  setFeierMap(map);
+};
+
   const zurueckZuHeute = () => {
     const heute = dayjs();
     setJahr(heute.year());
@@ -230,6 +294,7 @@ const ladeDienste = async () => {
             startDatum={startDatum}
             eintraege={eintraege}
             bedarfStatus={bedarfStatus}
+            feierMap={feierMap}   
             infoOffenIndex={infoOffenIndex}
             setInfoOffenIndex={setInfoOffenIndex}
             urlaubModal={urlaubModal}
@@ -242,6 +307,7 @@ const ladeDienste = async () => {
             startDatum={startDatum}
             eintraege={eintraege}
             bedarfStatus={bedarfStatus}
+            feierMap={feierMap} 
             infoOffenIndex={infoOffenIndex}
             setInfoOffenIndex={setInfoOffenIndex}
             urlaubModal={urlaubModal}
