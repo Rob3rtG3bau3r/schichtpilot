@@ -72,29 +72,33 @@ const MeineUebersicht = () => {
     "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
   ];
 
-  // Berechnungen
-  const stunden_gesamt = stunden.stunden_gesamt || 0;
-  const summeIst = stunden.summe_jahr || 0;
-  const restStd = summeIst - stunden_gesamt;
-  const uebernahme_vorjahr = stunden.uebernahme_vorjahr
+  // ---------------- Berechnungen ----------------
+  const stunden_gesamt = Number(stunden.stunden_gesamt) || 0;
+  const uebernahme_vorjahr = Number(stunden.uebernahme_vorjahr) || 0;
 
-  const urlaub_gesamt = urlaub.urlaub_gesamt || 0;
-  const urlaub_vorjahr = urlaub.uebernahme_vorjahr || 0;
-  const urlaubSumme = urlaub.summe_jahr || 0;
+  // Ist inkl. Vorjahr
+  const summeIst = (Number(stunden.summe_jahr) || 0) + uebernahme_vorjahr;
 
-  const urlaubUebrig = (urlaub_gesamt + urlaub_vorjahr - urlaubSumme);
+  // Rest = Ziel − Ist inkl. Vorjahr (positiv = noch offen)
+  const restStd = summeIst - stunden_gesamt ;
 
-  // Chartdaten
-  let kumIst = 0;
+  const urlaub_gesamt = Number(urlaub.urlaub_gesamt) || 0;
+  const urlaub_vorjahr = Number(urlaub.uebernahme_vorjahr) || 0;
+  const urlaubSumme = Number(urlaub.summe_jahr) || 0;
+  const urlaubUebrig = urlaub_gesamt + urlaub_vorjahr - urlaubSumme;
+
+  // ---------------- Chartdaten ----------------
+  // Start-Offset der Ist-Kurve ist die Übernahme aus dem Vorjahr (nur kumulativ/Chart)
+  let kumIst = uebernahme_vorjahr;
   let kumSoll = 0;
   let kumUrlaub = 0;
   const vorgabeProMonat = stunden_gesamt / 12;
 
   const chartData = monate.map((name, i) => {
     const m = i + 1;
-    const ist = stunden[`m${m}`] || 0;
-    const soll = stunden[`soll_m${m}`] || 0;
-    const urlaubMonat = urlaub[`m${m}`] || 0;
+    const ist = Number(stunden[`m${m}`]) || 0;
+    const soll = Number(stunden[`soll_m${m}`]) || 0;
+    const urlaubMonat = Number(urlaub[`m${m}`]) || 0;
 
     kumIst += ist;
     kumSoll += soll;
@@ -104,21 +108,21 @@ const MeineUebersicht = () => {
       name,
       ist: kumIst,
       soll: kumSoll,
-      ziel: vorgabeProMonat * m, // Ziel-Linie
+      ziel: vorgabeProMonat * m, // lineare Ziel-Linie
       urlaub: kumUrlaub,
     };
   });
 
-  // Hilfsfunktionen (oberhalb des return)
-const fmt2 = (n) =>
-  Number.isFinite(n)
-    ? n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '0,00';
+  // ---------------- Hilfsfunktionen ----------------
+  const fmt2 = (n) =>
+    Number.isFinite(n)
+      ? n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '0,00';
 
-const diffClass = (v) =>
-  v > 0 ? 'text-green-600'
-: v < 0 ? 'text-red-600'
-        : 'text-gray-700';
+  const diffClass = (v) =>
+    v > 0 ? 'text-green-600'
+          : v < 0 ? 'text-red-600'
+                  : 'text-gray-700';
 
   return (
     <div className="rounded-xl shadow-xl py-4 px-1 border border-gray-300 dark:border-gray-700">
@@ -141,116 +145,114 @@ const diffClass = (v) =>
 
       {offen && (
         <div className="mt-2 space-y-3">
-          {/* Neue Infozeilen */}
-          {/* Neue Infozeilen */}
-<div className="bg-gradient-to-r from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-700 p-3 border border-gray-400 rounded-xl shadow-xl mb-2">
-  {/* Erste Zeile */}
-  <div className="flex flex-wrap gap-4 items-center text-xs md:text-[16px] text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-600 pb-2 mb-2">
-        <div className="flex items-center gap-1">
-      <span className="text-orange-500">🎯</span>
-      <span> Vorgabe Jahresstunden:</span> <b>{stunden_gesamt} h</b>
-    </div>
-        <div className="flex items-center gap-1">
-      <span className="text-green-600">✔</span>
-      <span>Ist-Stunden:</span> <b>{summeIst} h</b>
-    </div>
-    <div className="flex items-center gap-1">
-      <span className="text-blue-600">⏱</span>
-      <span>Stunden zum Jahresende:</span> <b>
-  {Number.isFinite(restStd)
-    ? restStd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : '–'} h
-</b>
-    </div>
-    <div className="flex items-center gap-1">
-      <span className="text-purple-500">↩</span>
-      <span>Stunden aus dem Vorjahr:</span> <b>{uebernahme_vorjahr} h</b>
-    </div>
-  </div>
+          {/* Infozeilen */}
+          <div className="bg-gradient-to-r from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-700 p-3 border border-gray-400 rounded-xl shadow-xl mb-2">
+            {/* Erste Zeile */}
+            <div className="flex flex-wrap gap-4 items-center text-xs md:text-[16px] text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-600 pb-2 mb-2">
+              <div className="flex items-center gap-1">
+                <span className="text-orange-500"></span>
+                <span> Vorgabe Jahresstunden:</span> <b>{fmt2(stunden_gesamt)} h</b>
+              </div>
+              <div className="flex items-center gap-1">
+                
+                <span>Ist-Stunden (inkl. Vorjahr):</span> <b>{fmt2(summeIst)} h</b>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-blue-600">⏱</span>
+                <span>Stunden zum Jahresende:</span>{" "}
+                <b>
+                  {Number.isFinite(restStd)
+                    ? restStd.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : '–'}{" "}
+                  h
+                </b>
+              </div>
+              <div className="flex items-center gap-1">
+                
+                <span>Stunden aus dem Vorjahr:</span> <b>{fmt2(uebernahme_vorjahr)} h</b>
+              </div>
+            </div>
 
-  {/* Zweite Zeile */}
-  <div className="flex flex-wrap gap-4 items-center text-xs md:text-sm text-gray-900 dark:text-gray-100">
-    <div className="flex items-center gap-1">
-      <span className="text-blue-600">🌴</span>
-      <span>Urlaub übrig:</span> <b>{urlaubUebrig}</b>
-    </div>
-    <div className="flex items-center gap-1">
-      <span className="text-green-600">📝</span>
-      <span>Urlaub eingetragen:</span> <b>{urlaubSumme}</b>
-    </div>
-    <div className="flex items-center gap-1">
-      <span className="text-orange-500">📅</span>
-      <span>Urlaub gesamt:</span> <b>{urlaub_gesamt}</b>
-    </div>
-    <div className="flex items-center gap-1">
-      <span className="text-purple-500">↩</span>
-      <span>Urlaub Vorjahr:</span> <b>{urlaub_vorjahr}</b>
-    </div>
-  </div>
-</div>
+            {/* Zweite Zeile */}
+            <div className="flex flex-wrap gap-4 items-center text-xs md:text-sm text-gray-900 dark:text-gray-100">
+              <div className="flex items-center gap-1">
+                              <span>Urlaub übrig:</span> <b>{urlaubUebrig}</b>
+              </div>
+              <div className="flex items-center gap-1">
+                               <span>Urlaub eingetragen:</span> <b>{urlaubSumme}</b>
+              </div>
+              <div className="flex items-center gap-1">
+                            <span>Urlaub gesamt:</span> <b>{urlaub_gesamt}</b>
+              </div>
+              <div className="flex items-center gap-1">
+                               <span>Urlaub aus Vorjahr:</span> <b>{urlaub_vorjahr}</b>
+              </div>
+            </div>
+          </div>
 
-{/* Tabelle */}
-<div className="mb-2">
-  <div
-    className="cursor-pointer flex items-center gap-2 mb-1 font-semibold "
-    onClick={() => setTabelleOffen(!tabelleOffen)}
-  >
-    {tabelleOffen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-    Tabelle
-  </div>
+          {/* Tabelle */}
+          <div className="mb-2">
+            <div
+              className="cursor-pointer flex items-center gap-2 mb-1 font-semibold "
+              onClick={() => setTabelleOffen(!tabelleOffen)}
+            >
+              {tabelleOffen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+              Tabelle
+            </div>
 
-  {tabelleOffen && (
-    <table className="w-full border-collapse bg-gray-300 dark:bg-gray-900 text-xs text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-700 text-sm mb-4 shadow-xl">
-      <thead className="bg-gray-400 dark:bg-gray-300">
-        <tr>
-          <th className="text-gray-900 border ">Monat</th>
-          {monate.map((m) => (
-            <th key={m} className="text-gray-900 border ">{m}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td className="p-1 border font-semibold w-40">Ist-Stunden</td>
-          {monate.map((m, i) => {
-            const ist = Number(stunden[`m${i + 1}`]) || 0;
-            return <td key={m} className="p-1 border">{fmt2(ist)}</td>;
-          })}
-        </tr>
+            {tabelleOffen && (
+              <table className="w-full border-collapse bg-gray-300 dark:bg-gray-900 text-xs text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-700 text-sm mb-4 shadow-xl">
+                <thead className="bg-gray-400 dark:bg-gray-300">
+                  <tr>
+                    <th className="text-gray-900 border ">Monat</th>
+                    {monate.map((m) => (
+                      <th key={m} className="text-gray-900 border ">{m}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="p-1 border font-semibold w-40">Ist-Stunden</td>
+                    {monate.map((m, i) => {
+                      const ist = Number(stunden[`m${i + 1}`]) || 0;
+                      return <td key={m} className="p-1 border">{fmt2(ist)}</td>;
+                    })}
+                  </tr>
 
-        <tr>
-          <td className="p-1 border font-semibold">Stunden laut Sollplan</td>
-          {monate.map((m, i) => {
-            const soll = Number(stunden[`soll_m${i + 1}`]) || 0;
-            return <td key={m} className="p-1 border">{fmt2(soll)}</td>;
-          })}
-        </tr>
+                  <tr>
+                    <td className="p-1 border font-semibold">Stunden laut Sollplan</td>
+                    {monate.map((m, i) => {
+                      const soll = Number(stunden[`soll_m${i + 1}`]) || 0;
+                      return <td key={m} className="p-1 border">{fmt2(soll)}</td>;
+                    })}
+                  </tr>
 
-        <tr>
-          <td className="p-1 border font-semibold">Differenz (Ist − Soll)</td>
-          {monate.map((m, i) => {
-            const ist  = Number(stunden[`m${i + 1}`]) || 0;
-            const soll = Number(stunden[`soll_m${i + 1}`]) || 0;
-            const diff = ist - soll;
-            return (
-              <td key={m} className={`p-1 border font-semibold ${diffClass(diff)}`}>
-                {fmt2(diff)}
-              </td>
-            );
-          })}
-        </tr>
+                  <tr>
+                    <td className="p-1 border font-semibold">Differenz (Ist − Soll)</td>
+                    {monate.map((m, i) => {
+                      const ist  = Number(stunden[`m${i + 1}`]) || 0;
+                      const soll = Number(stunden[`soll_m${i + 1}`]) || 0;
+                      const diff = ist - soll;
+                      return (
+                        <td key={m} className={`p-1 border font-semibold ${diffClass(diff)}`}>
+                          {fmt2(diff)}
+                        </td>
+                      );
+                    })}
+                  </tr>
 
-        <tr>
-          <td className="p-1 border font-semibold">Urlaubstage</td>
-          {monate.map((m, i) => {
-            const u = Number(urlaub[`m${i + 1}`]) || 0;
-            return <td key={m} className="p-1 border">{fmt2(u)}</td>;
-          })}
-        </tr>
-      </tbody>
-    </table>
-  )}
-</div>
+                  <tr>
+                    <td className="p-1 border font-semibold">Urlaubstage</td>
+                    {monate.map((m, i) => {
+                      const u = Number(urlaub[`m${i + 1}`]) || 0;
+                      return <td key={m} className="p-1 border">{fmt2(u)}</td>;
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+
           {/* Chart */}
           <div>
             <div
@@ -266,7 +268,10 @@ const diffClass = (v) =>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    <YAxis yAxisId="left" label={{ value: "Stunden", angle: -90, position: 'insideLeft' }} />
+                    <YAxis
+                      yAxisId="left"
+                      label={{ value: "Stunden", angle: -90, position: 'insideLeft' }}
+                    />
                     <YAxis
                       yAxisId="right"
                       orientation="right"
@@ -275,9 +280,9 @@ const diffClass = (v) =>
                     />
                     <Tooltip />
                     <Legend />
-                    <Line yAxisId="left" type="monotone" dataKey="ist" stroke="#4CAF50" name="Ist-Stunden" />
+                    <Line yAxisId="left" type="monotone" dataKey="ist" stroke="#4CAF50" name="Ist-Stunden(inkl. Vorjahr)" />
                     <Line yAxisId="left" type="monotone" dataKey="soll" stroke="#2196F3" name="Stunden laut Sollplan" />
-                    <Line yAxisId="left" type="monotone" dataKey="ziel" stroke="#f44336" name="Vorgabe Jahresstunden" strokeDasharray="5 5" />
+                    <Line yAxisId="left" type="monotone" dataKey="ziel" stroke="#f44336" name="Vorgabejahresstunden" strokeDasharray="5 5" />
                     <Line yAxisId="right" type="monotone" dataKey="urlaub" stroke="#FF9800" name="Urlaub (Tage)" />
                   </LineChart>
                 </ResponsiveContainer>
@@ -293,9 +298,9 @@ const diffClass = (v) =>
           <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-6 rounded-xl shadow-xl w-96 animate-fade-in relative">
             <h2 className="text-lg font-bold mb-2">Info</h2>
             <ul className="text-sm list-disc pl-5 space-y-1">
-              <li>Die Ist-Stunden sind die tatsächlich gearbeiteten Stunden.</li>
+              <li>Ist-Stunden sind <b>summe_jahr + uebernahme_vorjahr</b>.</li>
               <li>Die Sollplan-Stunden stammen aus dem geplanten Schichtplan.</li>
-              <li>Die Vorgabe zeigt die Zielstunden für das Jahr (linear pro Monat).</li>
+              <li>Die Ziel-Linie verteilt die Jahresvorgabe linear auf die Monate.</li>
               <li>Urlaubstage werden kumuliert angezeigt.</li>
             </ul>
             <button
@@ -312,4 +317,3 @@ const diffClass = (v) =>
 };
 
 export default MeineUebersicht;
-

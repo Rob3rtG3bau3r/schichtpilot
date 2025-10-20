@@ -235,7 +235,7 @@ const KampfListe = ({
           .in('user_id', alleUserIds),
         supabase
           .from('DB_Stunden')
-          .select('user_id, jahr, stunden_gesamt, summe_jahr')
+          .select('user_id, jahr, stunden_gesamt, summe_jahr, uebernahme_vorjahr')
           .eq('jahr', jahrNum)
           .eq('firma_id', firma)
           .eq('unit_id', unit)
@@ -254,15 +254,22 @@ const KampfListe = ({
       }
       setUrlaubInfoMap(urlaubInfo);
 
-      const stundenInfo = {};
-      for (const r of stundenRes.data || []) {
-        const uid = String(r.user_id);
-        if (!idsSet.has(uid)) continue;
-        const gesamt = Number(r.stunden_gesamt) || 0;
-        const summe = Number(r.summe_jahr) || 0;
-        stundenInfo[uid] = { summe, gesamt, rest: summe - gesamt };
-      }
-      setStundenInfoMap(stundenInfo);
+const stundenInfo = {};
+for (const r of stundenRes.data || []) {
+  const uid = String(r.user_id);
+  if (!idsSet.has(uid)) continue;
+
+  const gesamt = Number(r.stunden_gesamt) || 0;           // Ziel (Jahresvorgabe gesamt)
+  const summeJahr = Number(r.summe_jahr) || 0;            // Ist (nur dieses Jahr)
+  const uebernahme = Number(r.uebernahme_vorjahr) || 0;   // Übernahme Vorjahr
+
+  const istInklVorjahr = summeJahr + uebernahme;          // ⬅️ NEU: Ist inkl. Übernahme
+  const rest =  istInklVorjahr -gesamt;                   // Ziel minus Ist inkl. Vorjahr
+
+  // Wir nennen das Feld weiter "summe", damit dein Tooltip [gesamt – summe] beibehält.
+  stundenInfo[uid] = { summe: istInklVorjahr, gesamt, rest };
+}
+setStundenInfoMap(stundenInfo);
 
       // ---- Schichtzuweisungen (für Schichtgruppe/Position) ----
       const { data: zuwRaw, error: zuwErr } = await supabase

@@ -522,7 +522,7 @@ const fmtElapsed = (ms) => {
         ref={modalRef}
         className={`absolute bg-white text-gray-800 dark:bg-gray-900 dark:text-white border border-gray-500 p-6 rounded-xl w-[700px] shadow-lg ${
           dragging ? 'select-none cursor-grabbing' : ''
-        } ${dock ? 'h-screen rounded-none' : ''}`}
+        } ${dock ? 'h-screen rounded-xl-none' : ''}`}
         style={
           dock === 'left'
             ? { left: 0, top: 0 }
@@ -536,7 +536,7 @@ const fmtElapsed = (ms) => {
         {/* Header */}
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <button onMouseDown={startDrag} onTouchStart={startDrag} title="Verschieben" className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-move">
+            <button onMouseDown={startDrag} onTouchStart={startDrag} title="Verschieben" className="p-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 cursor-move">
               <GripVertical className="w-5 h-5" />
             </button>
             <h2 className="text-xl font-bold">Dienst ändern – {eintrag.name}</h2>
@@ -545,18 +545,18 @@ const fmtElapsed = (ms) => {
             <button
               onClick={() => setDock((d) => (d === 'left' ? null : 'left'))}
               title={dock === 'left' ? 'Andocken lösen' : 'Links andocken'}
-              className={`p-1 rounded ${dock === 'left' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+              className={`p-1 rounded-xl ${dock === 'left' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
             >
               <PanelLeftOpen className="w-5 h-5" />
             </button>
             <button
               onClick={() => setDock((d) => (d === 'right' ? null : 'right'))}
               title={dock === 'right' ? 'Andocken lösen' : 'Rechts andocken'}
-              className={`p-1 rounded ${dock === 'right' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+              className={`p-1 rounded-xl ${dock === 'right' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
             >
               <PanelRightOpen className="w-5 h-5" />
             </button>
-            <button onClick={() => setInfoOffen(true)} className="p-1 rounded text-blue-500 hover:text-blue-700" title="Infos zum Modul">
+            <button onClick={() => setInfoOffen(true)} className="p-1 rounded-xl text-blue-500 hover:text-blue-700" title="Infos zum Modul">
               <Info size={20} />
             </button>
           </div>
@@ -579,7 +579,7 @@ const fmtElapsed = (ms) => {
                 value={enddatum}
                 onChange={(e) => setEnddatum(e.target.value)}
                 min={eintrag.datum}
-                className="ml-4 p-1 rounded bg-gray-100 dark:bg-gray-700 text-center text-sm"
+                className="ml-4 p-1 rounded-xl bg-gray-100 dark:bg-gray-700 text-center text-sm"
               />
             )}
             <label className="flex items-center gap-1 text-md">
@@ -626,7 +626,7 @@ const fmtElapsed = (ms) => {
               value={auswahl.start}
               onChange={(e) => setAuswahl({ ...auswahl, start: e.target.value })}
               disabled={auswahl.ignoriertarbeitszeit}
-              className="w-full p-2 rounded bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
+              className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
             />
           </div>
           <div>
@@ -636,12 +636,12 @@ const fmtElapsed = (ms) => {
               value={auswahl.ende}
               onChange={(e) => setAuswahl({ ...auswahl, ende: e.target.value })}
               disabled={auswahl.ignoriertarbeitszeit}
-              className="w-full p-2 rounded bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
+              className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
             />
           </div>
           <div>
             <label className="block mb-1">Dauer</label>
-            <div className={`p-2 rounded text-center text-white ${dauerFarbe}`}>{dauer.toFixed(1)} h</div>
+            <div className={`p-2 rounded-xl text-center text-white ${dauerFarbe}`}>{dauer.toFixed(1)} h</div>
           </div>
         </div>
         <div className="text-right text-sm text-yellow-500 mb-3 min-h-[1.5rem]">{hinweistext}</div>
@@ -653,7 +653,7 @@ const fmtElapsed = (ms) => {
             {schichtarten.map((s) => (
               <div
                 key={s.id}
-                className={`rounded p-2 cursor-pointer border text-sm flex justify-between items-center text-center ${
+                className={`rounded-xl p-2 cursor-pointer border text-sm flex justify-between items-center text-center ${
                   auswahl.kuerzel === s.kuerzel ? 'ring-2 ring-white' : ''
                 }`}
                 style={{ backgroundColor: s.farbe_bg, color: s.farbe_text }}
@@ -675,7 +675,7 @@ const fmtElapsed = (ms) => {
             rows={2}
             value={kommentar}
             onChange={(e) => setKommentar(e.target.value)}
-            className="w-full p-2 rounded bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
+            className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
             placeholder="Kommentar max. 150 Zeichen"
           />
         </div>
@@ -693,19 +693,19 @@ const fmtElapsed = (ms) => {
   </div>
 )}
             <div className="flex gap-3 items-center">
-              {loading && <div className="w-5 h-5 border-2 border-t-transparent border-blue-400 rounded-full animate-spin"></div>}
-              <button onClick={onClose} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded transition" disabled={loading}>Schließen</button>
+              {loading && <div className="w-5 h-5 border-2 border-t-transparent border-blue-400 rounded-xl-full animate-spin"></div>}
+              <button onClick={onClose} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-xl transition" disabled={loading}>Schließen</button>
               <button
                 onClick={() => handleSpeichern(false)}
                 disabled={loading || speichernGesperrt}
-                className={`bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition ${loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl transition ${loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 Speichern
               </button>
               <button
                 onClick={() => handleSpeichern(true)}
                 disabled={loading || speichernGesperrt}
-                className={`bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded transition ${loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-xl transition ${loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 Speichern & Schließen
               </button>
@@ -771,7 +771,7 @@ const fmtElapsed = (ms) => {
               </tbody>
             </table>
             <div className="text-right mt-4">
-              <button onClick={() => setVerlaufOffen(false)} className="bg-gray-600 text-white px-4 py-2 rounded">Schließen</button>
+              <button onClick={() => setVerlaufOffen(false)} className="bg-gray-600 text-white px-4 py-2 rounded-xl">Schließen</button>
             </div>
           </div>
         </div>

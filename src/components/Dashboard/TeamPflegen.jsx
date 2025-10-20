@@ -59,7 +59,7 @@ const TeamPflegen = () => {
     if (!firma || !unit) return;
     setLoading(true);
     try {
-      // 1) Sichtbare User (wie gehabt)
+      // 1) Sichtbare User
       const { data: users, error: userError } = await supabase
         .from("DB_User")
         .select("user_id, vorname, nachname, user_visible")
@@ -70,8 +70,7 @@ const TeamPflegen = () => {
       if (userError) throw userError;
       const userIds = (users || []).map((u) => u.user_id);
 
-      // 2) HEUTIGE Schichtzuweisungen (Neue DB!)
-      //    von_datum ≤ heute UND (bis_datum IS NULL ODER bis_datum ≥ heute)
+      // 2) Heutige Schichtzuweisungen
       const { data: zuwRaw, error: zuwErr } = await supabase
         .from("DB_SchichtZuweisung")
         .select("user_id, schichtgruppe, position_ingruppe, von_datum, bis_datum")
@@ -82,8 +81,7 @@ const TeamPflegen = () => {
 
       if (zuwErr) throw zuwErr;
 
-      // pro User: gültige Einträge heute filtern + den mit max(von_datum) nehmen
-      const zuwHeuteMap = new Map(); // user_id -> { schichtgruppe, position_ingruppe, von_datum, bis_datum }
+      const zuwHeuteMap = new Map();
       (zuwRaw || [])
         .filter((z) => !z.bis_datum || z.bis_datum >= heute)
         .forEach((z) => {
@@ -98,7 +96,7 @@ const TeamPflegen = () => {
           }
         });
 
-      // 3) Alle Teams deduplizieren + sortieren (aus Zuweisungen, nicht Kampfliste)
+      // 3) Teams deduplizieren + sortieren
       const uniqueTeamsRaw = Array.from(
         new Set(
           Array.from(zuwHeuteMap.values())
@@ -109,7 +107,7 @@ const TeamPflegen = () => {
       const uniqueTeamsSorted = sortTeams(uniqueTeamsRaw);
       setTeams(uniqueTeamsSorted);
 
-      // 4) Vorauswahl: eigene Gruppe falls vorhanden, sonst erstes Team
+      // 4) Vorauswahl
       const eigeneZuw = zuwHeuteMap.get(userId);
       const eigeneGruppe = eigeneZuw?.schichtgruppe;
       setAktiveTeams((prev) => {
@@ -120,14 +118,13 @@ const TeamPflegen = () => {
           }
           return uniqueTeamsSorted.length ? [uniqueTeamsSorted[0]] : [];
         }
-        // Beibehalten, aber auf existierende Teams begrenzen
         return prev.filter((t) => uniqueTeamsSorted.includes(t));
       });
 
-      // 5) Stunden/Urlaub (wie gehabt)
+      // 5) Stunden & Urlaub laden
       const { data: stundenData } = await supabase
         .from("DB_Stunden")
-        .select("user_id, jahr, summe_jahr, vorgabe_stunden, stunden_gesamt")
+        .select("user_id, jahr, summe_jahr, vorgabe_stunden, stunden_gesamt, uebernahme_vorjahr")
         .in("user_id", userIds)
         .eq("jahr", aktuellesJahr)
         .eq("firma_id", firma)
@@ -141,7 +138,7 @@ const TeamPflegen = () => {
         .eq("firma_id", firma)
         .eq("unit_id", unit);
 
-      // 6) Finales Merge + Sortierung NUR nach position_ingruppe aus Zuweisung
+      // 6) Merge + Sortierung nach position_ingruppe
       const userListe = (users || [])
         .map((u) => {
           const zuw = zuwHeuteMap.get(u.user_id);
@@ -150,15 +147,22 @@ const TeamPflegen = () => {
 
           const stunden = stundenData?.find((s) => s.user_id === u.user_id);
           const urlaub = urlaubData?.find((r) => r.user_id === u.user_id);
-          const abw = (stunden?.summe_jahr ?? 0) - (stunden?.stunden_gesamt ?? 0);
+
+          const summe_jahr = Number(stunden?.summe_jahr ?? 0);
+          const uebernahme_vorjahr = Number(stunden?.uebernahme_vorjahr ?? 0);
+          const stunden_gesamt = Number(stunden?.stunden_gesamt ?? 0);
+
+          // Neu: Ist inkl. Vorjahr + Rest bis Jahresziel
+          const istInklVorjahr = summe_jahr + uebernahme_vorjahr;
+          const restBisJahresende =  istInklVorjahr - stunden_gesamt;
 
           return {
             ...u,
             schichtgruppe,
             position_ingruppe: position,
-            abweichung: abw,
-            summe_ist: stunden?.summe_jahr ?? 0,
-            summe_soll: stunden?.stunden_gesamt ?? 0,
+            abweichung: restBisJahresende,            // "Std. Jahresende"
+            summe_ist: istInklVorjahr,                // Anzeige links: "Std.: X / Y"
+            summe_soll: stunden_gesamt,
             resturlaub: urlaub?.summe_jahr ?? 0,
             urlaub_gesamt: urlaub?.urlaub_gesamt ?? 0,
           };
@@ -212,7 +216,7 @@ const TeamPflegen = () => {
 
       {offen && (
         <>
-          {/* Checkbox-Leiste: "Alle Teams" zuerst, danach sortierte Teams */}
+          {/* Checkbox-Leiste */}
           <div className="mb-4 flex flex-wrap gap-2 text-sm items-center">
             {teams.length > 0 && (
               <label className="flex items-center gap-1 cursor-pointer font-semibold">
@@ -310,7 +314,7 @@ const TeamPflegen = () => {
               <li>Die Liste ist nach <strong>Position in Gruppe</strong> (aus der Zuweisung) sortiert.</li>
               <li>Über die Checkboxen kannst du Teams filtern oder alle anzeigen.</li>
               <li>Die Jahreswerte zu Stunden &amp; Urlaub stammen aus den Tabellen DB_Stunden und DB_Urlaub.</li>
-              <li>Die Team-Reihenfolge oben ist natürlich sortiert (Zahl → Buchstabe), danach A–Z.</li>
+              <li><strong>Ist-Stunden</strong> zeigen <code>summe_jahr + uebernahme_vorjahr</code>. <strong>Std. Jahresende</strong> ist <code>stunden_gesamt − (summe_jahr + uebernahme_vorjahr)</code>.</li>
             </ul>
           </div>
         </div>
