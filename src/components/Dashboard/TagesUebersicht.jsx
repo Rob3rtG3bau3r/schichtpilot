@@ -27,7 +27,7 @@ const Section = ({ id, title, counter, children, defaultOpen = true }) => {
   }, [open]);
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/20">
+    <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900/20">
       <button
         className="w-full flex items-center justify-between px-3 py-2"
         onClick={() => setOpen(o => !o)}
