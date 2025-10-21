@@ -13,7 +13,6 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
   const [infoOffen, setInfoOffen] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [buttonDisabled, setButtonDisabled] = useState(false);
-  const [userVisible, setUserVisible] = useState(true);
 
   // --- Helpers ---
   const todayYYYYMMDD = () => {
@@ -85,19 +84,6 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
 
     ladeQualifikationen();
   }, [firma, unit, user?.user_id]);
-
-  useEffect(() => {
-    const ladeUserVisible = async () => {
-      if (!user?.user_id) return;
-      const { data: userInfo } = await supabase
-        .from('DB_User')
-        .select('user_visible')
-        .eq('user_id', user.user_id)
-        .single();
-      setUserVisible(userInfo?.user_visible === true);
-    };
-    ladeUserVisible();
-  }, [user?.user_id]);
 
   const handleZuweisen = (q) => {
     const schon = zugewiesen.some((z) => z.quali === q.id);
@@ -241,21 +227,6 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
     }, 1500);
   };
 
-  const handleVisibleToggle = async (checked) => {
-    const { error } = await supabase
-      .from('DB_User')
-      .update({ user_visible: checked })
-      .eq('user_id', user.user_id);
-
-    if (!error) {
-      setUserVisible(checked);
-      triggerRefresh?.();
-    } else {
-      alert('Fehler beim Speichern von user_visible!');
-      console.error(error);
-    }
-  };
-
   return (
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
       <div className="flex justify-between items-center mb-4">
@@ -270,20 +241,6 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
         {/* Linke Seite: Zugewiesen */}
         <div className="col-span-6 p-1 bg-gray-200 dark:bg-gray-800">
           <h3 className="font-semibold text-2xl mb-2">👤 {user?.name || 'Kein Benutzer ausgewählt'}</h3>
-
-          {/* Sichtbarkeit */}
-          {user?.user_id && (
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={userVisible}
-                onChange={(e) => handleVisibleToggle(e.target.checked)}
-              />
-              <label className="text-sm text-gray-700 dark:text-gray-300">
-                Mitarbeiter im Einsatzplan anzeigen
-              </label>
-            </div>
-          )}
 
           <table className="w-full text-sm table-auto mt-4 whitespace-nowrap overflow-auto">
             <thead className="bg-gray-200 dark:bg-gray-700">
@@ -380,7 +337,7 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
       {/* InfoModal */}
       {infoOffen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50">
-          <div className="bg-white dark:bg-gray-900 p-6 rounded-xl  animate-fade-in max-w-xl w-full relative">
+          <div className="bg-white dark:bg-gray-900 p-6 rounded-xl animate-fade-in max-w-xl w-full relative">
             <button onClick={() => setInfoOffen(false)} className="absolute top-2 right-2">
               <X />
             </button>
@@ -393,12 +350,8 @@ const QualiZuweisung = ({ user, triggerRefresh }) => {
               ✅ Qualifikationen wirken sich auf die Einsatzplanung aus – insbesondere bei der Bedarfsanalyse.
             </p>
             <p className="mb-2">
-              ✅ Die Checkbox <strong>„Mitarbeiter im Einsatzplan anzeigen“</strong> dient dazu, Mitarbeitende temporär
-              auszublenden (z. B. bei Krankheit oder Urlaub). In der Kampfliste werden sie dann visuell ausgegraut.
-            </p>
-            <p className="mb-2">
-              ⚠️ <strong>Wichtig:</strong> Auch wenn ein Mitarbeiter ausgeblendet ist, werden seine Qualifikationen bei
-              Bedarfsauswertungen weiterhin berücksichtigt.
+              ✅ <strong>Ausgrauen / temporär ausblenden</strong> steuerst du jetzt zeitlich in den <strong>Stammdaten</strong> (Ausgrauen-Fenster).
+              Dort kannst du auch mehrere Phasen pflegen (z.&nbsp;B. Elternzeit → Rückkehr → erneute Elternzeit).
             </p>
           </div>
         </div>

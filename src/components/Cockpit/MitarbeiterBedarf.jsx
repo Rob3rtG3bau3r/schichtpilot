@@ -53,24 +53,20 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     }
   };
 
-  const showTipAt = (el, key, text, header, alignTop = false, width = 280) => {
+  const showTipAt = (el, _key, text, header, alignTop = false, width = 280) => {
     if (!allowTooltip || !el || !text) return;
-
     const rect = el.getBoundingClientRect();
     let left = rect.right + 8;
     let top = alignTop ? rect.top + 8 : rect.top + rect.height / 2 - 12;
     let flip = false;
-
     const vw = window.innerWidth;
     if (left + width + 16 > vw) {
       left = rect.left - 8 - width;
       flip = true;
     }
-
     const vh = window.innerHeight;
     if (top < 8) top = 8;
     if (top + 140 > vh) top = Math.max(8, vh - 160);
-
     setTipData({ text, top, left, flip, header, width });
   };
 
@@ -134,7 +130,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         if (!alive) return;
         setAllowTooltip(!!tip);
         setAllowAnalyse(!!ana);
-      } catch (e) {
+      } catch {
         if (!alive) return;
         setAllowTooltip(false);
         setAllowAnalyse(false);
@@ -177,7 +173,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       planByDate.get(d).set(r.schichtgruppe, r.kuerzel);
     });
 
-    // 2) ZUWEISUNGEN (wer gehört an welchem Tag zu welcher Gruppe) – nur gültige Zeiträume des Monats
+    // 2) ZUWEISUNGEN (wer gehört an welchem Tag zu welcher Gruppe)
     const { data: zuw } = await supabase
       .from('DB_SchichtZuweisung')
       .select('user_id, schichtgruppe, von_datum, bis_datum')
@@ -189,12 +185,10 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     // Pro Tag: Map(userId -> { gruppe, von_datum }) — nur jüngste Zuweisung pro User
     const membersByDate = new Map();
     (tage || []).forEach((d) => membersByDate.set(d, new Map()));
-
     for (const z of zuw || []) {
       for (const d of tage) {
         if (dayjs(z.von_datum).isAfter(d, 'day')) continue;
         if (z.bis_datum && dayjs(z.bis_datum).isBefore(d, 'day')) continue;
-
         const map = membersByDate.get(d);
         const prev = map.get(z.user_id);
         if (!prev || dayjs(z.von_datum).isAfter(prev.von_datum, 'day')) {
@@ -262,7 +256,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     });
     setMatrixMapState(matrixMap);
 
-    // 6) Qualis (bis Monatsende) & Namen/Sichtbarkeit
+    // 6) Qualis (bis Monatsende) & Namen
     const userIds = Array.from(allUserIdsSet);
     const monatsEndeIso = dayjs(monthEnd).endOf('day').toISOString();
 
@@ -278,21 +272,58 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       }
     }
 
+    // --- NEU: Ausgrauen-Fenster laden (pro User, monatsübergreifend) ---
+    const ausgrauenByUser = new Map(); // uid -> [{von, bis}]
+    if (userIds.length > 0) {
+      for (const part of chunkArray(userIds, 150)) {
+        const { data: ausRows } = await supabase
+          .from('DB_Ausgrauen')
+          .select('user_id, von, bis')
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .in('user_id', part)
+          .lte('von', monthEnd) // von <= Monatsende
+          .or(`bis.is.null, bis.gte.${monthStart}`); // bis >= Monatsstart oder offen
+        for (const r of ausRows || []) {
+          const uid = String(r.user_id);
+          const arr = ausgrauenByUser.get(uid) || [];
+          arr.push({ von: r.von, bis: r.bis || null });
+          ausgrauenByUser.set(uid, arr);
+        }
+      }
+      // sortieren
+      for (const [, arr] of ausgrauenByUser) {
+        arr.sort((a, b) => dayjs(a.von).diff(dayjs(b.von)));
+      }
+    }
+
+    // Namen laden (ohne user_visible)
     let userNameMap = {};
-    let userVisibleMap = {};
     if (userIds.length > 0) {
       for (const part of chunkArray(userIds, 150)) {
         const { data: userDaten } = await supabase
           .from('DB_User')
-          .select('user_id, nachname, user_visible')
+          .select('user_id, nachname')
           .in('user_id', part);
         userDaten?.forEach((u) => {
           userNameMap[u.user_id] = u.nachname || `User ${u.user_id}`;
-          userVisibleMap[u.user_id] = u.user_visible ?? true;
         });
       }
     }
     setUserNameMapState(userNameMap);
+
+    // Helper: Ist User an Datum d ausgegraut?
+    const isGrey = (uid, dISO) => {
+      const arr = ausgrauenByUser.get(String(uid));
+      if (!arr || arr.length === 0) return false;
+      const d = dayjs(dISO);
+      for (const r of arr) {
+        const von = dayjs(r.von);
+        const bis = r.bis ? dayjs(r.bis) : null;
+        if (d.isSameOrAfter(von, 'day') && (!bis || d.isSameOrBefore(bis, 'day'))) return true;
+      }
+      return false;
+    };
 
     // 7) Bewertung/Status
     const status = { F: {}, S: {}, N: {} };
@@ -305,11 +336,11 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       const bedarfHeute = bedarfHeuteAlle.filter((b) => b.normalbetrieb === !hatSpezial);
 
       for (const schicht of ['F', 'S', 'N']) {
-        // aktive User dedupliziert + nur sichtbare
+        // aktive User dedupliziert + (NEU) nur NICHT-ausgegraute Personen
         const aktiveUserRaw = dienste
           .filter((d) => d.datum === datum && d.ist_schicht?.kuerzel === schicht)
           .map((d) => d.user);
-        const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => userVisibleMap[uid] !== false);
+        const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => !isGrey(uid, datum));
 
         // Qualis je User (nur bis Datum gültig)
         const userQualiMap = {};
@@ -434,7 +465,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       const tagBedarfe = (bedarf || []).filter(
         (b) => b.farbe && !b.normalbetrieb && (!b.von || tag >= b.von) && (!b.bis || tag <= b.bis)
       );
-
       if (tagBedarfe.length > 0) {
         const eventName = [...new Set(tagBedarfe.map((b) => b.namebedarf))].join(', ');
         const farben = tagBedarfe.map((b) => b.farbe);
@@ -446,7 +476,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
             return `${farbe} ${start}%, ${farbe} ${end}%`;
           })
           .join(', ')})`;
-
         leiste[tag] = {
           gradient,
           eventName,
@@ -465,7 +494,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   }, [tage, firma, unit, refreshKey]);
 
   // Tooltip-Builder (Zelle)
-  const buildCellTooltip = (_kuerzel, datum, cell) => {
+  const buildCellTooltip = (_kuerzel, _datum, cell) => {
     if (!cell?.meta) return '';
     const {
       aktiveUserIds = [],
@@ -477,7 +506,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
     const lines = [];
     lines.push(`👥 Anzahl MA: ${aktiveUserIds.length}`);
-
     if (cell.fehlend?.length) lines.push('', `❌ Fehlende Quali: ${cell.fehlend.join(', ')}`);
     if (zusatzFehltKuerzel.length) lines.push('', `⚠️ Zusatzquali fehlt: ${zusatzFehltKuerzel.join(', ')}`);
 

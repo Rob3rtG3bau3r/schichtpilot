@@ -6,12 +6,17 @@ import { useRollen } from '../../context/RollenContext';
 import { Info } from 'lucide-react';
 
 const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlendeQualis = [] }) => {
-  const { sichtFirma: firma, sichtUnit: unit } = useRollen();
-  const [mitarbeiter, setMitarbeiter] = useState([]);     // im Dienst
-  const [freieMitarbeiter, setFreieMitarbeiter] = useState([]); // Kandidatenliste
+  const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
 
+  const [mitarbeiter, setMitarbeiter] = useState([]);         // im Dienst (sortiert nach höchster Quali)
+  const [freieMitarbeiter, setFreieMitarbeiter] = useState([]); // Kandidatenliste T-3..T+3
   const [kollidiertAktiv, setKollidiertAktiv] = useState(false);
   const [infoOffen, setInfoOffen] = useState(false);
+
+  const maskForEmployee = (kuerzel) => {
+    if (rolle === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO')) return '-';
+    return kuerzel || '-';
+  };
 
   useEffect(() => {
     if (!offen || !modalDatum || !modalSchicht || !firma || !unit) return;
@@ -21,22 +26,21 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       setFreieMitarbeiter([]);
 
       // -----------------------------
-      // FENSTER T-2 .. T+2
+      // FENSTER T-3 .. T+3
       // -----------------------------
       const dates = [
+        dayjs(modalDatum).subtract(3, 'day').format('YYYY-MM-DD'),
         dayjs(modalDatum).subtract(2, 'day').format('YYYY-MM-DD'),
         dayjs(modalDatum).subtract(1, 'day').format('YYYY-MM-DD'),
         dayjs(modalDatum).format('YYYY-MM-DD'),
         dayjs(modalDatum).add(1, 'day').format('YYYY-MM-DD'),
         dayjs(modalDatum).add(2, 'day').format('YYYY-MM-DD'),
+        dayjs(modalDatum).add(3, 'day').format('YYYY-MM-DD'),
       ];
       const windowStart = dates[0];
       const windowEnd   = dates[dates.length - 1];
 
-      // -----------------------------------------------------------
-      // (A) NEU: SOLL-PLAN für alle Tage im Fenster laden
-      //      Map: planByDate[datum].get(gruppe) => kuerzel
-      // -----------------------------------------------------------
+      // (A) Soll-Plan
       const { data: soll } = await supabase
         .from('DB_SollPlan')
         .select('datum, schichtgruppe, kuerzel')
@@ -52,10 +56,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         planByDate.get(d).set(r.schichtgruppe, r.kuerzel);
       });
 
-      // -----------------------------------------------------------
-      // (B) NEU: ZUWEISUNGEN, die Fenster berühren
-      //      membersByDate[datum].get(user_id) => {gruppe, von_datum}
-      // -----------------------------------------------------------
+      // (B) Zuweisungen, die Fenster berühren
       const { data: zuw } = await supabase
         .from('DB_SchichtZuweisung')
         .select('user_id, schichtgruppe, von_datum, bis_datum')
@@ -66,25 +67,19 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
       const membersByDate = new Map();
       dates.forEach(d => membersByDate.set(d, new Map()));
-
       for (const z of (zuw || [])) {
         for (const d of dates) {
           if (dayjs(z.von_datum).isAfter(d, 'day')) continue;
           if (z.bis_datum && dayjs(z.bis_datum).isBefore(d, 'day')) continue;
           const map = membersByDate.get(d);
           const prev = map.get(z.user_id);
-          // jüngste (größte) von_datum gilt
           if (!prev || dayjs(z.von_datum).isAfter(prev.von_datum, 'day')) {
             map.set(z.user_id, { gruppe: z.schichtgruppe, von_datum: z.von_datum });
           }
         }
       }
 
-      // -----------------------------------------------------------
-      // (C) Kampfliste-Overrides
-      //     1) Für den Modal-Tag (alle User) -> um Dienst/“Frei” zu bestimmen
-      //     2) Für das Fenster T-2..T+2 (nur Kandidaten) – später
-      // -----------------------------------------------------------
+      // (C) Kampfliste-Overrides (nur Modal-Tag)
       const { data: overridesModalTag } = await supabase
         .from('DB_Kampfliste')
         .select('user, datum, ist_schicht(kuerzel)')
@@ -94,12 +89,11 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
       const overrideMapModal = new Map(); // `${d}|${uid}` -> kuerzel
       (overridesModalTag || []).forEach(r => {
-        overrideMapModal.set(`${r.datum}|${r.user}`, r.ist_schicht?.kuerzel || null);
+        const k = r.ist_schicht?.kuerzel || null;
+        overrideMapModal.set(`${r.datum}|${r.user}`, rolle === 'Employee' ? maskForEmployee(k) : (k || null));
       });
 
-      // -----------------------------------------------------------
-      // (D) Alle User am Modal-Tag + finaler Kuerzel (= Override oder Plan)
-      // -----------------------------------------------------------
+      // (D) Finaler Kuerzel am Modal-Tag
       const mMap = membersByDate.get(modalDatum) || new Map();
       const allUserIdsAtDay = Array.from(mMap.keys());
 
@@ -108,26 +102,44 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         const grp = mMap.get(uid)?.gruppe;
         const planK = planByDate.get(modalDatum)?.get(grp) || null;
         const overK = overrideMapModal.get(`${modalDatum}|${uid}`);
-        finalAtDay.set(uid, overK ?? planK);
+        const raw = overK ?? planK ?? '-';
+        finalAtDay.set(uid, rolle === 'Employee' ? maskForEmployee(raw) : (raw || '-'));
       }
 
-      // wer im Dienst der gewählten Schicht? wer "frei" ('-')?
-      const dienstUserIds = allUserIdsAtDay.filter(uid => finalAtDay.get(uid) === modalSchicht);
-      const freiUserIds   = allUserIdsAtDay.filter(uid => finalAtDay.get(uid) === '-');
+      // (E) Ausgrauen am Modal-Tag laden und filtern
+      let greySet = new Set();
+      if (allUserIdsAtDay.length) {
+        const { data: aus } = await supabase
+          .from('DB_Ausgrauen')
+          .select('user_id, von, bis')
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .in('user_id', allUserIdsAtDay)
+          .lte('von', modalDatum)
+          .or(`bis.is.null, bis.gte.${modalDatum}`);
 
-      // -----------------------------------------------------------
-      // (E) Namen + Sichtbarkeit laden (nur für benötigte User)
-      // -----------------------------------------------------------
+        (aus || []).forEach(r => greySet.add(String(r.user_id)));
+      }
+
+      // Dienst/Frei bestimmen (nur sichtbare = nicht ausgegraut)
+      const dienstUserIds = allUserIdsAtDay
+        .filter(uid => !greySet.has(String(uid)))
+        .filter(uid => finalAtDay.get(uid) === modalSchicht);
+
+      const freiUserIds   = allUserIdsAtDay
+        .filter(uid => !greySet.has(String(uid)))
+        .filter(uid => finalAtDay.get(uid) === '-');
+
+      // (F) Namen laden
       const alleIds = Array.from(new Set([...dienstUserIds, ...freiUserIds]));
       let userNameMap = {};
-      let userVisibleMap = {};
       if (alleIds.length) {
         const { data: userRows } = await supabase
           .from('DB_User')
-          .select('user_id, vorname, nachname, user_visible')
+          .select('user_id, vorname, nachname')
           .in('user_id', alleIds);
+
         (userRows || []).forEach(u => {
-          userVisibleMap[u.user_id] = (u.user_visible ?? true);
           userNameMap[u.user_id] = {
             vorname: u.vorname || '',
             nachname: u.nachname || '',
@@ -136,22 +148,52 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         });
       }
 
-      // Mitarbeiter im Dienst (sichtbare)
+      // (G) „Mitarbeiter im Dienst“ nach höchster Quali sortieren (kleinste position = höchste)
+      let bestPosByUser = {};
+      if (dienstUserIds.length) {
+        const { data: matrix } = await supabase
+          .from('DB_Qualifikationsmatrix')
+          .select('id, betriebs_relevant, position');
+
+        const posMap = new Map((matrix || [])
+          .filter(m => m.betriebs_relevant)
+          .map(m => [m.id, m.position ?? 999]));
+
+        const { data: qRows } = await supabase
+          .from('DB_Qualifikation')
+          .select('user_id, quali, created_at')
+          .in('user_id', dienstUserIds);
+
+        const tag = dayjs(modalDatum);
+        for (const r of (qRows || [])) {
+          const ab = r.created_at ? dayjs(r.created_at) : null;
+          if (ab && tag.isBefore(ab, 'day')) continue;
+          const p = posMap.get(r.quali);
+          if (p == null) continue;
+          const uid = String(r.user_id);
+          bestPosByUser[uid] = Math.min(bestPosByUser[uid] ?? 999, p);
+        }
+      }
+
       const imDienst = dienstUserIds
-        .filter(uid => userVisibleMap[uid] !== false)
-        .map(uid => ({ vorname: userNameMap[uid]?.vorname || '', nachname: userNameMap[uid]?.nachname || '' }));
+        .map(uid => ({
+          uid,
+          vorname: userNameMap[uid]?.vorname || '',
+          nachname: userNameMap[uid]?.nachname || '',
+          bestPos: bestPosByUser[String(uid)] ?? 999
+        }))
+        .sort((a, b) => a.bestPos - b.bestPos)
+        .map(({ vorname, nachname }) => ({ vorname, nachname }));
+
       setMitarbeiter(imDienst);
 
-      // Sichtbare "freie" Kandidaten am Modal-Tag
-      const sichtbareFrei = freiUserIds.filter(uid => userVisibleMap[uid] !== false);
-      if (sichtbareFrei.length === 0) {
+      // (H) Kandidatenliste (freie sichtbare), optional nach fehlenden Qualis filtern
+      if (freiUserIds.length === 0) {
         setFreieMitarbeiter([]);
         return;
       }
 
-      // -----------------------------------------------------------
-      // (F) Qualifikationen: nur zur Kandidatenauswahl nach fehlenden Qualis
-      // -----------------------------------------------------------
+      // Matrix (für Kürzel & Filter)
       const { data: matrixRows } = await supabase
         .from('DB_Qualifikationsmatrix')
         .select('id, quali_kuerzel');
@@ -161,7 +203,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       const { data: qualRows } = await supabase
         .from('DB_Qualifikation')
         .select('user_id, quali, created_at')
-        .in('user_id', sichtbareFrei);
+        .in('user_id', freiUserIds);
 
       const tag = dayjs(modalDatum);
       const userKuerzelSet = new Map(); // uid -> Set<Kürzel>
@@ -175,21 +217,19 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       });
 
       const kandidaten = fehlendeQualis.length
-        ? sichtbareFrei.filter(uid => {
+        ? freiUserIds.filter(uid => {
             const set = userKuerzelSet.get(uid);
             if (!set) return false;
             return fehlendeQualis.some(k => set.has(k));
           })
-        : sichtbareFrei;
+        : freiUserIds;
 
       if (kandidaten.length === 0) {
         setFreieMitarbeiter([]);
         return;
       }
 
-      // -----------------------------------------------------------
-      // (G) Kampfliste-Overrides für Fenster NUR für Kandidaten
-      // -----------------------------------------------------------
+      // (I) Overrides für Fenster (nur Kandidaten)
       const { data: overridesFenster } = await supabase
         .from('DB_Kampfliste')
         .select('user, datum, ist_schicht(kuerzel)')
@@ -200,30 +240,39 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
       const overrideWin = new Map(); // `${d}|${uid}` -> kuerzel
       (overridesFenster || []).forEach(r => {
-        overrideWin.set(`${r.datum}|${r.user}`, r.ist_schicht?.kuerzel || null);
+        const k = r.ist_schicht?.kuerzel || null;
+        const v = rolle === 'Employee' ? maskForEmployee(k) : (k || null);
+        overrideWin.set(`${r.datum}|${r.user}`, v);
       });
 
-      // -----------------------------------------------------------
-      // (H) Ergebniszeilen auf Basis finaler KUERZEL (Plan+Zuweisung+Override)
-      // -----------------------------------------------------------
+      // (J) Ergebniszeilen T-3..T+3 (zusätzliche Spalten --- und +++)
       const freieZeilen = kandidaten.map(uid => {
         const profil = userNameMap[uid] || { voll: 'Unbekannt, ' };
+        const res = {
+          name: profil.voll,
+          vor3: '-', vor2: '-', vor1: '-',
+          heute: '-',
+          nach1: '-', nach2: '-', nach3: '-',
 
-        const res = { name: profil.voll, vorvortag: '-', vorher: '-', heute: '-', nachher: '-', folgetagplus: '-' };
+          // Back-compat Felder für aktuelle Bewertungslogik (nutzt 5 Kerntage)
+          vorvortag: '-', vorher: '-', nachher: '-', folgetagplus: '-',
+        };
 
         for (let i = 0; i < dates.length; i++) {
           const d = dates[i];
-          // Gruppe an Tag d
           const grp = membersByDate.get(d)?.get(uid)?.gruppe;
           const base = planByDate.get(d)?.get(grp) || null;
           const over = overrideWin.get(`${d}|${uid}`);
           const finalK = over ?? base ?? '-';
+          const show = rolle === 'Employee' ? maskForEmployee(finalK) : (finalK || '-');
 
-          if (i === 0) res.vorvortag = finalK || '-';
-          if (i === 1) res.vorher = finalK || '-';
-          if (i === 2) res.heute = finalK || '-';
-          if (i === 3) res.nachher = finalK || '-';
-          if (i === 4) res.folgetagplus = finalK || '-';
+          if (i === 0) res.vor3 = show;
+          if (i === 1) { res.vor2 = show; res.vorvortag = show; }
+          if (i === 2) { res.vor1 = show; res.vorher = show; }
+          if (i === 3) res.heute = show;
+          if (i === 4) { res.nach1 = show; res.nachher = show; }
+          if (i === 5) { res.nach2 = show; res.folgetagplus = show; }
+          if (i === 6) res.nach3 = show;
         }
 
         return res;
@@ -233,133 +282,112 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
     };
 
     ladeDaten();
-  }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis]);
+  }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis, rolle]);
 
-  // ===== Bewertungs-Logik (unverändert) =====
-const getBewertungsStufe = (f) => {
-  const frei      = (v) => v === '-';
-  const freiOderF = (v) => v === '-' || v === 'F';
-  const nichtFrei = (v) => v !== '-';
+  // ===== Bewertungs-Logik (bestehend; nutzt weiterhin die 5 Kerntage) =====
+  const getBewertungsStufe = (f) => {
+    const frei      = (v) => v === '-';
+    const freiOderF = (v) => v === '-' || v === 'F';
+    const nichtFrei = (v) => v !== '-';
 
-  // 🔴 Universelle Kollisionen (schichtunabhängig)
-  // Fälle wie: U - ? - - U   oder   U - - ? - U   (wir behandeln '?' als frei '-')
-  if (
-    f.vorvortag === 'U' &&
-    f.folgetagplus === 'U' &&
-    (
-      (frei(f.vorher) && frei(f.heute)) ||
-      (frei(f.vorher) && frei(f.nachher)) ||
-      (frei(f.heute) && frei(f.nachher))
-    )
-  ) {
-    return 'rot';
-  }
-
-  // ==================== FRÜH ====================
-  if (modalSchicht === 'F') {
-    // bestehende harte Kollisionen
-    if (f.nachher === 'U' || f.vorvortag === 'U' || f.vorher === 'N' || f.vorher === 'U') return 'rot';
-
-    // Grün
     if (
-      (f.vorher === '-' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
-      (f.vorher === 'F' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
-      (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
-      (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === '-') ||
-      (f.vorvortag === 'K' && f.vorher === 'K' && f.nachher === '-' && f.folgetagplus === 'S') ||
-      (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-      (f.vorvortag === 'S' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F')
-    ) return 'grün';
-
-    // Gelb
-    if (f.vorher === '-' && f.vorvortag === 'N') return 'gelb';
-    if (
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === 'F')
-    ) return 'gelb';
-
-    // Amber
-    if (f.vorher === 'S') return 'amber';
-    if (nichtFrei(f.vorvortag) && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') return 'amber';
-  }
-
-  // ==================== NACHT ====================
-  if (modalSchicht === 'N') {
-    // Rot
-    if (f.vorher === 'U') return 'rot';
-    if (['KO', 'K', 'U', 'F'].includes(f.nachher)) return 'rot';
-    if (
-      (f.vorvortag === 'N' && f.vorher === 'N' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
-      (f.vorvortag === '-' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
-      (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
-      (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && frei(f.folgetagplus))
-    ) return 'rot';
-
-    // Grün
-    if (
-      (f.vorher === 'N' && f.nachher === 'N') ||
-      (f.vorher === 'N' && frei(f.nachher) && frei(f.folgetagplus)) ||
-      (f.vorvortag === 'N' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
-    ) return 'grün';
-
-    // Amber
-    if (
-      f.nachher === 'S' ||
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
-      (f.vorvortag === 'U' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
-    ) return 'amber';
-
-    // Gelb
-    if (
-      (frei(f.nachher) && f.folgetagplus === 'F') ||
-      (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && f.folgetagplus === 'S') ||
-      (f.vorvortag === 'K' && f.vorher === 'K' && frei(f.nachher) && f.folgetagplus === 'S') ||
-      (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && nichtFrei(f.folgetagplus))
-    ) return 'gelb';
-  }
-
-  // ==================== SPÄT ====================
-  if (modalSchicht === 'S') {
-    // ❗ Neu: S - ? F F  -> Amber
-    if (f.vorvortag === 'S' && frei(f.vorher) && frei(f.heute) && f.nachher === 'F' && f.folgetagplus === 'F') {
-      return 'amber';
+      f.vorvortag === 'U' &&
+      f.folgetagplus === 'U' &&
+      (
+        (frei(f.vorher) && frei(f.heute)) ||
+        (frei(f.vorher) && frei(f.nachher)) ||
+        (frei(f.heute) && frei(f.nachher))
+      )
+    ) {
+      return 'rot';
     }
 
-    // Rot
-    if (f.vorher === 'U') return 'rot';
+    if (modalSchicht === 'F') {
+      if (f.nachher === 'U' || f.vorvortag === 'U' || f.vorher === 'N' || f.vorher === 'U') return 'rot';
+      if (
+        (f.vorher === '-' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
+        (f.vorher === 'F' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === '-') ||
+        (f.vorvortag === 'K' && f.vorher === 'K' && f.nachher === '-' && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === 'S' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F')
+      ) return 'grün';
 
-    // Amber (bestehend + erweitert)
-    if (
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === '-') ||
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-      (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-') ||
-      (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-      (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-      (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && frei(f.folgetagplus)) ||
-      (f.vorvortag === '-' && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') ||
-      (f.vorvortag === 'S' && f.vorher === 'S' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-      (f.vorvortag === '-' && frei(f.vorher) && f.nachher === 'U' && f.folgetagplus === 'U')
-    ) return 'amber';
+      if (f.vorher === '-' && f.vorvortag === 'N') return 'gelb';
+      if (
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === 'F')
+      ) return 'gelb';
 
-    // Gelb
-    if (
-      (f.vorher === '-' && f.vorvortag === 'U') ||
-      (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'U' && f.folgetagplus === 'F') ||
-      (frei(f.nachher) && f.folgetagplus === 'F')
-    ) return 'gelb';
+      if (f.vorher === 'S') return 'amber';
+      if (nichtFrei(f.vorvortag) && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') return 'amber';
+    }
 
-    // Grün
-    if (
-      (f.vorher === '-' && f.vorvortag === 'N') ||
-      (f.vorher === '-' && frei(f.nachher)) ||
-      (f.vorvortag === 'F' && f.vorher === 'F' && f.nachher === 'S' && f.folgetagplus === 'N')
-    ) return 'grün';
-  }
+    if (modalSchicht === 'N') {
+      if (f.vorher === 'U') return 'rot';
+      if (['KO', 'K', 'U', 'F'].includes(f.nachher)) return 'rot';
+      if (
+        (f.vorvortag === 'N' && f.vorher === 'N' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === '-' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
+        (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && frei(f.folgetagplus))
+      ) return 'rot';
 
-  return null;
-};
+      if (
+        (f.vorher === 'N' && f.nachher === 'N') ||
+        (f.vorher === 'N' && frei(f.nachher) && frei(f.folgetagplus)) ||
+        (f.vorvortag === 'N' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
+      ) return 'grün';
 
+      if (
+        f.nachher === 'S' ||
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
+        (f.vorvortag === 'U' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
+      ) return 'amber';
+
+      if (
+        (frei(f.nachher) && f.folgetagplus === 'F') ||
+        (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'K' && f.vorher === 'K' && frei(f.nachher) && f.folgetagplus === 'S') ||
+        (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && nichtFrei(f.folgetagplus))
+      ) return 'gelb';
+    }
+
+    if (modalSchicht === 'S') {
+      if (f.vorvortag === 'S' && frei(f.vorher) && frei(f.heute) && f.nachher === 'F' && f.folgetagplus === 'F') {
+        return 'amber';
+      }
+      if (f.vorher === 'U') return 'rot';
+
+      if (
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === '-') ||
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-') ||
+        (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && frei(f.folgetagplus)) ||
+        (f.vorvortag === '-' && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === 'S' && f.vorher === 'S' && f.nachher === 'F' && f.folgetagplus === 'F') ||
+        (f.vorvortag === '-' && frei(f.vorher) && f.nachher === 'U' && f.folgetagplus === 'U')
+      ) return 'amber';
+
+      if (
+        (f.vorher === '-' && f.vorvortag === 'U') ||
+        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'U' && f.folgetagplus === 'F') ||
+        (frei(f.nachher) && f.folgetagplus === 'F')
+      ) return 'gelb';
+
+      if (
+        (f.vorher === '-' && f.vorvortag === 'N') ||
+        (f.vorher === '-' && frei(f.nachher)) ||
+        (f.vorvortag === 'F' && f.vorher === 'F' && f.nachher === 'S' && f.folgetagplus === 'N')
+      ) return 'grün';
+    }
+
+    return null;
+  };
 
   if (!offen) return null;
 
@@ -413,11 +441,13 @@ const getBewertungsStufe = (f) => {
               <thead>
                 <tr className="text-left">
                   <th className="pl-2 text-left text-sm">Name</th>
+                  <th className="px-0 text-[10px]">---</th>
                   <th className="px-0 text-[10px]">--</th>
                   <th className="px-0 text-center">-</th>
                   <th className="px-0 text-center text-[10px]">{dayjs(modalDatum).format('DD.MM.YYYY')}</th>
                   <th className="px-0 text-center">+</th>
                   <th className="px-0 text-[10px]">++</th>
+                  <th className="px-0 text-[10px]">+++</th>
                 </tr>
               </thead>
               <tbody>
@@ -442,7 +472,6 @@ const getBewertungsStufe = (f) => {
                   })
                   .map((f, i) => {
                     const bewertung = getBewertungsStufe(f);
-
                     const istKollisionRot = bewertung === 'rot';
                     if (!kollidiertAktiv && istKollisionRot) return null;
 
@@ -455,8 +484,9 @@ const getBewertungsStufe = (f) => {
                     return (
                       <tr key={i} className={`text-center ${rowStyle}`}>
                         <td className="pl-2 text-left">{f.name}</td>
-                        <td className="text-[10px] text-gray-500 px-1">{f.vorvortag}</td>
-                        <td className="text-xs px-2">{f.vorher}</td>
+                        <td className="text-[10px] text-gray-500 px-1">{f.vor3}</td>
+                        <td className="text-[10px] text-gray-500 px-1">{f.vor2}</td>
+                        <td className="text-xs px-2">{f.vor1}</td>
                         <td className="text-md font-semibold px-2">
                           <span className={
                             f.heute === 'F' ? 'text-blue-500' :
@@ -467,8 +497,9 @@ const getBewertungsStufe = (f) => {
                             {f.heute}
                           </span>
                         </td>
-                        <td className="text-xs px-2">{f.nachher}</td>
-                        <td className="text-[10px] text-gray-500 px-1">{f.folgetagplus}</td>
+                        <td className="text-xs px-2">{f.nach1}</td>
+                        <td className="text-[10px] text-gray-500 px-1">{f.nach2}</td>
+                        <td className="text-[10px] text-gray-500 px-1">{f.nach3}</td>
                       </tr>
                     );
                   })}

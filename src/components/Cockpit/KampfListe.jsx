@@ -34,6 +34,9 @@ const fmt2 = (n) => {
   return Number.isFinite(v) ? v.toFixed(2) : '–';
 };
 
+// Nur eq anwenden, wenn Wert vorhanden
+const addEq = (q, col, val) => (val === null || val === undefined ? q : q.eq(col, val));
+
 const KampfListe = ({
   jahr,
   monat,
@@ -61,6 +64,9 @@ const KampfListe = ({
   // Urlaub & Stunden (gesamt/summe/rest)
   const [urlaubInfoMap, setUrlaubInfoMap] = useState({});
   const [stundenInfoMap, setStundenInfoMap] = useState({});
+
+  // Ausgrauen: Map userId -> [{von, bis}]
+  const [ausgrauenByUser, setAusgrauenByUser] = useState(new Map());
 
   // 🔒 Stabiler Tooltip: Name-Spalte
   const [hoveredUserId, setHoveredUserId] = useState(null);
@@ -117,6 +123,64 @@ const KampfListe = ({
     }
     setTage(neueTage);
   }, [jahr, monat]);
+
+  // --- Quali-Counts laden (gültig bis einschließlich cutoff) ---
+  const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
+    if (!userIds?.length) return {};
+    try {
+      const ids = userIds.map(String);
+      const { data, error } = await supabase
+        .from('DB_Qualifikation')
+        .select(
+          `
+          user_id,
+          quali,
+          created_at,
+          matrix:DB_Qualifikationsmatrix!inner(
+            id,
+            quali_kuerzel,
+            betriebs_relevant,
+            aktiv,
+            firma_id,
+            unit_id
+          )
+        `
+        )
+        .in('user_id', ids)
+        .eq('matrix.firma_id', firmaId)
+        .eq('matrix.unit_id', unitId)
+        .eq('matrix.betriebs_relevant', true)
+        .eq('matrix.aktiv', true)
+        .lte('created_at', cutoffIso);
+      if (error) {
+        console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
+        return {};
+      }
+      const map = {};
+      for (const row of data || []) {
+        const uid = String(row.user_id);
+        map[uid] = (map[uid] || 0) + 1;
+      }
+      return map;
+    } catch (e) {
+      console.error('❌ Fehler beim Laden der Quali-Counts:', e);
+      return {};
+    }
+  };
+
+  // --- Prüfen, ob User an date (YYYY-MM-DD) ausgegraut ist ---
+  const isGrey = (uid, dateISO) => {
+    const arr = ausgrauenByUser.get(String(uid));
+    if (!arr || arr.length === 0) return false;
+    const d = dayjs(dateISO);
+    for (const r of arr) {
+      const von = dayjs(r.von);
+      const bis = r.bis ? dayjs(r.bis) : null;
+      const inRange = d.isSameOrAfter(von, 'day') && (!bis || d.isSameOrBefore(bis, 'day'));
+      if (inRange) return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     const ladeKampfliste = async () => {
@@ -210,13 +274,41 @@ const KampfListe = ({
       // ---- Userinfos ----
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, user_visible')
+        .select('user_id, vorname, nachname, rolle') // user_visible entfernt
         .in('user_id', alleUserIds);
       if (userError) {
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
         return;
       }
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
+
+      // ---- Ausgrauen-Fenster laden (alle, die mit dem Monat überlappen) ----
+      const { data: ausRows, error: ausErr } = await supabase
+        .from('DB_Ausgrauen')
+        .select('user_id, von, bis')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .in('user_id', alleUserIds)
+        .lte('von', monthEnd) // von <= monthEnd
+        .or(`bis.is.null, bis.gte.${monthStart}`); // (bis null) oder bis >= monthStart
+
+      if (ausErr) {
+        console.error('❌ Fehler DB_Ausgrauen:', ausErr.message || ausErr);
+      }
+
+      const mapAus = new Map();
+      for (const uid of alleUserIds) mapAus.set(String(uid), []);
+      for (const r of (ausRows || [])) {
+        const uid = String(r.user_id);
+        const arr = mapAus.get(uid) || [];
+        arr.push({ von: r.von, bis: r.bis || null });
+        mapAus.set(uid, arr);
+      }
+      // sort ranges for tiny perf
+      for (const [uid, arr] of mapAus) {
+        arr.sort((a,b)=> dayjs(a.von).diff(dayjs(b.von)));
+      }
+      setAusgrauenByUser(mapAus);
 
       // ---- Quali-Counts ----
       const cutoffIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
@@ -242,7 +334,6 @@ const KampfListe = ({
           .in('user_id', alleUserIds),
       ]);
       if (urlaubRes.error) console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
-      if (stundenRes.error) console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
 
       const urlaubInfo = {};
       for (const r of urlaubRes.data || []) {
@@ -254,22 +345,19 @@ const KampfListe = ({
       }
       setUrlaubInfoMap(urlaubInfo);
 
-const stundenInfo = {};
-for (const r of stundenRes.data || []) {
-  const uid = String(r.user_id);
-  if (!idsSet.has(uid)) continue;
-
-  const gesamt = Number(r.stunden_gesamt) || 0;           // Ziel (Jahresvorgabe gesamt)
-  const summeJahr = Number(r.summe_jahr) || 0;            // Ist (nur dieses Jahr)
-  const uebernahme = Number(r.uebernahme_vorjahr) || 0;   // Übernahme Vorjahr
-
-  const istInklVorjahr = summeJahr + uebernahme;          // ⬅️ NEU: Ist inkl. Übernahme
-  const rest =  istInklVorjahr -gesamt;                   // Ziel minus Ist inkl. Vorjahr
-
-  // Wir nennen das Feld weiter "summe", damit dein Tooltip [gesamt – summe] beibehält.
-  stundenInfo[uid] = { summe: istInklVorjahr, gesamt, rest };
-}
-setStundenInfoMap(stundenInfo);
+      if (stundenRes.error) console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
+      const stundenInfo = {};
+      for (const r of stundenRes.data || []) {
+        const uid = String(r.user_id);
+        if (!idsSet.has(uid)) continue;
+        const gesamt = Number(r.stunden_gesamt) || 0;
+        const summeJahr = Number(r.summe_jahr) || 0;
+        const uebernahme = Number(r.uebernahme_vorjahr) || 0;
+        const istInklVorjahr = summeJahr + uebernahme;
+        const rest = istInklVorjahr - gesamt;
+        stundenInfo[uid] = { summe: istInklVorjahr, gesamt, rest };
+      }
+      setStundenInfoMap(stundenInfo);
 
       // ---- Schichtzuweisungen (für Schichtgruppe/Position) ----
       const { data: zuwRaw, error: zuwErr } = await supabase
@@ -313,32 +401,33 @@ setStundenInfoMap(stundenInfo);
       const gruppiert = {};
       for (const k of kampfData) {
         const tag = dayjs(k.datum).date();
-        const userId = String(k.user);
+        const userIdStr = String(k.user);
         const creatorId = k.created_by ? String(k.created_by) : null;
 
-        const userInfo = userById.get(userId);
+        const userInfo = userById.get(userIdStr);
         const creatorInfo = creatorId ? userById.get(creatorId) : null;
         if (!userInfo) continue;
 
-        const assnToday = getAssnForDate(userId, heutigesDatum);
-        const assnAtCell = assnToday || getAssnForDate(userId, k.datum);
+        const assnToday = getAssnForDate(userIdStr, heutigesDatum);
+        const assnAtCell = assnToday || getAssnForDate(userIdStr, k.datum);
         const rowSchichtgruppe = assnToday?.schichtgruppe || assnAtCell?.schichtgruppe || null;
         const rowPosition = assnToday?.position_ingruppe ?? assnAtCell?.position_ingruppe ?? 999;
 
-        if (!gruppiert[userId]) {
-          gruppiert[userId] = {
+        if (!gruppiert[userIdStr]) {
+          const greyToday = isGrey(userIdStr, heutigesDatum);
+          gruppiert[userIdStr] = {
             schichtgruppe: rowSchichtgruppe,
             position: rowPosition,
             rolle: userInfo.rolle,
-            user_visible: userInfo.user_visible || false,
             name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
             vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
             tage: {},
-            qualiCount: qualiMap[userId] || 0,
+            qualiCount: qualiMap[userIdStr] || 0,
+            greyToday, // NEU: für Namensspalte & Gruppenzähler
           };
         }
 
-        gruppiert[userId].tage[tag] = {
+        gruppiert[userIdStr].tage[tag] = {
           kuerzel: k.ist_schicht?.kuerzel || '-',
           bg: k.ist_schicht?.farbe_bg || '',
           text: k.ist_schicht?.farbe_text || '',
@@ -355,19 +444,23 @@ setStundenInfoMap(stundenInfo);
         };
       }
 
+      // ---- Gruppenzähler: nur Users zählen, die HEUTE nicht ausgegraut sind ----
       const zaehler = {};
       for (const [, e] of Object.entries(gruppiert)) {
+        if (e.greyToday) continue; // heute ausgegraut -> nicht mitzählen
         const gruppe = e.schichtgruppe || 'Unbekannt';
         zaehler[gruppe] = (zaehler[gruppe] || 0) + 1;
       }
       setGruppenZähler(zaehler);
 
+      // Sichtbare Gruppen filtern
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
           delete gruppiert[key];
         }
       });
 
+      // Sortierung Gruppe -> Position
       const sortiert = Object.entries(gruppiert).sort(([, a], [, b]) => {
         const schichtSort = (a.schichtgruppe || '').localeCompare(b.schichtgruppe || '');
         return schichtSort !== 0 ? schichtSort : (a.position ?? 999) - (b.position ?? 999);
@@ -377,51 +470,8 @@ setStundenInfoMap(stundenInfo);
     };
 
     ladeKampfliste();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, dateStrByTag, setGruppenZähler]);
-
-  // --- Quali-Counts laden (gültig bis einschließlich cutoff) ---
-  const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
-    if (!userIds?.length) return {};
-    try {
-      const ids = userIds.map(String);
-      const { data, error } = await supabase
-        .from('DB_Qualifikation')
-        .select(
-          `
-          user_id,
-          quali,
-          created_at,
-          matrix:DB_Qualifikationsmatrix!inner(
-            id,
-            quali_kuerzel,
-            betriebs_relevant,
-            aktiv,
-            firma_id,
-            unit_id
-          )
-        `
-        )
-        .in('user_id', ids)
-        .eq('matrix.firma_id', firmaId)
-        .eq('matrix.unit_id', unitId)
-        .eq('matrix.betriebs_relevant', true)
-        .eq('matrix.aktiv', true)
-        .lte('created_at', cutoffIso);
-      if (error) {
-        console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
-        return {};
-      }
-      const map = {};
-      for (const row of data || []) {
-        const uid = String(row.user_id);
-        map[uid] = (map[uid] || 0) + 1;
-      }
-      return map;
-    } catch (e) {
-      console.error('❌ Fehler beim Laden der Quali-Counts:', e);
-      return {};
-    }
-  };
 
   return (
     <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
@@ -456,7 +506,7 @@ setStundenInfoMap(stundenInfo);
                     ${index % 2 === 0 ? 'bg-gray-300 dark:bg-gray-700/40' : 'bg-gray-100 dark:bg-gray-700/20'}
                     ${neueGruppe ? 'mt-2' : ''}
                     border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700
-                    ${!e.user_visible ? 'opacity-50' : ''} hover:z-[9999]`}
+                    ${e.greyToday ? 'opacity-50' : ''} hover:z-[9999]`}
                   style={{ overflow: 'visible' }}
                 >
                   <span
@@ -536,13 +586,14 @@ setStundenInfoMap(stundenInfo);
               return (
                 <div
                   key={userId}
-                  className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''} ${!e.user_visible ? 'opacity-50' : ''}`}
+                  className={`flex gap-[2px] ${neueGruppe ? 'mt-2' : ''}`}
                   style={{ overflow: 'visible' }}
                 >
                   {tage.map((t) => {
                     const eintragTag = e.tage[t.tag];
                     const zellenDatum = dateStrByTag[t.tag];
                     const istHeute = zellenDatum === heutigesDatum;
+                    const zelleGrey = isGrey(userId, zellenDatum);
 
                     return (
                       <div
@@ -550,7 +601,8 @@ setStundenInfoMap(stundenInfo);
                         className={`relative group w-[48px] min-w-[48px] h-[18px] text-center border-b flex items-center justify-center rounded cursor-pointer
                           ${istHeute ? 'ring-2 ring-yellow-400' : ''}
                           border-gray-300 dark:border-gray-700
-                          ${!eintragTag ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200' : ''}`}
+                          ${!eintragTag ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200' : ''}
+                          ${zelleGrey ? 'opacity-50' : ''}`}
                         style={{
                           ...(eintragTag ? { backgroundColor: eintragTag.bg, color: eintragTag.text } : {}),
                           overflow: 'visible',
@@ -618,7 +670,6 @@ setStundenInfoMap(stundenInfo);
                                 borderLeft: '10px solid transparent',
                                 zIndex: 10,
                               }}
-                              //title="Geändert"
                             />
                           </>
                         )}
@@ -636,7 +687,6 @@ setStundenInfoMap(stundenInfo);
                                 borderRight: '10px solid transparent',
                                 zIndex: 10,
                               }}
-                              //title="Kommentar vorhanden"
                             />
                           </>
                         )}

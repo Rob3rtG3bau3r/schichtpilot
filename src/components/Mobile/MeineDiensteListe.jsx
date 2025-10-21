@@ -1,4 +1,4 @@
-// MeineDiensteListe.jsx
+// src/components/Dashboard/MeineDiensteListe.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
@@ -23,12 +23,19 @@ export default function MeineDiensteListe() {
   const [eintraege, setEintraege] = useState([]);
   const [startDatum, setStartDatum] = useState(dayjs().startOf('month'));
   const [infoOffenIndex, setInfoOffenIndex] = useState(null);
+
+  // Bedarf: wir halten ein "raw" + ein gepatchtes Objekt (für ausgegraute Tage)
+  const [bedarfStatusRaw, setBedarfStatusRaw] = useState({});
   const [bedarfStatus, setBedarfStatus] = useState({});
+
   const [urlaubModal, setUrlaubModal] = useState({ offen: false, tag: '', datum: '', schicht: '' });
   const [hilfeModal, setHilfeModal] = useState({ offen: false, tag: '', datum: '', schicht: '' });
   const [feierMap, setFeierMap] = useState({});
 
-  // 💡 WICHTIG: sofort synchron initialisieren (verhindert Flackern)
+  // Ausgrauen-Tage des Users im Monat (Set mit 'YYYY-MM-DD')
+  const [ausgegrautTage, setAusgegrautTage] = useState(new Set());
+
+  // 💡 sofort synchron initialisieren (verhindert Flackern)
   const initialAnsicht = (localStorage.getItem('mobile_kalender') ?? 'kalender') === 'kalender';
   const [kalenderAnsicht, setKalenderAnsicht] = useState(initialAnsicht);
 
@@ -50,161 +57,213 @@ export default function MeineDiensteListe() {
     return () => window.removeEventListener('schichtpilot:prefchange', onPrefChange);
   }, []);
 
+  // Initial & bei Wechsel Monat/User alles laden
   useEffect(() => {
-    if (gespeicherteId && startDatum) {
-      ladeDienste();
-      ladeBedarfStatus();
-      ladeFeiertageUndFerien();
-    }
+    if (!gespeicherteId || !startDatum) return;
+    ladeDienste();
+    ladeFeiertageUndFerien();
+    ladeAusgrauenTage();     // ⬅️ wichtig: erst Ausgrauen, dann Bedarf (nächster Effekt patched)
   }, [gespeicherteId, startDatum]);
 
-// in MeineDiensteListe.jsx
-const ladeDienste = async () => {
-  if (!gespeicherteId || !firma || !unit || !startDatum) {
-    setEintraege([]);
-    return;
-  }
+  // Bedarf separat laden (und immer neu patchen, wenn Ausgrau-Set sich ändert)
+  useEffect(() => {
+    if (!gespeicherteId || !firma || !unit || !startDatum) return;
+    (async () => {
+      const raw = await ermittleBedarfUndStatus(
+        String(gespeicherteId), parseInt(firma, 10), parseInt(unit, 10), startDatum.toDate()
+      );
+      setBedarfStatusRaw(raw || {});
+    })();
+  }, [gespeicherteId, startDatum, firma, unit]);
 
-  const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
-  const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+  // Patch: ausgegraute Tage neutralisieren (keine Anwesenheit/kein Dienst)
+  useEffect(() => {
+    const patched = { ...(bedarfStatusRaw || {}) };
+    if (ausgegrautTage && ausgegrautTage.size > 0) {
+      Object.keys(patched).forEach((d) => {
+        if (ausgegrautTage.has(d)) {
+          // neutral/kein Dienst
+          const current = patched[d] || {};
+          patched[d] = {
+            ...current,
+            istAnwesend: false,
+            // häufige Felder; wir setzen defensiv:
+            kuerzel: '-',                // falls UI kuerzel nutzt
+            ist_schicht: null,           // falls Objekt erwartet
+            ist_schicht_id: null,
+          };
+        }
+      });
+    }
+    setBedarfStatus(patched);
+  }, [bedarfStatusRaw, ausgegrautTage]);
 
-  // 1) Komponierten Tagesplan aus der View holen (wie in KampfListe)
-  const { data: viewRows, error: viewErr } = await supabase
-    .from('v_tagesplan')
-    .select(`
-      datum,
-      user_id,
-      ist_schichtart_id,
-      ist_startzeit,
-      ist_endzeit,
-      hat_aenderung,
-      kommentar,
-      ist_created_at,
-      ist_created_by
-    `)
-    .eq('firma_id', Number(firma))
-    .eq('unit_id', Number(unit))
-    .eq('user_id', String(gespeicherteId))
-    .gte('datum', monthStart)
-    .lte('datum', monthEnd)
-    .order('datum', { ascending: true });
+  // ===== Loader =====
 
-  if (viewErr) {
-    console.error('❌ v_tagesplan (mobil):', viewErr.message || viewErr);
-    setEintraege([]);
-    return;
-  }
+  const ladeDienste = async () => {
+    if (!gespeicherteId || !firma || !unit || !startDatum) {
+      setEintraege([]);
+      return;
+    }
 
-  // 2) Schichtarten (Kürzel/Farben) nachladen
-  const schichtIds = Array.from(new Set(
-    (viewRows || []).map(r => r.ist_schichtart_id).filter(Boolean)
-  ));
-  let schichtMap = new Map();
-  if (schichtIds.length) {
-    const { data: schichten, error: sErr } = await supabase
-      .from('DB_SchichtArt')
-      .select('id, kuerzel, farbe_bg, farbe_text')
+    const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
+    const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+
+    // 1) Komponierter Tagesplan aus View (nur der eigene User)
+    const { data: viewRows, error: viewErr } = await supabase
+      .from('v_tagesplan')
+      .select(`
+        datum,
+        user_id,
+        ist_schichtart_id,
+        ist_startzeit,
+        ist_endzeit,
+        hat_aenderung,
+        kommentar,
+        ist_created_at,
+        ist_created_by
+      `)
       .eq('firma_id', Number(firma))
       .eq('unit_id', Number(unit))
-      .in('id', schichtIds);
-    if (sErr) {
-      console.error('❌ DB_SchichtArt (mobil):', sErr.message || sErr);
-    } else {
-      schichtMap = new Map((schichten || []).map(s => [s.id, s]));
+      .eq('user_id', String(gespeicherteId))
+      .gte('datum', monthStart)
+      .lte('datum', monthEnd)
+      .order('datum', { ascending: true });
+
+    if (viewErr) {
+      console.error('❌ v_tagesplan (mobil):', viewErr.message || viewErr);
+      setEintraege([]);
+      return;
     }
-  }
 
-  // 3) In das Mobile-Format mappen (RenderKalender erwartet diese Felder)
-  const mapped = (viewRows || []).map(r => {
-    const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
-    return {
-      datum: r.datum,
-      ist_schicht_id: r.ist_schichtart_id || null,
-      ist_schicht: s
-        ? { kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
-        : null, // RenderKalender fällt dann sauber auf Defaults zurück
-      startzeit_ist: r.ist_startzeit || null,
-      endzeit_ist:   r.ist_endzeit   || null,
-      kommentar:     r.kommentar     || null,
-      aenderung:     !!r.hat_aenderung,
-      created_at:    r.ist_created_at || null,
-      created_by:    r.ist_created_by || null,
-    };
-  });
-
-  setEintraege(mapped);
-};
-
-  const ladeBedarfStatus = async () => {
-    if (firma && unit && gespeicherteId) {
-      const status = await ermittleBedarfUndStatus(
-        gespeicherteId, parseInt(firma), parseInt(unit), startDatum.toDate()
-      );
-      setBedarfStatus(status);
+    // 2) Schichtarten (Kürzel/Farben) nachladen
+    const schichtIds = Array.from(new Set(
+      (viewRows || []).map(r => r.ist_schichtart_id).filter(Boolean)
+    ));
+    let schichtMap = new Map();
+    if (schichtIds.length) {
+      const { data: schichten, error: sErr } = await supabase
+        .from('DB_SchichtArt')
+        .select('id, kuerzel, farbe_bg, farbe_text')
+        .eq('firma_id', Number(firma))
+        .eq('unit_id', Number(unit))
+        .in('id', schichtIds);
+      if (sErr) {
+        console.error('❌ DB_SchichtArt (mobil):', sErr.message || sErr);
+      } else {
+        schichtMap = new Map((schichten || []).map(s => [s.id, s]));
+      }
     }
+
+    // 3) Mobile-Mapping (nichts „grau“ darstellen; reine Anzeige)
+    const mapped = (viewRows || []).map(r => {
+      const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
+      return {
+        datum: r.datum,
+        ist_schicht_id: r.ist_schichtart_id || null,
+        ist_schicht: s
+          ? { kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
+          : null,
+        startzeit_ist: r.ist_startzeit || null,
+        endzeit_ist:   r.ist_endzeit   || null,
+        kommentar:     r.kommentar     || null,
+        aenderung:     !!r.hat_aenderung,
+        created_at:    r.ist_created_at || null,
+        created_by:    r.ist_created_by || null,
+      };
+    });
+
+    setEintraege(mapped);
+  };
+
+  const ladeAusgrauenTage = async () => {
+    if (!gespeicherteId || !firma || !unit || !startDatum) {
+      setAusgegrautTage(new Set());
+      return;
+    }
+    const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
+    const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+
+    const { data: ausRows, error } = await supabase
+      .from('DB_Ausgrauen')
+      .select('von, bis')
+      .eq('firma_id', Number(firma))
+      .eq('unit_id', Number(unit))
+      .eq('user_id', String(gespeicherteId))
+      .lte('von', monthEnd)
+      .or(`bis.is.null, bis.gte.${monthStart}`);
+
+    if (error) {
+      console.error('❌ DB_Ausgrauen (mobil):', error.message || error);
+      setAusgegrautTage(new Set());
+      return;
+    }
+
+    const set = new Set();
+    for (const r of (ausRows || [])) {
+      let d = dayjs(r.von);
+      const last = r.bis ? dayjs(r.bis) : dayjs(monthEnd);
+      // Sicherheitslimit
+      for (let i = 0; i < 1000 && !d.isAfter(last, 'day'); i++) {
+        const ds = d.format('YYYY-MM-DD');
+        if (ds >= monthStart && ds <= monthEnd) set.add(ds);
+        d = d.add(1, 'day');
+      }
+    }
+    setAusgegrautTage(set);
   };
 
   const ladeFeiertageUndFerien = async () => {
-  if (!startDatum) {
-    setFeierMap({});
-    return;
-  }
-  const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
-  const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+    if (!startDatum) {
+      setFeierMap({});
+      return;
+    }
+    const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
+    const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
 
-  // Falls du das Bundesland speicherst (z. B. in localStorage), sonst null => alle
-  const bundesland = localStorage.getItem('bundesland') || null;
+    const bundesland = localStorage.getItem('bundesland') || null;
 
-  // Range-Overlap: von <= monthEnd AND bis >= monthStart
-  let q = supabase
-    .from('DB_FeiertageundFerien')
-    .select('von,bis,name,typ,farbe,bundesland')
-    .lte('von', monthEnd)
-    .gte('bis', monthStart);
+    let q = supabase
+      .from('DB_FeiertageundFerien')
+      .select('von,bis,name,typ,farbe,bundesland')
+      .lte('von', monthEnd)
+      .gte('bis', monthStart);
 
-  // Wenn ein Bundesland gesetzt ist, filtern – sonst bundesweit alles
-  if (bundesland) {
-    q = q.eq('bundesland', bundesland);
-  }
+    if (bundesland) q = q.eq('bundesland', bundesland);
 
-  const { data, error } = await q;
-  if (error) {
-    console.error('❌ Feiertage/Ferien:', error.message || error);
-    setFeierMap({});
-    return;
-  }
+    const { data, error } = await q;
+    if (error) {
+      console.error('❌ Feiertage/Ferien:', error.message || error);
+      setFeierMap({});
+      return;
+    }
 
-  // Helper: Default-Farben je Typ (nur falls "farbe" null ist)
-  const defaultColor = (typ) => {
-    if (!typ) return '#16a34a'; // grün
-    const t = typ.toLowerCase();
-    if (t.includes('feiertag')) return '#16a34a'; // grün
-    if (t.includes('ferien'))   return '#f59e0b'; // amber
-    return '#16a34a';
+    const defaultColor = (typ) => {
+      if (!typ) return '#16a34a';
+      const t = typ.toLowerCase();
+      if (t.includes('feiertag')) return '#16a34a';
+      if (t.includes('ferien'))   return '#f59e0b';
+      return '#16a34a';
+    };
+
+    const map = {};
+    (data || []).forEach(row => {
+      const start = dayjs(row.von);
+      const end   = dayjs(row.bis);
+      const color = row.farbe || defaultColor(row.typ);
+
+      const days = Math.min(end.diff(start, 'day') + 1, 400);
+      for (let i = 0; i < days; i++) {
+        const d = start.add(i, 'day').format('YYYY-MM-DD');
+        if (!map[d]) map[d] = [{ name: row.name, typ: row.typ, farbe: color }];
+        else map[d].push({ name: row.name, typ: row.typ, farbe: color });
+      }
+    });
+
+    setFeierMap(map);
   };
 
-  // Spannen in einzelne Tage auflösen
-  const map = {};
-  (data || []).forEach(row => {
-    const start = dayjs(row.von);
-    const end   = dayjs(row.bis);
-    const color = row.farbe || defaultColor(row.typ);
-
-    // Sicherheit: max 400 Tage, um Ausreißer zu vermeiden
-    const days = Math.min(end.diff(start, 'day') + 1, 400);
-    for (let i = 0; i < days; i++) {
-      const d = start.add(i, 'day').format('YYYY-MM-DD');
-      // Wenn bereits etwas drin ist (z. B. Ferien + Feiertag), mergen wir kurz
-      if (!map[d]) {
-        map[d] = [{ name: row.name, typ: row.typ, farbe: color }];
-      } else {
-        map[d].push({ name: row.name, typ: row.typ, farbe: color });
-      }
-    }
-  });
-
-  setFeierMap(map);
-};
+  // ===== UI-Actions / Navigation =====
 
   const zurueckZuHeute = () => {
     const heute = dayjs();
@@ -224,7 +283,7 @@ const ladeDienste = async () => {
   };
 
   const changeYear = (event) => {
-    const newYear = parseInt(event.target.value);
+    const newYear = parseInt(event.target.value, 10);
     if (!isNaN(newYear)) {
       const neuesDatum = startDatum.set('year', newYear).startOf('month');
       setJahr(newYear);
@@ -283,7 +342,7 @@ const ladeDienste = async () => {
               title="Nächster Monat"
             >▶︎</button>
 
-            {/* ✅ Umschalter wurde entfernt – lebt jetzt in den Einstellungen */}
+            {/* Umschalter lebt in den Einstellungen */}
           </div>
         </div>
       </div>
@@ -294,20 +353,21 @@ const ladeDienste = async () => {
             startDatum={startDatum}
             eintraege={eintraege}
             bedarfStatus={bedarfStatus}
-            feierMap={feierMap}   
+            feierMap={feierMap}
             infoOffenIndex={infoOffenIndex}
             setInfoOffenIndex={setInfoOffenIndex}
             urlaubModal={urlaubModal}
             setUrlaubModal={setUrlaubModal}
             hilfeModal={hilfeModal}
             setHilfeModal={setHilfeModal}
+            ausgegrautTage={ausgegrautTage}   // ⬅️ wichtig: fürs Blocken von Aktionen
           />
         ) : (
           <RenderListe
             startDatum={startDatum}
             eintraege={eintraege}
             bedarfStatus={bedarfStatus}
-            feierMap={feierMap} 
+            feierMap={feierMap}
             infoOffenIndex={infoOffenIndex}
             setInfoOffenIndex={setInfoOffenIndex}
             urlaubModal={urlaubModal}
@@ -315,6 +375,7 @@ const ladeDienste = async () => {
             hilfeModal={hilfeModal}
             setHilfeModal={setHilfeModal}
             heuteRef={heuteRef}
+            ausgegrautTage={ausgegrautTage}   // ⬅️ ebenso hier
           />
         )}
       </div>

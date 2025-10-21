@@ -2,16 +2,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
-import { AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { AlertTriangle, Info, CheckCircle, Pencil, Trash2, X, Check } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 
 const ALLOWED_ROLES = ['Employee', 'Team_Leader', 'Planner'];
 
 const Card = ({ className = '', children, ...rest }) => (
   <div className={`rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm ${className}`} {...rest}>{children}</div>
-);
-const SectionTitle = ({ children }) => (
-  <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 text-sm font-semibold tracking-wide text-gray-700 dark:text-gray-200">{children}</div>
 );
 const Label = ({ children }) => <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">{children}</label>;
 const Input = (props) => <input {...props} className={`w-full rounded-xl border px-3 py-2 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
@@ -26,42 +23,34 @@ const Pill = ({ children }) => <span className="inline-flex items-center rounded
 
 function wechselText(wechsel){ if(!wechsel) return 'Kein Wechsel vorgesehen'; const d = dayjs(wechsel.datum).format('DD.MM.YYYY'); return `${d} → ${wechsel.schichtgruppe}`; }
 
-// helper: eq nur anwenden, wenn val vorhanden
 const addEq = (q, col, val) => (val === null || val === undefined ? q : q.eq(col, val));
 
 // 🔔 kleine Inline-Notice
 function Notice({ type='info', text, onClose }, ref) {
   const styles = {
-    success: 'bg-gray-500/30 dark:gray-500/50 text-gray-900 dark:text-gray-100',
+    success: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200',
     warning: 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200',
     error:   'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-200',
     info:    'bg-sky-50 dark:bg-sky-900/20 border-sky-300 dark:border-sky-700 text-sky-800 dark:text-sky-200',
   }[type] || '';
   const Icon = type==='success' ? CheckCircle : type==='error' ? AlertTriangle : Info;
   return (
-    <div
-      ref={ref}
-      role="status"
-      aria-live="polite"
-      className={`mb-3 rounded-xl border px-3 py-2 flex items-start gap-2 ${styles}`}
-    >
+    <div ref={ref} role="status" aria-live="polite" className={`mb-3 rounded-xl border px-3 py-2 flex items-start gap-2 ${styles}`}>
       <Icon className="w-4 h-4 mt-0.5 shrink-0" />
       <div className="text-sm flex-1">{text}</div>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Meldung schließen"
-        className="text-xs opacity-70 hover:opacity-100"
-      >
-        ✕
-      </button>
+      <button type="button" onClick={onClose} aria-label="Meldung schließen" className="text-xs opacity-70 hover:opacity-100">✕</button>
     </div>
   );
 }
 const NoticeBar = React.forwardRef(Notice);
 
+// Hilfsfunktionen
+const todayStr = () => dayjs().format('YYYY-MM-DD');
+const within = (d, von, bis) => dayjs(d).isSameOrAfter(von) && (!bis || dayjs(d).isSameOrBefore(bis));
+const cmpDate = (a, b) => dayjs(a).diff(dayjs(b));
+
 export default function Stammdaten({ userId, onSaved, onCancel }) {
-  // === WICHTIG: robuste Kontext-Keys ===
+  // Kontext
   const rollen = useRollen() || {};
   const firma = rollen.sichtFirma ?? rollen.firma_id ?? rollen.firmaId ?? null;
   const unit  = rollen.sichtUnit  ?? rollen.unit_id  ?? rollen.unitId  ?? null;
@@ -72,42 +61,59 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   // Editierbar
   const [nachname, setNachname] = useState('');
   const [rolle, setRolle] = useState('Employee');
-  const [ausgrauen, setAusgrauen] = useState(false);   // 1:1 user_visible
+
+  // Aktiv-Status
   const [aktiv, setAktiv] = useState(true);
 
   // Deaktivierungs-Optionen
   const [willLoeschenKampfliste, setWillLoeschenKampfliste] = useState(false);
-  const [loeschDatum, setLoeschDatum] = useState(dayjs().format('YYYY-MM-DD'));
+  const [loeschDatum, setLoeschDatum] = useState(todayStr());
 
   // Anzeige
   const [aktuelleSchicht, setAktuelleSchicht] = useState(null);
   const [geplanterWechsel, setGeplanterWechsel] = useState(null);
-  const [qualis, setQualis] = useState([]); // {label, seit}
+  const [qualis, setQualis] = useState([]);
 
-  // 🔔 Notice-State
-  const [notice, setNotice] = useState(null); // { type, text }
+  // Ausgrauen: mehrere Zeitfenster
+  const [ausgrauen, setAusgrauen] = useState([]); // [{id, von, bis}]
+  const [newVon, setNewVon] = useState(todayStr());
+  const [newBis, setNewBis] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [editVon, setEditVon] = useState('');
+  const [editBis, setEditBis] = useState('');
+
+  // Notice
+  const [notice, setNotice] = useState(null);
   const noticeRef = useRef(null);
   const noticeTimer = useRef(null);
   const showNotice = (type, text, timeoutMs = 3000) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     setNotice({ type, text });
     setTimeout(()=> noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
-    if (timeoutMs) {
-      noticeTimer.current = setTimeout(() => setNotice(null), timeoutMs);
-    }
+    if (timeoutMs) noticeTimer.current = setTimeout(() => setNotice(null), timeoutMs);
   };
 
+  // Daten laden
   useEffect(()=>{
-    // Reset bei neuer Auswahl
-    setUser(null); setNachname(''); setRolle('Employee'); setAusgrauen(false); setAktiv(true);
-    setWillLoeschenKampfliste(false); setLoeschDatum(dayjs().format('YYYY-MM-DD'));
-    setAktuelleSchicht(null); setGeplanterWechsel(null); setQualis([]);
+    // Reset
+    setUser(null);
+    setNachname('');
+    setRolle('Employee');
+    setAktiv(true);
+    setWillLoeschenKampfliste(false);
+    setLoeschDatum(todayStr());
+    setAktuelleSchicht(null);
+    setGeplanterWechsel(null);
+    setQualis([]);
+    setAusgrauen([]);
+    setNewVon(todayStr()); setNewBis('');
+    setEditId(null); setEditVon(''); setEditBis('');
     setNotice(null);
 
     if (!userId) return;
 
     (async ()=>{
-      // === DB_User: nur filtern, wenn firma/unit vorhanden ===
+      // User
       let uQ = supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle, user_visible, aktiv, inaktiv_at, funktion, firma_id, unit_id')
@@ -120,48 +126,54 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       setUser(u);
       setNachname(u.nachname || '');
       setRolle(u.rolle || 'Employee');
-      setAusgrauen(!u.user_visible);
       setAktiv(u.aktiv ?? true);
 
-      const heute = dayjs().format('YYYY-MM-DD');
+      const heute = todayStr();
 
-      // === Schichtzuweisungen für den User laden (statt Kampfliste)
+      // Ausgrauen-Fenster laden (alle)
+      try {
+        let aQ = supabase
+          .from('DB_Ausgrauen')
+          .select('id, von, bis')
+          .eq('user_id', u.user_id);
+        aQ = addEq(addEq(aQ, 'firma_id', firma ?? u.firma_id), 'unit_id', unit ?? u.unit_id);
+
+        const { data: aRows, error: aErr } = await aQ;
+        if (!aErr && aRows) {
+          const sorted = [...aRows].sort((x,y)=>cmpDate(x.von,y.von));
+          setAusgrauen(sorted);
+        }
+      } catch(err) {
+        console.error('DB_Ausgrauen load:', err);
+      }
+
+      // Schichtzuweisungen
       let zQ = supabase
         .from('DB_SchichtZuweisung')
         .select('von_datum, bis_datum, schichtgruppe, firma_id, unit_id')
         .eq('user_id', u.user_id);
-      zQ = addEq(addEq(zQ, 'firma_id', firma), 'unit_id', unit);
+      zQ = addEq(addEq(zQ, 'firma_id', firma ?? u.firma_id), 'unit_id', unit ?? u.unit_id);
 
-      const { data: zData, error: zErr } = await zQ;
-      if (zErr) {
-        console.error('DB_SchichtZuweisung:', zErr);
-      }
-
+      const { data: zData } = await zQ;
       const zuw = (zData || []).filter(z => z.firma_id === u.firma_id && z.unit_id === u.unit_id);
 
-      // Aktuell gültige Zuweisung (heute)
       const heuteGueltig = zuw
         .filter(z => z.von_datum <= heute && (!z.bis_datum || z.bis_datum >= heute))
-        .sort((a,b) => a.von_datum < b.von_datum ? 1 : -1); // max von_datum zuerst
+        .sort((a,b) => a.von_datum < b.von_datum ? 1 : -1);
       const aktuell = heuteGueltig[0] || null;
       setAktuelleSchicht(aktuell?.schichtgruppe || null);
 
-      // Geplanter Wechsel = nächster Eintrag nach heute (erster Start > heute), optional andere Gruppe
       const zukunft = zuw
         .filter(z => z.von_datum > heute)
-        .sort((a,b) => a.von_datum > b.von_datum ? 1 : -1); // frühester zuerst
-
+        .sort((a,b) => a.von_datum > b.von_datum ? 1 : -1);
       let wechsel = null;
       if (zukunft.length > 0) {
         const firstFuture = zukunft[0];
-        // Wenn gleiche Gruppe sofort folgt, suchen wir den ersten, bei dem sich die Gruppe ändert
         wechsel = zukunft.find(z => z.schichtgruppe !== (aktuell?.schichtgruppe || null)) || firstFuture;
-        // Falls du NUR echte Gruppenwechsel zeigen willst:
-        // wechsel = zukunft.find(z => z.schichtgruppe !== (aktuell?.schichtgruppe || null)) || null;
       }
       setGeplanterWechsel(wechsel ? { datum: wechsel.von_datum, schichtgruppe: wechsel.schichtgruppe } : null);
 
-      // === Qualifikationen: Zuweisungen + Matrix (robust) – unverändert
+      // Qualifikationen
       const { data: qData } = await supabase
         .from('DB_Qualifikation')
         .select('quali, created_at')
@@ -170,13 +182,12 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       const ids = Array.from(new Set((qData||[]).map(q=>q.quali).filter(v=>v!=null)));
       const byId = new Map();
       if (ids.length>0) {
-        let { data: mData, error: mErr } = await supabase
+        let { data: mData } = await supabase
           .from('DB_Qualifikationsmatrix')
           .select('id, quali_kuerzel, qualifikation, aktiv, firma_id, unit_id')
           .in('id', ids);
-        if (!mErr && mData) {
-          mData.forEach(m => byId.set(m.id, m));
-        } else {
+        if (mData) mData.forEach(m => byId.set(m.id, m));
+        else {
           const { data: alt } = await supabase
             .from('DB_QualifikationMatrix')
             .select('id, quali_kuerzel, qualifikation')
@@ -195,6 +206,87 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
 
   const disabled = loading || !userId;
 
+  // === Ausgrauen CRUD ===
+  const validateRange = (von, bis) => {
+    if (!von) return 'Bitte „Von“-Datum setzen.';
+    if (bis && dayjs(bis).isBefore(dayjs(von))) return '„Bis“ darf nicht vor „Von“ liegen.';
+    return null;
+  };
+
+  const reloadAusgrauen = async (u = user) => {
+    if (!u) return;
+    let aQ = supabase
+      .from('DB_Ausgrauen')
+      .select('id, von, bis')
+      .eq('user_id', u.user_id);
+    aQ = addEq(addEq(aQ, 'firma_id', firma ?? u.firma_id), 'unit_id', unit ?? u.unit_id);
+    const { data } = await aQ;
+    setAusgrauen((data || []).sort((x,y)=>cmpDate(x.von,y.von)));
+  };
+
+  const addWindow = async () => {
+    const err = validateRange(newVon, newBis);
+    if (err) { showNotice('warning', err, 6000); return; }
+    const payload = {
+      user_id: user.user_id,
+      firma_id: (firma ?? user.firma_id) ?? null,
+      unit_id: unit ?? user.unit_id,
+      von: newVon,
+      bis: newBis || null,
+      comment: 'Stammdaten: neues Ausgrauen-Fenster',
+    };
+    const res = await supabase.from('DB_Ausgrauen').insert(payload);
+    if (res.error) {
+      if (String(res.error.message||'').includes('overlap') || String(res.error.details||'').includes('ex_ausgrauen')) {
+        showNotice('error', 'Zeitfenster überschneidet sich mit einem bestehenden Eintrag. Bitte anpassen.', 7000);
+      } else {
+        console.error(res.error);
+        showNotice('error', 'Fenster konnte nicht angelegt werden.');
+      }
+      return;
+    }
+    setNewVon(todayStr()); setNewBis('');
+    await reloadAusgrauen();
+    showNotice('success', 'Ausgrauen-Fenster angelegt.');
+  };
+
+  const startEdit = (row) => {
+    setEditId(row.id);
+    setEditVon(row.von);
+    setEditBis(row.bis || '');
+  };
+  const cancelEdit = () => { setEditId(null); setEditVon(''); setEditBis(''); };
+
+  const saveEdit = async () => {
+    const err = validateRange(editVon, editBis);
+    if (err) { showNotice('warning', err, 6000); return; }
+    const res = await supabase.from('DB_Ausgrauen').update({ von: editVon, bis: editBis || null }).eq('id', editId);
+    if (res.error) {
+      if (String(res.error.message||'').includes('overlap') || String(res.error.details||'').includes('ex_ausgrauen')) {
+        showNotice('error', 'Zeitfenster überschneidet sich mit einem bestehenden Eintrag. Bitte anpassen.', 7000);
+      } else {
+        console.error(res.error);
+        showNotice('error', 'Fenster konnte nicht gespeichert werden.');
+      }
+      return;
+    }
+    await reloadAusgrauen();
+    cancelEdit();
+    showNotice('success', 'Ausgrauen-Fenster gespeichert.');
+  };
+
+  const deleteWindow = async (id) => {
+    const res = await supabase.from('DB_Ausgrauen').delete().eq('id', id);
+    if (res.error) {
+      console.error(res.error);
+      showNotice('error', 'Fenster konnte nicht gelöscht werden.');
+      return;
+    }
+    await reloadAusgrauen();
+    showNotice('success', 'Ausgrauen-Fenster gelöscht.');
+  };
+
+  // === Speichern Stammdaten (ohne Ausgrauen, da sofort gespeichert) ===
   const save = async ()=>{
     if(!user) return;
     setLoading(true);
@@ -208,16 +300,17 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         }
       }
 
-      // User speichern (nur vorhandene Firma/Unit filtern)
+      // user_visible aus ALLEN Fenstern ableiten:
+      const isAusgegrautHeute = (ausgrauen||[]).some(w => within(todayStr(), w.von, w.bis));
       const payload = {
         nachname,
         rolle,
-        user_visible: !ausgrauen, // invertiert speichern
+        user_visible: !isAusgegrautHeute,
         aktiv,
         inaktiv_at: !aktiv ? dayjs().toISOString() : null,
       };
       let upd = supabase.from('DB_User').update(payload).eq('user_id', user.user_id);
-      upd = addEq(addEq(upd, 'firma_id', firma), 'unit_id', unit);
+      upd = addEq(addEq(upd, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
       const { error: updErr } = await upd;
       if (updErr) {
         console.error(updErr);
@@ -226,19 +319,17 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         return;
       }
 
-      // Zukünftige Dienste löschen (optional) — weiterhin Kampfliste, falls dort Plan-IST-Einträge liegen
+      // Zukünftige Dienste löschen (optional)
       if(!aktiv && willLoeschenKampfliste){
         let del = supabase.from('DB_Kampfliste').delete().gte('datum', loeschDatum).eq('user', user.user_id);
-        del = addEq(addEq(del, 'firma_id', firma), 'unit_id', unit);
+        del = addEq(addEq(del, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
         let { data: delRows, error: delErr } = await del.select('datum');
         if (delErr) {
-          // fallback user_id
           let del2 = supabase.from('DB_Kampfliste').delete().gte('datum', loeschDatum).eq('user_id', user.user_id);
-          del2 = addEq(addEq(del2, 'firma_id', firma), 'unit_id', unit);
+          del2 = addEq(addEq(del2, 'firma_id', (firma ?? user.firma_id)), 'unit_id', (unit ?? user.unit_id));
           const res2 = await del2.select('datum');
           delRows = res2.data; delErr = res2.error;
         }
-
         if (delErr) {
           console.error(delErr);
           showNotice('warning', 'Aktualisiert, aber zukünftige Dienste konnten nicht entfernt werden.', 6000);
@@ -254,6 +345,15 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Status-Badge
+  const StatusBadge = ({ von, bis }) => {
+    const d = todayStr();
+    let txt = 'Zukünftig', cls = 'border-sky-300 text-sky-700 dark:border-sky-700 dark:text-sky-300';
+    if (within(d, von, bis)) { txt = 'Aktiv'; cls = 'border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300'; }
+    else if (dayjs(d).isAfter(bis || '9999-12-31')) { txt = 'Abgelaufen'; cls = 'border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300'; }
+    return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${cls}`}>{txt}</span>;
   };
 
   return (
@@ -292,9 +392,93 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
             </div>
           </div>
 
-          {/* Ausgrauen / Aktiv */}
+          {/* Ausgrauen-Fenster (mehrfach) */}
           <div className="space-y-3">
-            <Checkbox label="Ausgrauen in der Planung" checked={!!ausgrauen} onChange={e=>setAusgrauen(e.target.checked)} disabled={disabled} />
+            <div className="flex items-start gap-2">
+              <Info className="w-4 h-4 mt-0.5 text-gray-600 dark:text-gray-300" />
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                <strong>Ausgrauen in der Planung</strong> kann über mehrere Zeitfenster gesteuert werden
+                (z. B. Elternzeit, Wiedereinstieg, erneute Elternzeit). Innerhalb eines Fensters wird die Person
+                ausgegraut und <strong>nicht</strong> in Berechnungen berücksichtigt.
+              </div>
+            </div>
+
+            {/* Liste */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="grid grid-cols-12 text-xs font-semibold bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-3 py-2">
+                <div className="col-span-3">Von</div>
+                <div className="col-span-3">Bis</div>
+                <div className="col-span-3">Status</div>
+                <div className="col-span-3 text-right">Aktion</div>
+              </div>
+              {(ausgrauen.length === 0) ? (
+                <div className="px-3 py-3 text-sm text-gray-500">Keine Fenster vorhanden.</div>
+              ) : (
+                ausgrauen.map(row => (
+                  <div key={row.id} className="grid grid-cols-12 items-center px-3 py-2 border-t border-gray-100 dark:border-gray-700 text-sm">
+                    {editId === row.id ? (
+                      <>
+                        <div className="col-span-3">
+                          <Input type="date" value={editVon} onChange={e=>setEditVon(e.target.value)} disabled={disabled}/>
+                        </div>
+                        <div className="col-span-3">
+                          <Input type="date" value={editBis} onChange={e=>setEditBis(e.target.value)} disabled={disabled}/>
+                          <div className="text-[11px] text-gray-500 mt-0.5">Leer lassen = unbefristet.</div>
+                        </div>
+                        <div className="col-span-3">
+                          <StatusBadge von={editVon || row.von} bis={editBis || null} />
+                        </div>
+                        <div className="col-span-3 flex justify-end gap-2">
+                          <button className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
+                                  onClick={saveEdit} disabled={disabled}><Check className="w-3 h-3"/> Speichern</button>
+                          <button className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600"
+                                  onClick={cancelEdit} disabled={disabled}><X className="w-3 h-3"/> Abbrechen</button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="col-span-3">{dayjs(row.von).format('DD.MM.YYYY')}</div>
+                        <div className="col-span-3">{row.bis ? dayjs(row.bis).format('DD.MM.YYYY') : '— (offen)'}</div>
+                        <div className="col-span-3"><StatusBadge von={row.von} bis={row.bis} /></div>
+                        <div className="col-span-3 flex justify-end gap-2">
+                          <button className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600"
+                                  onClick={()=>startEdit(row)} disabled={disabled}><Pencil className="w-3 h-3"/> Bearbeiten</button>
+                          <button className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-red-300 text-red-700 dark:border-red-700 dark:text-red-300"
+                                  onClick={()=>deleteWindow(row.id)} disabled={disabled}><Trash2 className="w-3 h-3"/> Löschen</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Neu anlegen */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <Label>Neu: Von</Label>
+                <Input type="date" value={newVon} onChange={e=>setNewVon(e.target.value)} disabled={disabled}/>
+              </div>
+              <div>
+                <Label>Neu: Bis (optional)</Label>
+                <Input type="date" value={newBis} onChange={e=>setNewBis(e.target.value)} disabled={disabled}/>
+                <div className="text-xs text-gray-500 mt-1">Leer lassen = unbefristet.</div>
+              </div>
+              <div className="flex items-end">
+                <button
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition
+                             bg-gray-800 text-white hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-700"
+                  onClick={addWindow}
+                  disabled={disabled}
+                >
+                  + Fenster hinzufügen
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Aktiv */}
+          <div className="space-y-3">
             <div className="flex items-start gap-2">
               <Checkbox label="Aktiv" checked={!!aktiv} onChange={e=>setAktiv(e.target.checked)} disabled={disabled} />
               <div className="text-xs text-gray-600 dark:text-gray-300 flex items-start gap-1">
