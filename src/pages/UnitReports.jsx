@@ -211,14 +211,23 @@ const fullYearRows = useMemo(() => {
   });
 }, [months]);
 
-  const cumBoth = useMemo(() => {
-    let runIst = 0, runSoll = 0;
-    return fullYearRows.map(row => {
-      runIst += (row.ist || 0);
-      runSoll += (row.soll || 0);
-      return { label: row.label, kumIst: runIst, kumSoll: runSoll };
-    });
-  }, [fullYearRows]);
+const monthlyDiff = useMemo(() => {
+  return fullYearRows.map(r => ({
+    label: r.label,
+    diff: Number(r.ist || 0) - Number(r.soll || 0),
+  }));
+}, [fullYearRows]);
+
+// Startwert = Vorjahres-Übernahme (ytdRow.year_uebernahme)
+const cumBothIncl = useMemo(() => {
+  let runIst  = Number(ytdRow?.year_uebernahme ?? 0); // ← Start mit Übernahme
+  let runSoll = 0;
+  return fullYearRows.map(row => {
+    runIst  += Number(row.ist  || 0);
+    runSoll += Number(row.soll || 0);
+    return { label: row.label, kumIst: runIst, kumSoll: runSoll };
+  });
+}, [fullYearRows, ytdRow]);
 
   const availableKuerzel = useMemo(() => {
     const set = new Set();
@@ -481,17 +490,41 @@ const YearTile = () => {
             <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
           </div>
           <div className='h-56'>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={[{ name: 'Monat', Ist: Number(monthRow?.ist_stunden_sum||0), Soll: Number(monthRow?.soll_stunden_sum||0) }]}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="Ist"  name="Ist (h)"  fill="#10b981" />
-                <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />
-              </BarChart>
-            </ResponsiveContainer>
+<ResponsiveContainer width="100%" height="100%">
+  <BarChart
+    data={[
+      {
+        name: 'Monat',
+        Ist: Number(monthRow?.ist_stunden_sum || 0),
+        Soll: Number(monthRow?.soll_stunden_sum || 0),
+      },
+    ]}
+  >
+    <CartesianGrid strokeDasharray="3 3" />
+    <XAxis dataKey="name" />
+    <YAxis
+      tickFormatter={(v) =>
+        new Intl.NumberFormat('de-DE', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(v)
+      }
+    />
+    <Tooltip
+      formatter={(value, name) => [
+        new Intl.NumberFormat('de-DE', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(value),
+        name,
+      ]}
+    />
+    <Legend />
+    <Bar dataKey="Ist" name="Ist (h)" fill="#10b981" />
+    <Bar dataKey="Soll" name="Soll (h)" fill="#2563eb" />
+  </BarChart>
+</ResponsiveContainer>
+
           </div>
         </div>
       </Card>
@@ -611,6 +644,34 @@ const YearTile = () => {
                     : (ytdRow.year_diff >= 0 ? '+' : '-') + deNumber(Math.abs(ytdRow.year_diff))}
                 </div>
               </div>
+{/* NEU: Übernahme & inkl. Übernahme */}
+<div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+  <div className='text-xs text-gray-500'>Vorjahresstunden (Übernahme)</div>
+  <div className='text-base font-semibold leading-tight'>
+    {deNumber(ytdRow?.year_uebernahme ?? 0)}
+  </div>
+</div>
+
+<div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+  <div className='text-xs text-gray-500'>Ist-Stunden inkl. Übernahme (Jahr)</div>
+  <div className='text-base font-semibold leading-tight'>
+    {deNumber(ytdRow?.year_ist_incl ?? ( (ytdRow?.year_ist ?? 0) + (ytdRow?.year_uebernahme ?? 0) ))}
+  </div>
+</div>
+
+<div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+  <div className='text-xs text-gray-500'>Differenz inkl. Übernahme (Ist+Übernahme − Soll)</div>
+  <div className={`text-base font-semibold leading-tight ${colorBySign(
+    (ytdRow?.year_diff_incl ??
+      ((ytdRow?.year_ist ?? 0) + (ytdRow?.year_uebernahme ?? 0) - (ytdRow?.year_soll ?? 0)))
+  )}`}>
+    {(() => {
+      const v = (ytdRow?.year_diff_incl ??
+                 ((ytdRow?.year_ist ?? 0) + (ytdRow?.year_uebernahme ?? 0) - (ytdRow?.year_soll ?? 0)));
+      return (v >= 0 ? '+' : '-') + deNumber(Math.abs(v));
+    })()}
+  </div>
+</div>
 
               {/* Urlaub – YTD */}
               <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
@@ -697,27 +758,72 @@ const YearTile = () => {
       </Card>
 
       {/* Kumulierte Stunden */}
-      <Card>
-        <div className='px-3 pt-2 pb-3'>
-          <div className='flex items-center justify-between mb-2'>
-            <div className='font-medium'>Kumulierte Stunden (Ist & Soll)</div>
-            <Muted>h</Muted>
-          </div>
-          <div className='h-56'>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cumBoth}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                  <Line type="monotone" dataKey="kumIst"  name="Ist kumuliert"       dot={false} stroke="#fbbf24" />
-                  <Line type="monotone" dataKey="kumSoll" name="Vorgabe kumuliert"   dot={false} stroke="#60a5fa" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </Card>
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Kumulierte Stunden (Ist inkl. Übernahme & Soll)</div>
+      <Muted>h</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+<LineChart data={cumBothIncl}>
+  <CartesianGrid strokeDasharray="3 3" />
+  <XAxis dataKey="label" />
+  <YAxis
+    tickFormatter={(v) =>
+      new Intl.NumberFormat('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v)
+    }
+  />
+  <Tooltip
+    formatter={(value, name) => [
+      new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value),
+      name,
+    ]}
+    labelFormatter={(label) => label} // optional: Label unverändert
+  />
+  <Legend />
+  <Line type="monotone" dataKey="kumIst"  name="Ist kumuliert (inkl. Übernahme)" dot={false} stroke="#fbbf24" />
+  <Line type="monotone" dataKey="kumSoll" name="Vorgabe kumuliert"             dot={false} stroke="#60a5fa" />
+</LineChart>
+
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
+ {/* Monats +- Stunden */}
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Monats-Differenz (Ist − Soll)</div>
+      <Muted>h</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+<BarChart data={monthlyDiff}>
+  <CartesianGrid strokeDasharray="3 3" />
+  <XAxis dataKey="label" />
+  <YAxis />
+  <Tooltip
+    formatter={(value) => [
+      new Intl.NumberFormat('de-DE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(value),
+      'Differenz (h)',
+    ]}
+  />
+  <Legend />
+  <Bar dataKey="diff" name="Differenz (h)">
+    {monthlyDiff.map((e, i) => (
+      <Cell key={i} fill={e.diff >= 0 ? '#10b981' : '#ef4444'} />
+    ))}
+  </Bar>
+</BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
+
 
       {/* Kürzel je Monat */}
       <Card>
