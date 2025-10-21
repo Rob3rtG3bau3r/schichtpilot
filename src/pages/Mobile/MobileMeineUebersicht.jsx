@@ -27,11 +27,15 @@ export default function MobileMeineUebersicht() {
   const [jahr] = useState(new Date().getFullYear());
   const [err, setErr] = useState(null);
 
-  const [stundenGesamt, setStundenGesamt] = useState(0);
-  const [stundenSummeJahr, setStundenSummeJahr] = useState(0);
+  // Stunden
+  const [stundenGesamt, setStundenGesamt] = useState(0);          // stunden_gesamt
+  const [stundenSummeJahr, setStundenSummeJahr] = useState(0);    // summe_jahr
+  const [stundenUebernahmeVorjahr, setStundenUebernahmeVorjahr] = useState(0); // uebernahme_vorjahr
 
-  const [urlaubGesamt, setUrlaubGesamt] = useState(0);
-  const [urlaubSummeJahr, setUrlaubSummeJahr] = useState(0);
+  // Urlaub
+  const [urlaubGesamt, setUrlaubGesamt] = useState(0);            // urlaub_gesamt
+  const [urlaubSummeJahr, setUrlaubSummeJahr] = useState(0);      // summe_jahr
+  const [urlaubUebernahmeVorjahr, setUrlaubUebernahmeVorjahr] = useState(0);   // uebernahme_vorjahr
 
   const load = useCallback(async () => {
     try {
@@ -47,7 +51,7 @@ export default function MobileMeineUebersicht() {
       // --- DB_Stunden ---
       const { data: stundenRows, error: e1 } = await supabase
         .from("DB_Stunden")
-        .select("stunden_gesamt,summe_jahr,jahr")
+        .select("stunden_gesamt,summe_jahr,uebernahme_vorjahr,jahr")
         .eq("user_id", me)
         .eq("jahr", jahr);
 
@@ -63,14 +67,21 @@ export default function MobileMeineUebersicht() {
           .map((r) => Number(r?.stunden_gesamt))
           .filter((n) => Number.isFinite(n)))
       );
+      const sVorj = Math.max(
+        0,
+        ...((stundenRows || [])
+          .map((r) => Number(r?.uebernahme_vorjahr))
+          .filter((n) => Number.isFinite(n)))
+      );
 
       setStundenSummeJahr(sSum);
       setStundenGesamt(Number.isFinite(sGes) ? sGes : 0);
+      setStundenUebernahmeVorjahr(Number.isFinite(sVorj) ? sVorj : 0);
 
       // --- DB_Urlaub ---
       const { data: urlaubRows, error: e2 } = await supabase
         .from("DB_Urlaub")
-        .select("urlaub_gesamt,summe_jahr,jahr")
+        .select("urlaub_gesamt,summe_jahr,uebernahme_vorjahr,jahr")
         .eq("user_id", me)
         .eq("jahr", jahr);
 
@@ -86,9 +97,16 @@ export default function MobileMeineUebersicht() {
           .map((r) => Number(r?.urlaub_gesamt))
           .filter((n) => Number.isFinite(n)))
       );
+      const uVorj = Math.max(
+        0,
+        ...((urlaubRows || [])
+          .map((r) => Number(r?.uebernahme_vorjahr))
+          .filter((n) => Number.isFinite(n)))
+      );
 
       setUrlaubSummeJahr(uSum);
       setUrlaubGesamt(Number.isFinite(uGes) ? uGes : 0);
+      setUrlaubUebernahmeVorjahr(Number.isFinite(uVorj) ? uVorj : 0);
     } catch (e) {
       console.error(e);
       setErr("Daten konnten nicht geladen werden.");
@@ -101,10 +119,16 @@ export default function MobileMeineUebersicht() {
     load();
   }, [load]);
 
-  const restStunden = (Number(stundenSummeJahr) || 0) - (Number(stundenGesamt) || 0);
-  const restUrlaub = (Number(urlaubGesamt) || 0) - (Number(urlaubSummeJahr) || 0);
-const pctStundenRaw = pct(Number(stundenGesamt) || 0, Number(stundenSummeJahr) || 0);
-const pctUrlaubRaw  = pct(Number(urlaubGesamt)  || 0, Number(urlaubSummeJahr)  || 0);
+  // ---- Berechnungen inkl. Übernahme Vorjahr ----
+  const istStundenInklVorjahr = (Number(stundenSummeJahr) || 0) + (Number(stundenUebernahmeVorjahr) || 0);
+  const restStunden = istStundenInklVorjahr -(Number(stundenGesamt) || 0) ; // Soll – Ist
+
+  const istUrlaubInklVorjahr = (Number(urlaubSummeJahr) || 0);
+  const urlaubSollInklVorjahr = (Number(urlaubGesamt) || 0) + (Number(urlaubUebernahmeVorjahr) || 0);
+  const restUrlaub = urlaubSollInklVorjahr - istUrlaubInklVorjahr; // Gesamt(+Vorjahr) – Verbraucht
+
+  const pctStundenRaw = pct(Number(stundenGesamt) || 0, istStundenInklVorjahr);
+  const pctUrlaubRaw  = pct(urlaubSollInklVorjahr, istUrlaubInklVorjahr);
 
   return (
     <div className="p-4 space-y-4">
@@ -113,12 +137,8 @@ const pctUrlaubRaw  = pct(Number(urlaubGesamt)  || 0, Number(urlaubSummeJahr)  |
         <div className="text-sm opacity-80">{jahr}</div>
       </div>
 
-      {loading && (
-        <div className="text-sm opacity-80">Lade Daten…</div>
-      )}
-      {err && (
-        <div className="text-sm text-red-500">{err}</div>
-      )}
+      {loading && <div className="text-sm opacity-80">Lade Daten…</div>}
+      {err && <div className="text-sm text-red-500">{err}</div>}
 
       {!loading && !err && (
         <div className="space-y-4">
@@ -132,40 +152,39 @@ const pctUrlaubRaw  = pct(Number(urlaubGesamt)  || 0, Number(urlaubSummeJahr)  |
                 <div className="text-xs text-gray-500 dark:text-gray-400">Differenz (Soll – Ist)</div>
               </div>
               <div className="text-right">
-                <div className="text-sm font-medium">{fmt(stundenSummeJahr)} / {fmt(stundenGesamt)} Std</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Ist / Soll</div>
+                <div className="text-sm font-medium">
+                  {fmt(istStundenInklVorjahr)} / {fmt(stundenGesamt)} Std
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Ist (inkl. Vorjahr) / Soll</div>
               </div>
             </div>
 
-<div className="mt-3">
-  <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full relative overflow-visible">
-    {/* bis 100% (grün) */}
-    <div
-      className="h-3 bg-green-600 rounded-l-full"
-      style={{ width: `${Math.min(pctStundenRaw, 100)}%` }}
-      aria-hidden
-    />
-    {/* darüber hinaus (rot) */}
-    {pctStundenRaw > 100 && (
-      <div
-        className="h-3 bg-red-500 rounded-r-full absolute top-0"
-        style={{ left: "100%", width: `${pctStundenRaw - 100}%` }}
-        aria-hidden
-      />
-    )}
-  </div>
-  <div className={`mt-1 text-xs text-right ${pctStundenRaw > 100 ? "text-red-500" : "opacity-80"}`}>
-    {pctStundenRaw.toFixed(0)}%
-  </div>
-</div>
+            <div className="mt-3">
+              <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full relative overflow-visible">
+                {/* bis 100% (grün) */}
+                <div
+                  className="h-3 bg-green-600 rounded-l-full"
+                  style={{ width: `${Math.min(pctStundenRaw, 100)}%` }}
+                  aria-hidden
+                />
+                {/* darüber hinaus (rot) */}
+                {pctStundenRaw > 100 && (
+                  <div
+                    className="h-3 bg-red-500 rounded-r-full absolute top-0"
+                    style={{ left: "100%", width: `${pctStundenRaw - 100}%` }}
+                    aria-hidden
+                  />
+                )}
+              </div>
+              <div className={`mt-1 text-xs text-right ${pctStundenRaw > 100 ? "text-red-500" : "opacity-80"}`}>
+                {pctStundenRaw.toFixed(0)}%
+              </div>
+            </div>
 
             <div className="mt-3 space-y-1">
-              <Row label="Soll (Jahr)" value={`${fmt(stundenGesamt)} Std`} />
-              <Row label="Bisher (Jahr)" value={`${fmt(stundenSummeJahr)} Std`} />
-              <Row
-                label="Differenz"
-                value={`${fmt(restStunden)} Std`}
-              />
+              <Row label="Std. nach Sollplan" value={`${fmt(stundenGesamt)} Std`} />
+              <Row label="Bisherige Std. (inkl. Vorjahr)" value={`${fmt(istStundenInklVorjahr)} Std`} />
+              <Row label="Differenz (Soll – Ist)" value={`${fmt(restStunden)} Std`} />
             </div>
           </Card>
 
@@ -179,37 +198,39 @@ const pctUrlaubRaw  = pct(Number(urlaubGesamt)  || 0, Number(urlaubSummeJahr)  |
                 <div className="text-xs text-gray-500 dark:text-gray-400">Resturlaub (Gesamt – Verbraucht)</div>
               </div>
               <div className="text-right">
-                <div className="text-sm font-medium">{fmt(urlaubSummeJahr, 1)} / {fmt(urlaubGesamt, 1)} Tage</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Verbraucht / Gesamt</div>
+                <div className="text-sm font-medium">
+                  {fmt(istUrlaubInklVorjahr, 1)} / {fmt(urlaubSollInklVorjahr, 1)} Tage
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Verbraucht / Gesamt (inkl. Vorjahr)
+                </div>
               </div>
             </div>
-<div className="mt-3">
-  <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full relative overflow-visible">
-    <div
-      className="h-3 bg-green-600 rounded-l-full"
-      style={{ width: `${Math.min(pctUrlaubRaw, 100)}%` }}
-      aria-hidden
-    />
-    {pctUrlaubRaw > 100 && (
-      <div
-        className="h-3 bg-red-500 rounded-r-full absolute top-0"
-        style={{ left: "100%", width: `${pctUrlaubRaw - 100}%` }}
-        aria-hidden
-      />
-    )}
-  </div>
-  <div className={`mt-1 text-xs text-right ${pctUrlaubRaw > 100 ? "text-red-500" : "opacity-80"}`}>
-    {pctUrlaubRaw.toFixed(0)}%
-  </div>
-</div>
+
+            <div className="mt-3">
+              <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full relative overflow-visible">
+                <div
+                  className="h-3 bg-green-600 rounded-l-full"
+                  style={{ width: `${Math.min(pctUrlaubRaw, 100)}%` }}
+                  aria-hidden
+                />
+                {pctUrlaubRaw > 100 && (
+                  <div
+                    className="h-3 bg-red-500 rounded-r-full absolute top-0"
+                    style={{ left: "100%", width: `${pctUrlaubRaw - 100}%` }}
+                    aria-hidden
+                  />
+                )}
+              </div>
+              <div className={`mt-1 text-xs text-right ${pctUrlaubRaw > 100 ? "text-red-500" : "opacity-80"}`}>
+                {pctUrlaubRaw.toFixed(0)}%
+              </div>
+            </div>
 
             <div className="mt-3 space-y-1">
-              <Row label="Gesamt (Jahr)" value={`${fmt(urlaubGesamt, 1)} Tage`} />
-              <Row label="Bisher (Jahr)" value={`${fmt(urlaubSummeJahr, 1)} Tage`} />
-              <Row
-                label="Rest"
-                value={`${fmt(restUrlaub, 1)} Tage`}
-              />
+              <Row label="Gesamt (inkl. Vorjahr)" value={`${fmt(urlaubSollInklVorjahr, 1)} Tage`} />
+              <Row label="Verbraucht (Jahr)" value={`${fmt(istUrlaubInklVorjahr, 1)} Tage`} />
+              <Row label="Rest" value={`${fmt(restUrlaub, 1)} Tage`} />
             </div>
           </Card>
 
