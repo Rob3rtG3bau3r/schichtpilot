@@ -62,10 +62,10 @@ const TeamPflegen = () => {
       // 1) Sichtbare User
       const { data: users, error: userError } = await supabase
         .from("DB_User")
-        .select("user_id, vorname, nachname, user_visible")
+        .select("user_id, vorname, nachname")
         .eq("firma_id", firma)
         .eq("unit_id", unit)
-        .eq("user_visible", true);
+
 
       if (userError) throw userError;
       const userIds = (users || []).map((u) => u.user_id);

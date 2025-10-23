@@ -274,7 +274,7 @@ const KampfListe = ({
       // ---- Userinfos ----
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle') // user_visible entfernt
+        .select('user_id, vorname, nachname, rolle') 
         .in('user_id', alleUserIds);
       if (userError) {
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);

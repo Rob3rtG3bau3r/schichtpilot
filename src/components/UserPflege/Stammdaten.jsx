@@ -113,10 +113,9 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     if (!userId) return;
 
     (async ()=>{
-      // User
       let uQ = supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, user_visible, aktiv, inaktiv_at, funktion, firma_id, unit_id')
+        .select('user_id, vorname, nachname, rolle, aktiv, inaktiv_at, funktion, firma_id, unit_id')
         .eq('user_id', userId);
       uQ = addEq(addEq(uQ, 'firma_id', firma), 'unit_id', unit);
 
@@ -300,12 +299,9 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         }
       }
 
-      // user_visible aus ALLEN Fenstern ableiten:
-      const isAusgegrautHeute = (ausgrauen||[]).some(w => within(todayStr(), w.von, w.bis));
       const payload = {
         nachname,
         rolle,
-        user_visible: !isAusgegrautHeute,
         aktiv,
         inaktiv_at: !aktiv ? dayjs().toISOString() : null,
       };

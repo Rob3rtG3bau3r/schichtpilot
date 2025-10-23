@@ -297,7 +297,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       }
     }
 
-    // Namen laden (ohne user_visible)
     let userNameMap = {};
     if (userIds.length > 0) {
       for (const part of chunkArray(userIds, 150)) {

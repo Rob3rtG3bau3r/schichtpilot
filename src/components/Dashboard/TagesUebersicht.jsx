@@ -91,7 +91,7 @@ export default function TagesUebersicht() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Initial-State: WICHTIG -> termine: []
+  // Initial-State
   const [data, setData] = useState({
     enabled: true,
     datum: dayjs().format('YYYY-MM-DD'),
@@ -100,7 +100,7 @@ export default function TagesUebersicht() {
     bedarf: { normalbetrieb: [], zeitlich: [], summiert: [] },
   });
 
-  // Sichtbarkeit
+  // Sichtbarkeit (wer sieht diese Box überhaupt)
   const darfSehen = useMemo(() => ['Planner', 'Admin_Dev'].includes(rolle), [rolle]);
 
   useEffect(() => {
@@ -183,22 +183,39 @@ export default function TagesUebersicht() {
         ]);
         const userIds = Array.from(userIdsSet);
 
-        // --- 6) Userdaten ---
+        // --- 6) Usernamen laden ---
         let userNameMap = new Map();
-        let userVisibleMap = new Map();
         if (userIds.length) {
           const { data: userRows, error: userErr } = await supabase
             .from('DB_User')
-            .select('user_id, vorname, nachname, user_visible')
+            .select('user_id, vorname, nachname')
             .in('user_id', userIds);
           if (userErr) throw userErr;
           (userRows || []).forEach(u => {
             userNameMap.set(String(u.user_id), `${u.nachname || ''}, ${u.vorname || ''}`.trim());
-            userVisibleMap.set(String(u.user_id), u.user_visible !== false);
           });
         }
 
-        // --- 7) Finale Kürzel ---
+        // --- 7) Ausgrauen HEUTE für diese User bestimmen ---
+        const isGreyToday = new Map(); // uid -> true/false
+        if (userIds.length) {
+          const { data: greyRows, error: greyErr } = await supabase
+            .from('DB_Ausgrauen')
+            .select('user_id, von, bis')
+            .in('user_id', userIds)
+            .eq('firma_id', Number(firma))
+            .eq('unit_id', Number(unit))
+            .lte('von', heute)
+            .or(`bis.is.null, bis.gte.${heute}`);
+          if (greyErr) throw greyErr;
+
+          // Ein Eintrag reicht, um "heute ausgegraut" zu sein
+          (greyRows || []).forEach(r => {
+            isGreyToday.set(String(r.user_id), true);
+          });
+        }
+
+        // --- 8) Finale Kürzel (Override -> Plan) ---
         const finalKuerzelByUser = new Map();
         for (const uid of userIds) {
           const over = latestKuerzelByUserHeute.get(uid);
@@ -210,46 +227,61 @@ export default function TagesUebersicht() {
           }
         }
 
-        // --- 8) Aufteilen / Sammeln ---
+        // --- 9) Aufteilen / Sammeln mit Grey-Flag ---
         const F = [], S = [], N = [];
         const andereMap = new Map();
         const krankArr = [];
-        const isVisible = (uid) => userVisibleMap.get(uid) !== false;
-        const addAndere = (kz, name) => {
+        const addAndere = (kz, name, grey) => {
           if (!kz || kz.trim() === '-') return;
           if (!andereMap.has(kz)) andereMap.set(kz, []);
-          andereMap.get(kz).push(name);
+          andereMap.get(kz).push({ name, grey });
         };
 
         for (const uid of userIds) {
-          if (!isVisible(uid)) continue;
           const name = userNameMap.get(uid) || `User ${uid}`;
           const k = finalKuerzelByUser.get(uid);
           if (!k) continue;
-          if (k === 'F') F.push(name);
-          else if (k === 'S') S.push(name);
-          else if (k === 'N') N.push(name);
+
+          const grey = !!isGreyToday.get(uid);
+
+          if (k === 'F') F.push({ name, grey });
+          else if (k === 'S') S.push({ name, grey });
+          else if (k === 'N') N.push({ name, grey });
           else if (k === 'K' || k === 'KO') {
             const gesternK = latestKuerzelByUserGestern.get(uid);
             krankArr.push({ name, neu: !(gesternK === 'K' || gesternK === 'KO') });
-          } else addAndere(k, name);
+          } else addAndere(k, name, grey);
         }
+
+        // Sortierung: erst nicht-grau, dann grau; innerhalb alphabetisch
+        const sortNames = (arr) =>
+          arr
+            .slice()
+            .sort((a, b) => {
+              if (a.grey !== b.grey) return a.grey ? 1 : -1; // grau nach unten
+              return a.name.localeCompare(b.name, 'de');
+            });
+
+        const F_sorted = sortNames(F);
+        const S_sorted = sortNames(S);
+        const N_sorted = sortNames(N);
 
         const andere = Array.from(andereMap.entries())
           .filter(([k]) => k && k.trim() !== '-')
-          .map(([kuerzel, namen]) => ({
-            kuerzel,
-            anzahl: namen.length,
-            namen: namen.sort((a, b) => a.localeCompare(b, 'de')),
-          }))
+          .map(([kuerzel, list]) => {
+            const sorted = sortNames(list).map(x => (x.grey ? `${x.name} ⦸` : x.name));
+            return {
+              kuerzel,
+              anzahl: sorted.length,
+              namen: sorted,
+            };
+          })
           .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
 
-        F.sort((a, b) => a.localeCompare(b, 'de'));
-        S.sort((a, b) => a.localeCompare(b, 'de'));
-        N.sort((a, b) => a.localeCompare(b, 'de'));
+        // Krank sortieren (unverändert)
         krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
-        // --- 9) Bedarf ---
+        // --- 10) Bedarf ---
         const { data: bedarfRows, error: bedErr } = await supabase
           .from('DB_Bedarf')
           .select('id, quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
@@ -298,37 +330,36 @@ export default function TagesUebersicht() {
           .map(([quali_kuerzel, total_anzahl]) => ({ quali_kuerzel, total_anzahl }))
           .sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
 
-        // --- 10) Termine heute (Schema: datum + wiederholend) ---
+        // --- 11) Termine heute (nur explicit heute, wie gehabt) ---
         const { data: termRows, error: termErr } = await supabase
           .from('DB_TerminVerwaltung')
           .select('id, bezeichnung, farbe, ziel_typ, team, quali_ids, datum, wiederholend, created_at')
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
-          // Entweder genau heute oder als wiederholender Termin
-         .eq('datum', heute)  
+          .eq('datum', heute)
           .order('created_at', { ascending: false });
         if (termErr) throw termErr;
 
-        // Nur die, die für "heute" gelten:
-        // - datum == heute
-        // - oder wiederholend == true (täglich sichtbar)
+        const termineHeute = (termRows || []).map(r => ({
+          id: r.id,
+          bezeichnung: r.bezeichnung || '(ohne Titel)',
+          farbe: r.farbe || null,
+          ziel_typ: r.ziel_typ || (Array.isArray(r.quali_ids) && r.quali_ids.length ? 'Qualifikationen' : 'Team'),
+          team: Array.isArray(r.team) ? r.team : (r.team ? [r.team] : []),
+          quali_ids: Array.isArray(r.quali_ids) ? r.quali_ids : [],
+          datum: r.datum || heute,
+        }));
 
-const termineHeute = (termRows || []).map(r => ({
-  id: r.id,
-  bezeichnung: r.bezeichnung || '(ohne Titel)',
-  farbe: r.farbe || null,
-  ziel_typ: r.ziel_typ || (Array.isArray(r.quali_ids) && r.quali_ids.length ? 'Qualifikationen' : 'Team'),
-  team: Array.isArray(r.team) ? r.team : (r.team ? [r.team] : []),
-  quali_ids: Array.isArray(r.quali_ids) ? r.quali_ids : [],
-  datum: r.datum || heute,
-}));
-
-        // EIN setData am Ende
+        // --- 12) setData (mit grauen unten + Symbol) ---
         setData({
           enabled: true,
           datum: heute,
           kampfliste: {
-            schichten: { frueh: F, spaet: S, nacht: N },
+            schichten: {
+              frueh: F_sorted.map(x => (x.grey ? `${x.name} ⦸` : x.name)),
+              spaet: S_sorted.map(x => (x.grey ? `${x.name} ⦸` : x.name)),
+              nacht: N_sorted.map(x => (x.grey ? `${x.name} ⦸` : x.name)),
+            },
             andere_kuerzel: andere,
             krank: krankArr,
           },
@@ -389,15 +420,27 @@ const termineHeute = (termRows || []).map(r => ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Früh</div>
-                    <div className="flex flex-wrap">{schichten.frueh.map((n, i) => <Pill key={i}>{n}</Pill>)}</div>
+                    <div className="flex flex-wrap">
+                      {schichten.frueh.map((n, i) => (
+                        <Pill key={i} title={n.endsWith('⦸') ? 'ausgegraut' : undefined}>{n}</Pill>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Spät</div>
-                    <div className="flex flex-wrap">{schichten.spaet.map((n, i) => <Pill key={i}>{n}</Pill>)}</div>
+                    <div className="flex flex-wrap">
+                      {schichten.spaet.map((n, i) => (
+                        <Pill key={i} title={n.endsWith('⦸') ? 'ausgegraut' : undefined}>{n}</Pill>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Nacht</div>
-                    <div className="flex flex-wrap">{schichten.nacht.map((n, i) => <Pill key={i}>{n}</Pill>)}</div>
+                    <div className="flex flex-wrap">
+                      {schichten.nacht.map((n, i) => (
+                        <Pill key={i} title={n.endsWith('⦸') ? 'ausgegraut' : undefined}>{n}</Pill>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </Section>
@@ -440,8 +483,8 @@ const termineHeute = (termRows || []).map(r => ({
                         </div>
                         <div className="text-xs opacity-70 mt-1">
                           {t.wiederholend ? 'Wiederkehrend • ' : ''}
-                                                 </div>
-                        <div className="text-xs opacity-70 mt-1"> {t.ziel_typ}</div>
+                        </div>
+                        <div className="text-xs opacity-70 mt-1">{t.ziel_typ}</div>
                         {t.team?.length > 0 && (
                           <div className="text-xs mt-1"> {t.team.join(', ')}</div>
                         )}
