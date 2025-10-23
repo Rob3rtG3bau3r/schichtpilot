@@ -148,86 +148,112 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         });
       }
 
-      // (G) „Mitarbeiter im Dienst“ nach höchster Quali sortieren (kleinste position = höchste)
-      let bestPosByUser = {};
-      if (dienstUserIds.length) {
-        const { data: matrix } = await supabase
-          .from('DB_Qualifikationsmatrix')
-          .select('id, betriebs_relevant, position');
+// (G) „Mitarbeiter im Dienst“ nach höchster Quali sortieren (kleinste position = höchste)
+let bestPosByUser = {};
+if (dienstUserIds.length) {
+  const tag = dayjs(modalDatum);
 
-        const posMap = new Map((matrix || [])
-          .filter(m => m.betriebs_relevant)
-          .map(m => [m.id, m.position ?? 999]));
+  const { data: qRows } = await supabase
+    .from('DB_Qualifikation')
+    .select(`
+      user_id,
+      quali,
+      quali_start,
+      quali_endet,
+      matrix:DB_Qualifikationsmatrix!inner(
+        id,
+        position,
+        betriebs_relevant,
+        aktiv,
+        firma_id,
+        unit_id
+      )
+    `)
+    .in('user_id', dienstUserIds)
+    .eq('matrix.firma_id', firma)
+    .eq('matrix.unit_id', unit)
+    .eq('matrix.aktiv', true)
+    .eq('matrix.betriebs_relevant', true);
 
-        const { data: qRows } = await supabase
-          .from('DB_Qualifikation')
-          .select('user_id, quali, created_at')
-          .in('user_id', dienstUserIds);
+  for (const r of qRows || []) {
+    const startOk = !r.quali_start || dayjs(r.quali_start).isSameOrBefore(tag, 'day');
+    const endOk   = !r.quali_endet || dayjs(r.quali_endet).isSameOrAfter(tag, 'day');
+    if (!startOk || !endOk) continue;
 
-        const tag = dayjs(modalDatum);
-        for (const r of (qRows || [])) {
-          const ab = r.created_at ? dayjs(r.created_at) : null;
-          if (ab && tag.isBefore(ab, 'day')) continue;
-          const p = posMap.get(r.quali);
-          if (p == null) continue;
-          const uid = String(r.user_id);
-          bestPosByUser[uid] = Math.min(bestPosByUser[uid] ?? 999, p);
-        }
-      }
+    const uid = String(r.user_id);
+    const p = Number(r.matrix?.position ?? 999);
+    bestPosByUser[uid] = Math.min(bestPosByUser[uid] ?? 999, p);
+  }
+}
 
-      const imDienst = dienstUserIds
-        .map(uid => ({
-          uid,
-          vorname: userNameMap[uid]?.vorname || '',
-          nachname: userNameMap[uid]?.nachname || '',
-          bestPos: bestPosByUser[String(uid)] ?? 999
-        }))
-        .sort((a, b) => a.bestPos - b.bestPos)
-        .map(({ vorname, nachname }) => ({ vorname, nachname }));
+const imDienst = dienstUserIds
+  .map(uid => ({
+    uid,
+    vorname: userNameMap[uid]?.vorname || '',
+    nachname: userNameMap[uid]?.nachname || '',
+    bestPos: bestPosByUser[String(uid)] ?? 999
+  }))
+  .sort((a, b) => a.bestPos - b.bestPos)
+  .map(({ vorname, nachname }) => ({ vorname, nachname }));
 
-      setMitarbeiter(imDienst);
+setMitarbeiter(imDienst);
 
-      // (H) Kandidatenliste (freie sichtbare), optional nach fehlenden Qualis filtern
-      if (freiUserIds.length === 0) {
-        setFreieMitarbeiter([]);
-        return;
-      }
 
-      // Matrix (für Kürzel & Filter)
-      const { data: matrixRows } = await supabase
-        .from('DB_Qualifikationsmatrix')
-        .select('id, quali_kuerzel');
-      const matrixMap = {};
-      (matrixRows || []).forEach(m => { matrixMap[m.id] = m.quali_kuerzel || null; });
+// (H) Kandidatenliste (freie sichtbare), optional nach fehlenden Qualis filtern
 
-      const { data: qualRows } = await supabase
-        .from('DB_Qualifikation')
-        .select('user_id, quali, created_at')
-        .in('user_id', freiUserIds);
+if (freiUserIds.length === 0) {
+  setFreieMitarbeiter([]);
+  return;
+}
 
-      const tag = dayjs(modalDatum);
-      const userKuerzelSet = new Map(); // uid -> Set<Kürzel>
-      (qualRows || []).forEach(q => {
-        const k = matrixMap[q.quali];
-        if (!k) return;
-        const ab = q.created_at ? dayjs(q.created_at) : null;
-        if (ab && tag.isBefore(ab, 'day')) return;
-        if (!userKuerzelSet.has(q.user_id)) userKuerzelSet.set(q.user_id, new Set());
-        userKuerzelSet.get(q.user_id).add(k);
-      });
+// Qualis der freien Kandidaten (nur aktive Matrix dieser Firma/Unit; Gültigkeit am Tag)
+const tag = dayjs(modalDatum);
+const { data: qualRows } = await supabase
+  .from('DB_Qualifikation')
+  .select(`
+    user_id,
+    quali,
+    quali_start,
+    quali_endet,
+    matrix:DB_Qualifikationsmatrix!inner(
+      id,
+      quali_kuerzel,
+      aktiv,
+      firma_id,
+      unit_id
+    )
+  `)
+  .in('user_id', freiUserIds)
+  .eq('matrix.firma_id', firma)
+  .eq('matrix.unit_id', unit)
+  .eq('matrix.aktiv', true);
 
-      const kandidaten = fehlendeQualis.length
-        ? freiUserIds.filter(uid => {
-            const set = userKuerzelSet.get(uid);
-            if (!set) return false;
-            return fehlendeQualis.some(k => set.has(k));
-          })
-        : freiUserIds;
+const userKuerzelSet = new Map(); // uid -> Set<Kürzel>
+for (const q of qualRows || []) {
+  const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
+  const endOk   = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
+  if (!startOk || !endOk) continue;
 
-      if (kandidaten.length === 0) {
-        setFreieMitarbeiter([]);
-        return;
-      }
+  const kz = q.matrix?.quali_kuerzel;
+  if (!kz) continue;
+
+  const set = userKuerzelSet.get(q.user_id) || new Set();
+  set.add(kz);
+  userKuerzelSet.set(q.user_id, set);
+}
+
+const kandidaten = fehlendeQualis.length
+  ? freiUserIds.filter(uid => {
+      const set = userKuerzelSet.get(uid);
+      if (!set) return false;
+      return fehlendeQualis.some(k => set.has(k));
+    })
+  : freiUserIds;
+
+if (kandidaten.length === 0) {
+  setFreieMitarbeiter([]);
+  return;
+}
 
       // (I) Overrides für Fenster (nur Kandidaten)
       const { data: overridesFenster } = await supabase

@@ -257,20 +257,33 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     setMatrixMapState(matrixMap);
 
     // 6) Qualis (bis Monatsende) & Namen
-    const userIds = Array.from(allUserIdsSet);
-    const monatsEndeIso = dayjs(monthEnd).endOf('day').toISOString();
+// 6) Qualis (gültig nach Matrix; Zeitraum-Check machen wir pro Tag) & Namen
+const userIds = Array.from(allUserIdsSet);
 
-    let qualis = [];
-    if (userIds.length > 0) {
-      for (const part of chunkArray(userIds, 200)) {
-        const { data, error } = await supabase
-          .from('DB_Qualifikation')
-          .select('user_id, quali, created_at')
-          .in('user_id', part)
-          .lte('created_at', monatsEndeIso);
-        if (!error && data?.length) qualis.push(...data);
-      }
-    }
+let qualis = [];
+if (userIds.length > 0) {
+  for (const part of chunkArray(userIds, 200)) {
+    const { data, error } = await supabase
+      .from('DB_Qualifikation')
+      .select(`
+        user_id,
+        quali,
+        quali_start,
+        quali_endet,
+        matrix:DB_Qualifikationsmatrix!inner(
+          id,
+          firma_id,
+          unit_id,
+          aktiv
+        )
+      `)
+      .in('user_id', part)
+      .eq('matrix.firma_id', firma)
+      .eq('matrix.unit_id', unit)
+      .eq('matrix.aktiv', true); // nur aktive Matrix-Einträge berücksichtigen
+    if (!error && data?.length) qualis.push(...data);
+  }
+}
 
     // --- NEU: Ausgrauen-Fenster laden (pro User, monatsübergreifend) ---
     const ausgrauenByUser = new Map(); // uid -> [{von, bis}]
@@ -342,16 +355,19 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
         const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => !isGrey(uid, datum));
 
         // Qualis je User (nur bis Datum gültig)
-        const userQualiMap = {};
-        const tag = dayjs(datum);
-        qualis
-          .filter((q) => aktiveUser.includes(q.user_id))
-          .forEach((q) => {
-            const gueltigAb = dayjs(q.created_at);
-            if (tag.isBefore(gueltigAb, 'day')) return;
-            if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
-            userQualiMap[q.user_id].push(q.quali);
-          });
+// Qualis je User (nur am Datum gültig)
+const userQualiMap = {};
+const tag = dayjs(datum);
+for (const q of qualis) {
+  if (!aktiveUser.includes(q.user_id)) continue;
+  const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
+  const endOk   = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
+  if (startOk && endOk) {
+    if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
+    userQualiMap[q.user_id].push(q.quali);
+  }
+}
+
 
         const bedarfSortiert = bedarfHeute
           .map((b) => ({

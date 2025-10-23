@@ -330,13 +330,14 @@ const TeamPflegen = () => {
                     <div className="font-medium">
                       {m.vorname} {m.nachname}
                     </div>
-                    <div className="text-xs text-gray-500 flex flex-wrap gap-2 mt-1">
-                      <span>Gruppe: {m.schichtgruppe}</span>
-                      <span>| Pos.: {m.position_ingruppe ?? "–"}</span>
-                      <span>| Std. Jahresende: {Number(m.abweichung ?? 0).toFixed(1)}</span>
-                      <span>| Std.: {m.summe_ist} / {m.summe_soll}</span>
-                      <span>| Urlaub: {m.resturlaub} / {m.urlaub_gesamt}</span>
-                    </div>
+<div className="text-xs text-gray-500 flex flex-wrap gap-2 mt-1">
+  <span>Quali: {m.hoechste_quali_kz || "–"}</span>
+  <span>| Gruppe: {m.schichtgruppe}</span>
+  <span>| Pos.: {m.position_ingruppe ?? "–"}</span>
+  <span>| Std. Jahresende: {Number(m.abweichung ?? 0).toFixed(1)}</span>
+  <span>| Std.: {m.summe_ist} / {m.summe_soll}</span>
+  <span>| Urlaub: {m.resturlaub} / {m.urlaub_gesamt}</span>
+</div>
                   </div>
                   <div className="flex gap-3">
                     <button
@@ -384,7 +385,7 @@ const TeamPflegen = () => {
             <h2 className="text-lg font-semibold mb-2">ℹ Informationen</h2>
             <ul className="text-sm list-disc ml-4 space-y-2">
               <li>Die Teams werden tagesaktuell aus <strong>DB_SchichtZuweisung</strong> geladen.</li>
-              <li>Die Liste ist nach <strong>Position in Gruppe</strong> (aus der Zuweisung) sortiert.</li>
+              <li>Die Liste ist nach <strong>höchster Qualifikation</strong> (beste zuerst), dann <strong>Position in Gruppe</strong> sortiert.</li>
               <li>Über die Checkboxen kannst du Teams filtern oder alle anzeigen.</li>
               <li>Die Jahreswerte zu Stunden &amp; Urlaub stammen aus den Tabellen DB_Stunden und DB_Urlaub.</li>
               <li><strong>Ist-Stunden</strong> zeigen <code>summe_jahr + uebernahme_vorjahr</code>. <strong>Std. Jahresende</strong> ist <code>stunden_gesamt − (summe_jahr + uebernahme_vorjahr)</code>.</li>

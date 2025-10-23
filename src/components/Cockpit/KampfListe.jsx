@@ -124,49 +124,61 @@ const KampfListe = ({
     setTage(neueTage);
   }, [jahr, monat]);
 
-  // --- Quali-Counts laden (gültig bis einschließlich cutoff) ---
-  const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
-    if (!userIds?.length) return {};
-    try {
-      const ids = userIds.map(String);
-      const { data, error } = await supabase
-        .from('DB_Qualifikation')
-        .select(
-          `
-          user_id,
-          quali,
-          created_at,
-          matrix:DB_Qualifikationsmatrix!inner(
-            id,
-            quali_kuerzel,
-            betriebs_relevant,
-            aktiv,
-            firma_id,
-            unit_id
-          )
-        `
+// --- Quali-Counts laden (gültig am cutoff) ---
+const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
+  if (!userIds?.length) return {};
+  try {
+    const ids = userIds.map(String);
+
+    // 1) Alle Quali-Zuweisungen (mit Start/Ende) + Matrix joinen
+    const { data, error } = await supabase
+      .from('DB_Qualifikation')
+      .select(`
+        user_id,
+        quali,
+        quali_start,
+        quali_endet,
+        matrix:DB_Qualifikationsmatrix!inner(
+          id,
+          quali_kuerzel,
+          betriebs_relevant,
+          aktiv,
+          firma_id,
+          unit_id
         )
-        .in('user_id', ids)
-        .eq('matrix.firma_id', firmaId)
-        .eq('matrix.unit_id', unitId)
-        .eq('matrix.betriebs_relevant', true)
-        .eq('matrix.aktiv', true)
-        .lte('created_at', cutoffIso);
-      if (error) {
-        console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
-        return {};
-      }
-      const map = {};
-      for (const row of data || []) {
-        const uid = String(row.user_id);
-        map[uid] = (map[uid] || 0) + 1;
-      }
-      return map;
-    } catch (e) {
-      console.error('❌ Fehler beim Laden der Quali-Counts:', e);
+      `)
+      .in('user_id', ids)
+      .eq('matrix.firma_id', firmaId)
+      .eq('matrix.unit_id', unitId)
+      .eq('matrix.betriebs_relevant', true)
+      .eq('matrix.aktiv', true);
+
+    if (error) {
+      console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
       return {};
     }
-  };
+
+    // 2) Clientseitig auf "am cutoff gültig" filtern:
+    //    (start leer ODER start <= cutoff) UND (ende leer ODER ende >= cutoff)
+    const cutoff = dayjs(cutoffIso);
+    const isValidOn = (row) => {
+      const startOk = !row.quali_start || dayjs(row.quali_start).isSameOrBefore(cutoff, 'day');
+      const endOk   = !row.quali_endet || dayjs(row.quali_endet).isSameOrAfter(cutoff, 'day');
+      return startOk && endOk;
+    };
+
+    const map = {};
+    for (const row of data || []) {
+      if (!isValidOn(row)) continue;
+      const uid = String(row.user_id);
+      map[uid] = (map[uid] || 0) + 1;
+    }
+    return map;
+  } catch (e) {
+    console.error('❌ Fehler beim Laden der Quali-Counts:', e);
+    return {};
+  }
+};
 
   // --- Prüfen, ob User an date (YYYY-MM-DD) ausgegraut ist ---
   const isGrey = (uid, dateISO) => {

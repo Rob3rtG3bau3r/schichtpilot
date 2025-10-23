@@ -317,5 +317,3 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 };
 
 export default Personalliste;
-
-
