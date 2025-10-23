@@ -138,7 +138,62 @@ const TeamPflegen = () => {
         .eq("firma_id", firma)
         .eq("unit_id", unit);
 
-      // 6) Merge + Sortierung nach position_ingruppe
+              // 5a) Höchste Qualifikation je User (heute gültig)
+      const { data: qualiRows, error: qualiErr } = await supabase
+        .from('DB_Qualifikation')
+        .select('user_id, quali, quali_start, quali_endet')
+        .in('user_id', userIds);
+      if (qualiErr) throw qualiErr;
+
+      // nur heute gültige Qualis berücksichtigen
+      const heuteISO = heute;
+      const gueltigeQualis = (qualiRows || []).filter(q =>
+        (!q.quali_start || q.quali_start <= heuteISO) &&
+        (!q.quali_endet || q.quali_endet >= heuteISO)
+      );
+
+      // benutzte Quali-IDs
+      const usedQualiIds = Array.from(
+        new Set(gueltigeQualis.map(q => q.quali).filter(Boolean))
+      );
+
+      // Matrix: Position + Kürzel holen
+      let posById = new Map();
+      let kuerzelById = new Map();
+      if (usedQualiIds.length) {
+        const { data: mtx, error: mtxErr } = await supabase
+          .from('DB_Qualifikationsmatrix')
+          .select('id, position, quali_kuerzel')
+          .in('id', usedQualiIds)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit);
+        if (mtxErr) throw mtxErr;
+        (mtx || []).forEach(r => {
+          posById.set(r.id, Number(r.position) || 9999);
+          kuerzelById.set(r.id, r.quali_kuerzel || '');
+        });
+      }
+
+      // Maps: beste (kleinste) Position & zugehöriges Kürzel
+      const bestPosByUser = new Map();     // user_id -> kleinste Position
+      const bestKuerzelByUser = new Map(); // user_id -> Kürzel der besten
+
+      for (const uid of userIds) {
+        const own = gueltigeQualis.filter(q => q.user_id === uid);
+        let bestPos = 9999;
+        let bestKz  = '';
+        for (const q of own) {
+          const p = posById.get(q.quali);
+          if (p != null && p < bestPos) {
+            bestPos = p;
+            bestKz  = kuerzelById.get(q.quali) || '';
+          }
+        }
+        bestPosByUser.set(uid, bestPos);
+        bestKuerzelByUser.set(uid, bestKz);
+      }
+
+      // 6) Merge + Sortierung (primär: höchste Quali, dann Position-in-Gruppe, dann Name)
       const userListe = (users || [])
         .map((u) => {
           const zuw = zuwHeuteMap.get(u.user_id);
@@ -152,24 +207,42 @@ const TeamPflegen = () => {
           const uebernahme_vorjahr = Number(stunden?.uebernahme_vorjahr ?? 0);
           const stunden_gesamt = Number(stunden?.stunden_gesamt ?? 0);
 
-          // Neu: Ist inkl. Vorjahr + Rest bis Jahresziel
           const istInklVorjahr = summe_jahr + uebernahme_vorjahr;
-          const restBisJahresende =  istInklVorjahr - stunden_gesamt;
+          const restBisJahresende = istInklVorjahr - stunden_gesamt;
+
+          const bestPos = bestPosByUser.get(u.user_id) ?? 9999;
+          const bestKz  = bestKuerzelByUser.get(u.user_id) || '';
 
           return {
             ...u,
             schichtgruppe,
             position_ingruppe: position,
-            abweichung: restBisJahresende,            // "Std. Jahresende"
-            summe_ist: istInklVorjahr,                // Anzeige links: "Std.: X / Y"
+            abweichung: restBisJahresende,
+            summe_ist: istInklVorjahr,
             summe_soll: stunden_gesamt,
             resturlaub: urlaub?.summe_jahr ?? 0,
             urlaub_gesamt: urlaub?.urlaub_gesamt ?? 0,
+            hoechste_quali_pos: bestPos,
+            hoechste_quali_kz: bestKz,
           };
         })
-        .sort((a, b) => (a.position_ingruppe || 999) - (b.position_ingruppe || 999));
+        .sort((a, b) => {
+          // 1) beste Quali (kleinere Position = höherwertig)
+          if (a.hoechste_quali_pos !== b.hoechste_quali_pos) {
+            return a.hoechste_quali_pos - b.hoechste_quali_pos;
+          }
+          // 2) Position in Gruppe
+          const ap = a.position_ingruppe ?? 999;
+          const bp = b.position_ingruppe ?? 999;
+          if (ap !== bp) return ap - bp;
+          // 3) Name
+          const an = `${a.nachname || ''} ${a.vorname || ''}`.trim();
+          const bn = `${b.nachname || ''} ${b.vorname || ''}`.trim();
+          return an.localeCompare(bn, 'de');
+        });
 
       setMitarbeiter(userListe);
+
     } catch (err) {
       console.error("❌ Fehler beim Laden:", err.message || err);
       setTeams([]);

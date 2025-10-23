@@ -26,72 +26,64 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     );
   };
 
-  // Mitarbeiter + höchste Quali + Team (heute) laden – Team aus DB_SchichtZuweisung
   useEffect(() => {
     const ladeDaten = async () => {
-      // Für Nicht-SuperAdmin: ohne Firma/Unit keine Daten
       if (!isSuperAdmin && (!firma || !unit)) {
         setPersonen([]);
         return;
       }
 
       // 1) Mitarbeitende laden
-      let mitarbeiterRes;
-      if (isSuperAdmin) {
-        mitarbeiterRes = await supabase
-          .from('DB_User')
-          .select('user_id, vorname, nachname, rolle, firma_id, unit_id, aktiv');
-      } else {
-        mitarbeiterRes = await supabase
-          .from('DB_User')
-          .select('user_id, vorname, nachname, rolle, firma_id, unit_id, aktiv')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit);
+      let mitarbeiterRes = supabase
+        .from('DB_User')
+        .select('user_id, vorname, nachname, rolle, firma_id, unit_id, aktiv');
+
+      if (!isSuperAdmin) {
+        mitarbeiterRes = mitarbeiterRes.eq('firma_id', firma).eq('unit_id', unit);
       }
-      const { data: mitarbeiter, error: error1 } = mitarbeiterRes;
-      if (error1) {
-        console.error('Fehler beim Laden der Mitarbeitenden:', error1);
+
+      const { data: mitarbeiter, error: errUser } = await mitarbeiterRes;
+      if (errUser) {
+        console.error('Fehler beim Laden der Mitarbeitenden:', errUser);
         setPersonen([]);
         return;
       }
 
-      const aktive = (mitarbeiter || []).filter(m => m.aktiv !== false);
+      const aktive = (mitarbeiter || []).filter((m) => m.aktiv !== false);
       const userIds = aktive.map((m) => m.user_id);
       if (userIds.length === 0) {
         setPersonen([]);
         return;
       }
 
-      // 2) Quali-Zuweisungen nur für die geladenen User
-      const { data: qualiEintraege, error: error2 } = await supabase
-        .from('DB_Qualifikation')
-        .select('user_id, quali')
-        .in('user_id', userIds);
-      if (error2) {
-        console.error('Fehler beim Laden der Qualifikationen:', error2);
-      }
+      // 2) HEUTE gültige Qualifikationen (neue Felder)
+      const heute = new Date().toISOString().slice(0, 10);
 
-      // 3) Matrix (Position & Bezeichnung) für die verwendeten Quali-IDs
-      const qualiIds = Array.from(new Set((qualiEintraege || []).map((q) => q.quali)));
+      const { data: qualiRaw, error: errQuali } = await supabase
+        .from('DB_Qualifikation')
+        .select('user_id, quali, quali_start, quali_endet')
+        .in('user_id', userIds);
+
+      if (errQuali) console.error('Fehler beim Laden der Qualifikationen:', errQuali);
+
+      const qualiHeute = (qualiRaw || []).filter((q) => {
+        const s = q.quali_start ? String(q.quali_start).slice(0, 10) : null;
+        const e = q.quali_endet ? String(q.quali_endet).slice(0, 10) : null;
+        const startOk = !s || s <= heute;
+        const endeOk = !e || e >= heute;
+        return startOk && endeOk;
+      });
+
+      // 3) Matrix (Position/Bezeichnung) nur für benutzte Quali-IDs
+      const qualiIds = Array.from(new Set(qualiHeute.map((q) => q.quali)));
       let matrixById = new Map();
       if (qualiIds.length > 0) {
-        let matrixRes;
-        if (isSuperAdmin) {
-          matrixRes = await supabase
-            .from('DB_Qualifikationsmatrix')
-            .select('id, qualifikation, position')
-            .in('id', qualiIds);
-        } else {
-          matrixRes = await supabase
-            .from('DB_Qualifikationsmatrix')
-            .select('id, qualifikation, position')
-            .in('id', qualiIds)
-            .eq('firma_id', firma)
-            .eq('unit_id', unit);
-        }
-        const { data: matrix, error: error3 } = matrixRes;
-        if (error3) {
-          console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
+        let matrixRes = supabase.from('DB_Qualifikationsmatrix').select('id, qualifikation, position').in('id', qualiIds);
+        if (!isSuperAdmin) matrixRes = matrixRes.eq('firma_id', firma).eq('unit_id', unit);
+
+        const { data: matrix, error: errMatrix } = await matrixRes;
+        if (errMatrix) {
+          console.error('Fehler beim Laden der Qualifikationsmatrix:', errMatrix);
         } else {
           matrixById = new Map(
             (matrix || []).map((m) => [
@@ -102,54 +94,46 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         }
       }
 
-      // 4) Zuweisungen am HEUTIGEN Tag aus DB_SchichtZuweisung
-      const heute = new Date().toISOString().split('T')[0];
-
-      // Hol alle Zuweisungen mit von_datum <= heute für die betroffenen User
-      // (SuperAdmin: über alle Firmen/Units; sonst ist die Userliste sowieso gefiltert)
-      const { data: zuwRaw, error: zuwErr } = await supabase
+      // 4) Team-Zuweisung für HEUTE
+      const { data: zuwRaw, error: errZuw } = await supabase
         .from('DB_SchichtZuweisung')
         .select('user_id, schichtgruppe, von_datum, bis_datum, firma_id, unit_id')
         .in('user_id', userIds)
         .lte('von_datum', heute);
 
-      if (zuwErr) {
-        console.error('Fehler beim Laden der Zuweisungen:', zuwErr);
-      }
+      if (errZuw) console.error('Fehler beim Laden der Zuweisungen:', errZuw);
 
-      // Pro User die am heutigen Tag gültige Zuweisung (max von_datum) ermitteln
       const zuwByUser = new Map(); // user_id -> { schichtgruppe, von_datum }
       (aktive || []).forEach((u) => {
-        const rows = (zuwRaw || [])
-          .filter(z =>
+        const rows = (zuwRaw || []).filter(
+          (z) =>
             z.user_id === u.user_id &&
             z.firma_id === u.firma_id &&
-            z.unit_id === u.unit_id && // passend zum User
+            z.unit_id === u.unit_id &&
             (!z.bis_datum || z.bis_datum >= heute)
-          );
+        );
         if (rows.length > 0) {
-          const last = rows.reduce((acc, curr) =>
-            acc == null || curr.von_datum > acc.von_datum ? curr : acc, null);
-          if (last) {
-            zuwByUser.set(u.user_id, { schichtgruppe: last.schichtgruppe, von_datum: last.von_datum });
-          }
+          const last = rows.reduce(
+            (acc, curr) => (!acc || curr.von_datum > acc.von_datum ? curr : acc),
+            null
+          );
+          if (last) zuwByUser.set(u.user_id, { schichtgruppe: last.schichtgruppe, von_datum: last.von_datum });
         }
       });
 
-      // 5) Zusammenbauen
+      // 5) Aggregieren: höchste (positionsbeste) heute gültige Quali + Team
       const qualisByUser = new Map();
-      (qualiEintraege || []).forEach((q) => {
+      qualiHeute.forEach((q) => {
         const arr = qualisByUser.get(q.user_id) || [];
         arr.push(q);
         qualisByUser.set(q.user_id, arr);
       });
 
-      const personenMitDaten = (aktive || []).map((person) => {
-        // höchste Quali: kleinste Matrix-Position
-        const eigene = qualisByUser.get(person.user_id) || [];
+      const personenMitDaten = aktive.map((person) => {
         let besteBezeichnung = '–';
         let bestePos = 999;
 
+        const eigene = qualisByUser.get(person.user_id) || [];
         eigene.forEach((q) => {
           const m = matrixById.get(q.quali);
           if (m?.qualifikation && m.position < bestePos) {
@@ -178,7 +162,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     ladeDaten();
   }, [firma, unit, refreshKey, isSuperAdmin]);
 
-  // Filter (nur Suche) + Sort
+  // Suche + Sort
   const gefiltertePersonen = useMemo(() => {
     const s = (suche || '').toLowerCase();
     const arr = personen.filter((p) => p.name?.toLowerCase().includes(s));
@@ -187,15 +171,8 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     const dir = richtung === 'asc' ? 1 : -1;
 
     return [...arr].sort((a, b) => {
-      const aWert =
-        feld === 'name'
-          ? a.name.split(' ').slice(-1)[0].toLowerCase()
-          : a[feld]?.toLowerCase?.() || '';
-      const bWert =
-        feld === 'name'
-          ? b.name.split(' ').slice(-1)[0].toLowerCase()
-          : b[feld]?.toLowerCase?.() || '';
-
+      const aWert = feld === 'name' ? a.name.split(' ').slice(-1)[0].toLowerCase() : a[feld]?.toLowerCase?.() || '';
+      const bWert = feld === 'name' ? b.name.split(' ').slice(-1)[0].toLowerCase() : b[feld]?.toLowerCase?.() || '';
       if (aWert < bWert) return -1 * dir;
       if (aWert > bWert) return 1 * dir;
       return 0;
@@ -269,9 +246,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
             ))}
           </tbody>
         </table>
-        {gefiltertePersonen.length === 0 && (
-          <p className="text-sm mt-2">Keine Ergebnisse gefunden.</p>
-        )}
+        {gefiltertePersonen.length === 0 && <p className="text-sm mt-2">Keine Ergebnisse gefunden.</p>}
       </div>
 
       {/* Info-Modal */}
@@ -288,14 +263,11 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
             <ul className="list-disc pl-6 space-y-1 text-sm">
               <li>Nur aktive User werden angezeigt.</li>
               <li>Als <strong>SuperAdmin</strong> siehst du alle Firmen & Units.</li>
-              <li>Pro Person wird die höchste zugewiesene Qualifikation angezeigt (nach Position).</li>
-              <li>Team wird aus den <strong>Schichtzuweisungen</strong> für <strong>heute</strong> ermittelt.</li>
+              <li>Qualifikationen zählen nur, wenn sie <b>heute</b> gültig sind (Start ≤ heute, Ende leer/≥ heute).</li>
+              <li>Team wird aus <strong>DB_SchichtZuweisung</strong> (gültig heute) ermittelt.</li>
             </ul>
             <div className="mt-4 text-right">
-              <button
-                onClick={() => setInfoOffen(false)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded"
-              >
+              <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded">
                 Schließen
               </button>
             </div>
@@ -307,3 +279,4 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 };
 
 export default Personalliste;
+

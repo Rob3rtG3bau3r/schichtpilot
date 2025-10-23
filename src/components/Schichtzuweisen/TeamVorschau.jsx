@@ -10,16 +10,16 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
 
   useEffect(() => {
     ladeTeam();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTeam, anzeigeDatum, firmenId, unitId]);
 
   const ladeTeam = async () => {
-    // Ohne Kontext oder Datum: nichts laden
     if (!selectedTeam || !firmenId || !unitId || !anzeigeDatum) {
       setTeamMitglieder([]);
       setZeigeSpeichernButton(false);
       return;
     }
-    const datum = anzeigeDatum;
+    const datum = dayjs(anzeigeDatum).format('YYYY-MM-DD');
 
     // 1) Alle Zuweisungen der Gruppe laden
     const { data: zuweisungData, error: zuweisungError } = await supabase
@@ -37,10 +37,10 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
     }
 
     // 2) Am Datum gültige Zuweisungen filtern
-    const filtered = (zuweisungData || []).filter(z => {
-      return dayjs(z.von_datum).isSameOrBefore(datum, 'day') &&
-             (!z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(datum, 'day'));
-    });
+    const filtered = (zuweisungData || []).filter(z =>
+      dayjs(z.von_datum).isSameOrBefore(datum, 'day') &&
+      (!z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(datum, 'day'))
+    );
 
     if (filtered.length === 0) {
       setTeamMitglieder([]);
@@ -63,44 +63,60 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
       return;
     }
 
-    // 4) Qualis laden
-    const { data: qualiData } = await supabase
+    // 4) Qualis laden (NEU: mit Start/Ende) und auf Stichtag filtern
+    const { data: qualiDataRaw } = await supabase
       .from('DB_Qualifikation')
-      .select('user_id, quali')
+      .select('user_id, quali, quali_start, quali_endet')
       .in('user_id', userIds);
 
-    const { data: matrixData } = await supabase
-      .from('DB_Qualifikationsmatrix')
-      .select('id, quali_kuerzel, position')
-      .eq('firma_id', firmenId)
-      .eq('unit_id', unitId);
+    const gueltigeQualis = (qualiDataRaw || []).filter(q => {
+      const start = q.quali_start ? String(q.quali_start).slice(0, 10) : null;
+      const ende  = q.quali_endet ? String(q.quali_endet).slice(0, 10) : null;
+      const startOk = !start || start <= datum;
+      const endeOk  = !ende || ende >= datum;
+      return startOk && endeOk;
+    });
 
-    // 5) Zusammenbauen (inkl. gültiger Zuweisung am Datum)
-    const userMitQuali = (userData || []).map((user) => {
+    // 5) Matrix laden (für Position + Kürzel)
+    const qualiIds = Array.from(new Set(gueltigeQualis.map(q => q.quali)));
+    let matrixData = [];
+    if (qualiIds.length > 0) {
+      const { data: mData, error: mErr } = await supabase
+        .from('DB_Qualifikationsmatrix')
+        .select('id, quali_kuerzel, position')
+        .in('id', qualiIds)
+        .eq('firma_id', firmenId)
+        .eq('unit_id', unitId);
+      if (mErr) console.error('Fehler beim Laden der Quali-Matrix:', mErr);
+      matrixData = mData || [];
+    }
+
+    // 6) Zusammenbauen (höchste gültige Quali am Datum + gültige Zuweisung)
+    const userMitQuali = (userData || []).map(user => {
       const zuweisung = filtered.find(z => z.user_id === user.user_id);
-      const userQualis = (qualiData || []).filter(q => q.user_id === user.user_id);
-      const qualisMitPosition = userQualis
-        .map(q => (matrixData || []).find(m => m.id === q.quali))
+
+      const userQualis = gueltigeQualis.filter(q => q.user_id === user.user_id);
+      const qualisMitPos = userQualis
+        .map(q => matrixData.find(m => m.id === q.quali))
         .filter(Boolean);
 
       let hauptquali = null;
-      if (qualisMitPosition.length > 0) {
-        hauptquali = qualisMitPosition
-          .sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999))[0]
-          .quali_kuerzel;
+      if (qualisMitPos.length > 0) {
+        const top = qualisMitPos.sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999))[0];
+        hauptquali = top?.quali_kuerzel || null;
       }
 
       return {
         ...user,
         hauptquali,
         position_ingruppe: zuweisung?.position_ingruppe ?? null,
-        zuweisung_id: zuweisung?.id ?? null,     // wichtig fürs Update
+        zuweisung_id: zuweisung?.id ?? null,
         zuweisung_von: zuweisung?.von_datum ?? null,
         zuweisung_bis: zuweisung?.bis_datum ?? null,
       };
     });
 
-    // 6) Sortieren nach Position
+    // 7) Sortieren nach Positionsnummer
     const sortiert = userMitQuali.sort((a, b) => {
       if (a.position_ingruppe == null) return 1;
       if (b.position_ingruppe == null) return -1;
@@ -110,8 +126,7 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
     setTeamMitglieder(sortiert);
 
     // Button zeigen, wenn mind. eine Position fehlt
-    const hatLuecken = sortiert.some(m => m.position_ingruppe === null);
-    setZeigeSpeichernButton(hatLuecken);
+    setZeigeSpeichernButton(sortiert.some(m => m.position_ingruppe === null));
   };
 
   // Drag-Start
@@ -119,33 +134,75 @@ const TeamVorschau = ({ selectedTeam, firmenId, unitId, anzeigeDatum, className 
     window.dragIndex = index;
   };
 
-// Hilfsfunktion: Position für EINEN User am Datum updaten oder sauber splitten (ohne DB-Constraint)
-const upsertPositionForUserAtDate = async (user, newPos, datum) => {
-  const oldPos = user.position_ingruppe ?? null;
-  if (oldPos === newPos) {
-    // Keine Änderung -> nichts schreiben
-    return user;
-  }
+  // Hilfsfunktion: Position am Datum updaten/splitten (unverändert)
+  const upsertPositionForUserAtDate = async (user, newPos, datum) => {
+    const oldPos = user.position_ingruppe ?? null;
+    if (oldPos === newPos) return user;
 
-  // Falls (theoretisch) kein gültiger Eintrag existiert, neu ab Datum anlegen
-  if (!user.zuweisung_id) {
-    // -> neuen Zeitraum [datum, next_von - 1] anlegen,
-    //    damit wir nicht in die Zukunft hineinragen
-    const { data: nextRow } = await supabase
+    if (!user.zuweisung_id) {
+      const { data: nextRow } = await supabase
+        .from('DB_SchichtZuweisung')
+        .select('von_datum')
+        .eq('user_id', user.user_id)
+        .eq('schichtgruppe', selectedTeam)
+        .eq('firma_id', firmenId)
+        .eq('unit_id', unitId)
+        .gt('von_datum', datum)
+        .order('von_datum', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      const newBis = nextRow?.von_datum
+        ? dayjs(nextRow.von_datum).subtract(1, 'day').format('YYYY-MM-DD')
+        : null;
+
+      const { data: inserted, error: insertError } = await supabase
+        .from('DB_SchichtZuweisung')
+        .insert([{
+          user_id: user.user_id,
+          schichtgruppe: selectedTeam,
+          von_datum: datum,
+          bis_datum: newBis,
+          position_ingruppe: newPos,
+          firma_id: firmenId,
+          unit_id: unitId,
+          created_at: new Date().toISOString(),
+          created_by: localStorage.getItem('user_id') || null,
+        }])
+        .select('id')
+        .single();
+
+      if (insertError) {
+        console.error('Fehler beim Anlegen neuer Zuweisung:', insertError);
+        return user;
+      }
+
+      return {
+        ...user,
+        position_ingruppe: newPos,
+        zuweisung_id: inserted?.id ?? null,
+        zuweisung_von: datum,
+        zuweisung_bis: newBis,
+      };
+    }
+
+    const startsExactlyAtDate = user.zuweisung_von && dayjs(user.zuweisung_von).isSame(datum, 'day');
+
+    if (startsExactlyAtDate) {
+      await supabase
+        .from('DB_SchichtZuweisung')
+        .update({ position_ingruppe: newPos })
+        .eq('id', user.zuweisung_id);
+
+      return { ...user, position_ingruppe: newPos };
+    }
+
+    const dayBefore = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
+
+    await supabase
       .from('DB_SchichtZuweisung')
-      .select('von_datum')
-      .eq('user_id', user.user_id)
-      .eq('schichtgruppe', selectedTeam)
-      .eq('firma_id', firmenId)
-      .eq('unit_id', unitId)
-      .gt('von_datum', datum)
-      .order('von_datum', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    const newBis = nextRow?.von_datum
-      ? dayjs(nextRow.von_datum).subtract(1, 'day').format('YYYY-MM-DD')
-      : null;
+      .update({ bis_datum: dayBefore })
+      .eq('id', user.zuweisung_id);
 
     const { data: inserted, error: insertError } = await supabase
       .from('DB_SchichtZuweisung')
@@ -153,93 +210,37 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
         user_id: user.user_id,
         schichtgruppe: selectedTeam,
         von_datum: datum,
-        bis_datum: newBis,               // << hier: auf nächsten Start - 1 begrenzen
+        bis_datum: user.zuweisung_bis || null,
         position_ingruppe: newPos,
         firma_id: firmenId,
         unit_id: unitId,
         created_at: new Date().toISOString(),
-        created_by: localStorage.getItem('user_id') || null
+        created_by: localStorage.getItem('user_id') || null,
       }])
       .select('id')
       .single();
 
     if (insertError) {
-      console.error('Fehler beim Anlegen neuer Zuweisung:', insertError);
+      console.error('Fehler beim Split/Anlegen neuer Zuweisung:', insertError);
       return user;
     }
 
     return {
       ...user,
       position_ingruppe: newPos,
-      zuweisung_id: inserted?.id ?? null,
+      zuweisung_id: inserted?.id ?? user.zuweisung_id,
       zuweisung_von: datum,
-      zuweisung_bis: newBis
+      zuweisung_bis: user.zuweisung_bis ?? null,
     };
-  }
-
-  // Es existiert ein gültiger Eintrag für das Datum
-  const startsExactlyAtDate = user.zuweisung_von && dayjs(user.zuweisung_von).isSame(datum, 'day');
-
-  if (startsExactlyAtDate) {
-    // Einfach nur Position aktualisieren
-    await supabase
-      .from('DB_SchichtZuweisung')
-      .update({ position_ingruppe: newPos })
-      .eq('id', user.zuweisung_id);
-
-    return { ...user, position_ingruppe: newPos };
-  }
-
-  // Split-Fall: gültiger Eintrag startet VOR dem Datum -> Intervall splitten
-  const dayBefore = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
-
-  // 1) alten Eintrag zum Vortag begrenzen
-  await supabase
-    .from('DB_SchichtZuweisung')
-    .update({ bis_datum: dayBefore })
-    .eq('id', user.zuweisung_id);
-
-  // 2) neuen Eintrag ab Datum mit gleicher bis_datum und neuer Position
-  const { data: inserted, error: insertError } = await supabase
-    .from('DB_SchichtZuweisung')
-    .insert([{
-      user_id: user.user_id,
-      schichtgruppe: selectedTeam,
-      von_datum: datum,
-      bis_datum: user.zuweisung_bis || null,
-      position_ingruppe: newPos,
-      firma_id: firmenId,
-      unit_id: unitId,
-      created_at: new Date().toISOString(),
-      created_by: localStorage.getItem('user_id') || null
-    }])
-    .select('id')
-    .single();
-
-  if (insertError) {
-    console.error('Fehler beim Split/Anlegen neuer Zuweisung:', insertError);
-    return user;
-  }
-
-  return {
-    ...user,
-    position_ingruppe: newPos,
-    zuweisung_id: inserted?.id ?? user.zuweisung_id,
-    zuweisung_von: datum,
-    zuweisung_bis: user.zuweisung_bis ?? null
   };
-};
 
-
-  // Reihenfolge speichern – nur geänderte Positionen anfassen
+  // Reihenfolge speichern – differenziell
   const reihenfolgeSpeichern = async () => {
     if (!anzeigeDatum) return;
-    const datum = anzeigeDatum;
+    const datum = dayjs(anzeigeDatum).format('YYYY-MM-DD');
 
-    // neue Ziel-Positionen
     const newOrder = Object.fromEntries(teamMitglieder.map((u, i) => [u.user_id, i + 1]));
 
-    // Updates nur dort, wo sich die Position wirklich ändert
     const aktualisiert = await Promise.all(
       teamMitglieder.map(async (user) => {
         const newPos = newOrder[user.user_id];
@@ -251,15 +252,12 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
     setZeigeSpeichernButton(false);
   };
 
-  // Drag & Drop – sofortige (differenzielle) Speicherung nur für veränderte
   const handleDrop = async (hoverIndex) => {
     const dragIndex = window.dragIndex;
     if (dragIndex === undefined || dragIndex === hoverIndex) return;
 
-    // Alte Reihenfolge merken (für diff)
     const oldPositions = Object.fromEntries(teamMitglieder.map(u => [u.user_id, u.position_ingruppe]));
 
-    // Lokal neu anordnen
     const updated = [...teamMitglieder];
     const draggedItem = updated.splice(dragIndex, 1)[0];
     updated.splice(hoverIndex, 0, draggedItem);
@@ -269,27 +267,23 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
       window.dragIndex = undefined;
       return;
     }
-    const datum = anzeigeDatum;
+    const datum = dayjs(anzeigeDatum).format('YYYY-MM-DD');
 
-    // Nur geänderte Positionen per DB anpassen
     const aktualisiert = await Promise.all(
       updated.map(async (user, index) => {
         const newPos = index + 1;
         const oldPos = oldPositions[user.user_id] ?? null;
-        if (oldPos === newPos) return user; // nichts tun
-
+        if (oldPos === newPos) return user;
         return upsertPositionForUserAtDate(user, newPos, datum);
       })
     );
 
     setTeamMitglieder(aktualisiert);
     setZeigeSpeichernButton(false);
-    window.dragIndex = undefined; // Cleanup
+    window.dragIndex = undefined;
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
+  const handleDragOver = (e) => e.preventDefault();
 
   return (
     <div className={`bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className || ''}`}>
@@ -297,9 +291,7 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
         <h2 className="text-lg font-semibold">
           Team: {selectedTeam || 'Keine Gruppe gewählt'}
           {!anzeigeDatum ? (
-            <span className="ml-4 text-sm text-red-500">
-              ⚠ Kein Datum gewählt
-            </span>
+            <span className="ml-4 text-sm text-red-500">⚠ Kein Datum gewählt</span>
           ) : (
             <span className="ml-4 text-sm text-gray-600 dark:text-gray-300">
               (Datum: {dayjs(anzeigeDatum).format('DD.MM.YYYY')})
@@ -321,13 +313,10 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Drag & Drop zum Umsortieren.</li>
               <li>Änderungen gelten ab dem gewählten Datum (Intervall wird ggf. gesplittet).</li>
-              <li>Vergangene und zukünftige Zuweisungen bleiben unangetastet.</li>
+              <li>Nur Qualifikationen, die am Datum gültig sind, werden berücksichtigt.</li>
             </ul>
             <div className="text-right mt-4">
-              <button
-                onClick={() => setInfoOffen(false)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
-              >
+              <button onClick={() => setInfoOffen(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">
                 Schließen
               </button>
             </div>
@@ -336,18 +325,13 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
       )}
 
       {zeigeSpeichernButton && (
-        <button
-          onClick={reihenfolgeSpeichern}
-          className="mb-4 bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded"
-        >
+        <button onClick={reihenfolgeSpeichern} className="mb-4 bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded">
           Reihenfolge speichern
         </button>
       )}
 
       {teamMitglieder.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-          Keine Mitglieder gefunden.
-        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 italic">Keine Mitglieder gefunden.</p>
       ) : (
         <div className="max-h-[calc(100vh-300px)] overflow-y-auto pr-1 space-y-1">
           {teamMitglieder.map((member, index) => (
@@ -360,16 +344,10 @@ const upsertPositionForUserAtDate = async (user, newPos, datum) => {
               className="bg-gray-100 dark:bg-gray-900 p-2 rounded-2xl border border-gray-500 flex justify-between items-center cursor-move"
             >
               <div>
-                <span className="font-semibold">
-                  {member.nachname}, {member.vorname}
-                </span>
-                <div className="text-sm text-gray-600 dark:text-gray-300">
-                  Rolle: {member.rolle}
-                </div>
+                <span className="font-semibold">{member.nachname}, {member.vorname}</span>
+                <div className="text-sm text-gray-600 dark:text-gray-300">Rolle: {member.rolle}</div>
                 {member.hauptquali && (
-                  <div className="text-sm text-gray-600 dark:text-gray-300">
-                    Qualifikation: {member.hauptquali}
-                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">Qualifikation: {member.hauptquali}</div>
                 )}
               </div>
               <div className="text-sm text-gray-500 dark:text-gray-400 pr-6">

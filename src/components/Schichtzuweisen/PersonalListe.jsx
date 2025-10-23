@@ -11,6 +11,7 @@ const SortIcon = ({ aktiv, richtung }) => {
 
 const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+
   const [benutzer, setBenutzer] = useState([]);
   const [nurOhneGruppe, setNurOhneGruppe] = useState(() => localStorage.getItem('nurOhneGruppe') === 'true');
   const [sortiereNachGruppe, setSortiereNachGruppe] = useState(() => localStorage.getItem('sortiereNachGruppe') === 'true');
@@ -19,13 +20,11 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   const [suche, setSuche] = useState('');
 
   const handleSortierung = (feld) => {
-    setSortierung((aktuell) => {
-      if (aktuell.feld === feld) {
-        return { feld, richtung: aktuell.richtung === 'asc' ? 'desc' : 'asc' };
-      } else {
-        return { feld, richtung: 'asc' };
-      }
-    });
+    setSortierung((aktuell) =>
+      aktuell.feld === feld
+        ? { feld, richtung: aktuell.richtung === 'asc' ? 'desc' : 'asc' }
+        : { feld, richtung: 'asc' }
+    );
   };
 
   useEffect(() => {
@@ -48,15 +47,13 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         return;
       }
 
-      const userIds = (userData || []).map(u => u.user_id);
+      const userIds = (userData || []).map((u) => u.user_id);
       if (userIds.length === 0) {
         setBenutzer([]);
         return;
       }
 
-      // 2) Zuweisungen laden (neue DB) und auf Datum filtern
-      //   - Wir begrenzen serverseitig auf von_datum ≤ abfrageDatum
-      //   - und filtern clientseitig auf (bis_datum null oder ≥ abfrageDatum)
+      // 2) Team-Zuweisungen (gültig am abfrageDatum)
       const { data: zuwRaw, error: zuwError } = await supabase
         .from('DB_SchichtZuweisung')
         .select('user_id, schichtgruppe, von_datum, bis_datum')
@@ -69,12 +66,13 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         console.error('Fehler beim Laden der Zuweisungen:', zuwError.message);
       }
 
-      const zuwGefiltert = (zuwRaw || []).filter(z =>
-        dayjs(z.von_datum).isSameOrBefore(abfrageDatum, 'day') &&
-        (!z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(abfrageDatum, 'day'))
+      const zuwGefiltert = (zuwRaw || []).filter(
+        (z) =>
+          dayjs(z.von_datum).isSameOrBefore(abfrageDatum, 'day') &&
+          (!z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(abfrageDatum, 'day'))
       );
 
-      // pro User den "letzten" gültigen Eintrag (max von_datum) finden
+      // pro User den neuesten gültigen Eintrag wählen
       const zuwMap = new Map(); // user_id -> { schichtgruppe, von_datum }
       for (const z of zuwGefiltert) {
         const prev = zuwMap.get(z.user_id);
@@ -83,43 +81,68 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
         }
       }
 
-      // 3) Qualifikationen (wie gehabt)
-      const { data: qualiData } = await supabase
+      // 3) Qualifikationen (mit Start/Ende) laden und am Datum filtern
+      const { data: qualiDataRaw, error: qualiErr } = await supabase
         .from('DB_Qualifikation')
-        .select('user_id, quali')
+        .select('user_id, quali, quali_start, quali_endet')
         .in('user_id', userIds);
 
-      const { data: qualiMatrix } = await supabase
-        .from('DB_Qualifikationsmatrix')
-        .select('id, qualifikation, position')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit);
+      if (qualiErr) {
+        console.error('Fehler beim Laden der Qualifikationen:', qualiErr.message);
+      }
 
-      const qualiMap = {};
-      for (const uid of userIds) {
-        const userQualis = (qualiData || []).filter(q => q.user_id === uid);
-        const mitPos = userQualis
-          .map(q => (qualiMatrix || []).find(m => m.id === q.quali))
-          .filter(m => m && m.position != null);
-        if (mitPos.length > 0) {
-          const wichtigste = mitPos.sort((a, b) => a.position - b.position)[0];
-          qualiMap[uid] = wichtigste.qualifikation;
+      const qualiData = (qualiDataRaw || []).filter((q) => {
+        const start = q.quali_start ? dayjs(q.quali_start).format('YYYY-MM-DD') : null;
+        const ende  = q.quali_endet ? dayjs(q.quali_endet).format('YYYY-MM-DD') : null;
+        const startOK = !start || start <= abfrageDatum;
+        const endeOK  = !ende || ende >= abfrageDatum;
+        return startOK && endeOK;
+      });
+
+      // 4) Matrix für genutzte Quali-IDs (Position + Bezeichnung)
+      const qualiIds = Array.from(new Set(qualiData.map((q) => q.quali)));
+      let matrix = [];
+      if (qualiIds.length > 0) {
+        const { data: matrixData, error: matrixErr } = await supabase
+          .from('DB_Qualifikationsmatrix')
+          .select('id, qualifikation, position')
+          .in('id', qualiIds)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit);
+
+        if (matrixErr) {
+          console.error('Fehler beim Laden der Qualifikationsmatrix:', matrixErr?.message);
+        } else {
+          matrix = matrixData || [];
         }
       }
 
-      // 4) Zusammenführen
-      let finalListe = (userData || []).map(user => ({
-        ...user,
-        schichtgruppe: zuwMap.get(user.user_id)?.schichtgruppe || null,
-        hauptquali: qualiMap[user.user_id] || null,
-      }));
-
-      // 5) Filter "nur ohne Gruppe"
-      if (nurOhneGruppe) {
-        finalListe = finalListe.filter(u => !u.schichtgruppe);
+      // Map pro User: höchste (beste Position) heute gültige Qualifikation
+      const hauptqualiMap = {};
+      for (const uid of userIds) {
+        const userQualis = qualiData.filter((q) => q.user_id === uid);
+        const mitPos = userQualis
+          .map((q) => (matrix || []).find((m) => m.id === q.quali))
+          .filter((m) => m && m.position != null);
+        if (mitPos.length > 0) {
+          const wichtigste = mitPos.sort((a, b) => a.position - b.position)[0];
+          hauptqualiMap[uid] = wichtigste.qualifikation;
+        }
       }
 
-      // 6) Sortierung
+      // 5) Zusammenführen
+      let finalListe = (userData || []).map((user) => ({
+        ...user,
+        schichtgruppe: zuwMap.get(user.user_id)?.schichtgruppe || null,
+        hauptquali: hauptqualiMap[user.user_id] || null,
+      }));
+
+      // 6) Filter „nur ohne Gruppe“
+      if (nurOhneGruppe) {
+        finalListe = finalListe.filter((u) => !u.schichtgruppe);
+      }
+
+      // 7) Sortierung
       finalListe.sort((a, b) => {
         const { feld, richtung } = sortierung;
         let aWert = (a[feld] || '').toString().toLowerCase();
@@ -251,10 +274,10 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
           >
             <h3 className="text-xl font-bold mb-2">Informationen zur Liste</h3>
             <ul className="list-disc pl-6 space-y-1 text-sm">
-              <li>Nur aktive Benutzer aus der aktuellen Unit werden angezeigt.</li>
-              <li>Die Liste kann nach Name, Rolle, Qualifikation und Team sortiert werden.</li>
-              <li>Es wird die höchste Qualifikation des Benutzers angezeigt.</li>
+              <li>Nur aktive Benutzer der aktuellen Unit werden angezeigt.</li>
               <li>„Team“ kommt aus den Zuweisungen (gültig am ausgewählten Datum).</li>
+              <li>Qualifikationen zählen nur, wenn sie am Datum gültig sind (Start ≤ Datum und Ende leer oder ≥ Datum).</li>
+              <li>Angezeigt wird die höchste gültige Qualifikation (nach Matrix-Position).</li>
               <li>Checkbox filtert nach „nicht zugewiesen“ am Datum.</li>
             </ul>
             <div className="mt-4 text-right">

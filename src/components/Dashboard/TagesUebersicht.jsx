@@ -214,6 +214,54 @@ export default function TagesUebersicht() {
             isGreyToday.set(String(r.user_id), true);
           });
         }
+        // --- 7a) Quali-Ranking pro User (heute gültig) ---
+const bestPosByUser = new Map(); // uid -> kleinste (beste) Position
+
+if (userIds.length) {
+  // heute gültige Qualis holen
+  const { data: qualiRows, error: qualiErr } = await supabase
+    .from('DB_Qualifikation')
+    .select('user_id, quali, quali_start, quali_endet')
+    .in('user_id', userIds);
+  if (qualiErr) throw qualiErr;
+
+  const heuteISO = heute; // already defined above
+  // betroffene quali-ids einsammeln
+  const usedQualiIds = Array.from(
+    new Set(
+      (qualiRows || [])
+        .filter(q => (!q.quali_start || q.quali_start <= heuteISO) && (!q.quali_endet || q.quali_endet >= heuteISO))
+        .map(q => q.quali)
+        .filter(Boolean)
+    )
+  );
+
+  // Matrix-Positionen für diese Qualis
+  let matrixPosById = new Map();
+  if (usedQualiIds.length) {
+    const { data: posRows, error: posErr } = await supabase
+      .from('DB_Qualifikationsmatrix')
+      .select('id, position')
+      .in('id', usedQualiIds);
+    if (posErr) throw posErr;
+    matrixPosById = new Map((posRows || []).map(r => [r.id, Number(r.position) || 9999]));
+  }
+
+  // pro User beste (kleinste) Position bestimmen
+  for (const uid of userIds) {
+    const own = (qualiRows || []).filter(q =>
+      String(q.user_id) === String(uid) &&
+      (!q.quali_start || q.quali_start <= heuteISO) &&
+      (!q.quali_endet || q.quali_endet >= heuteISO)
+    );
+    let best = 9999;
+    for (const q of own) {
+      const pos = matrixPosById.get(q.quali);
+      if (pos != null && pos < best) best = pos;
+    }
+    bestPosByUser.set(String(uid), best);
+  }
+}
 
         // --- 8) Finale Kürzel (Override -> Plan) ---
         const finalKuerzelByUser = new Map();
@@ -228,55 +276,64 @@ export default function TagesUebersicht() {
         }
 
         // --- 9) Aufteilen / Sammeln mit Grey-Flag ---
-        const F = [], S = [], N = [];
-        const andereMap = new Map();
-        const krankArr = [];
-        const addAndere = (kz, name, grey) => {
-          if (!kz || kz.trim() === '-') return;
-          if (!andereMap.has(kz)) andereMap.set(kz, []);
-          andereMap.get(kz).push({ name, grey });
-        };
+const F = [], S = [], N = [];
+const andereMap = new Map();
+const krankArr = [];
+const addAndere = (kz, name, grey, uid) => {
+  if (!kz || kz.trim() === '-') return;
+  if (!andereMap.has(kz)) andereMap.set(kz, []);
+  andereMap.get(kz).push({ name, grey, uid });
+};
 
-        for (const uid of userIds) {
-          const name = userNameMap.get(uid) || `User ${uid}`;
-          const k = finalKuerzelByUser.get(uid);
-          if (!k) continue;
+for (const uid of userIds) {
+  const name = userNameMap.get(uid) || `User ${uid}`;
+  const k = finalKuerzelByUser.get(uid);
+  if (!k) continue;
 
-          const grey = !!isGreyToday.get(uid);
+  const grey = !!isGreyToday.get(uid);
 
-          if (k === 'F') F.push({ name, grey });
-          else if (k === 'S') S.push({ name, grey });
-          else if (k === 'N') N.push({ name, grey });
-          else if (k === 'K' || k === 'KO') {
-            const gesternK = latestKuerzelByUserGestern.get(uid);
-            krankArr.push({ name, neu: !(gesternK === 'K' || gesternK === 'KO') });
-          } else addAndere(k, name, grey);
-        }
+  if (k === 'F') F.push({ name, grey, uid });
+  else if (k === 'S') S.push({ name, grey, uid });
+  else if (k === 'N') N.push({ name, grey, uid });
+  else if (k === 'K' || k === 'KO') {
+    const gesternK = latestKuerzelByUserGestern.get(uid);
+    krankArr.push({ name, neu: !(gesternK === 'K' || gesternK === 'KO') });
+  } else addAndere(k, name, grey, uid);
+}
+
 
         // Sortierung: erst nicht-grau, dann grau; innerhalb alphabetisch
-        const sortNames = (arr) =>
-          arr
-            .slice()
-            .sort((a, b) => {
-              if (a.grey !== b.grey) return a.grey ? 1 : -1; // grau nach unten
-              return a.name.localeCompare(b.name, 'de');
-            });
+// Sortierung: 1) nicht-grau vor grau, 2) nach bester Quali (kleinste Position) aufsteigend,
+// 3) Name alphabetisch —> wirkt wie "höchste Quali zuerst"
+const sortNames = (arr) =>
+  arr
+    .slice()
+    .sort((a, b) => {
+      if (a.grey !== b.grey) return a.grey ? 1 : -1; // grau nach unten
+
+      const pa = bestPosByUser.get(String(a.uid)) ?? 9999;
+      const pb = bestPosByUser.get(String(b.uid)) ?? 9999;
+      if (pa !== pb) return pa - pb; // kleinere Position = höherwertig
+
+      return a.name.localeCompare(b.name, 'de');
+    });
 
         const F_sorted = sortNames(F);
         const S_sorted = sortNames(S);
         const N_sorted = sortNames(N);
 
-        const andere = Array.from(andereMap.entries())
-          .filter(([k]) => k && k.trim() !== '-')
-          .map(([kuerzel, list]) => {
-            const sorted = sortNames(list).map(x => (x.grey ? `${x.name} ⦸` : x.name));
-            return {
-              kuerzel,
-              anzahl: sorted.length,
-              namen: sorted,
-            };
-          })
-          .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
+const andere = Array.from(andereMap.entries())
+  .filter(([k]) => k && k.trim() !== '-')
+  .map(([kuerzel, list]) => {
+    const sorted = sortNames(list).map(x => (x.grey ? `${x.name} ⦸` : x.name));
+    return {
+      kuerzel,
+      anzahl: sorted.length,
+      namen: sorted,
+    };
+  })
+  .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
+
 
         // Krank sortieren (unverändert)
         krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));

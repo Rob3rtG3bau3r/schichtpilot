@@ -20,16 +20,9 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
   const handleSortierung = (feld) => {
     setSortierung((aktuell) => {
       if (aktuell.feld === feld) {
-        return {
-          feld,
-          richtung: aktuell.richtung === 'asc' ? 'desc' : 'asc',
-        };
-      } else {
-        return {
-          feld,
-          richtung: 'asc',
-        };
+        return { feld, richtung: aktuell.richtung === 'asc' ? 'desc' : 'asc' };
       }
+      return { feld, richtung: 'asc' };
     });
   };
 
@@ -58,7 +51,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     ladeQualifikationen();
   }, [firma, unit]);
 
-  // Mitarbeiter + höchste Quali + Team (heute) laden
+  // Mitarbeiter + heute gültige Qualis + Team (heute) laden
   useEffect(() => {
     const ladeDaten = async () => {
       if (!firma || !unit) {
@@ -66,16 +59,16 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         return;
       }
 
-      // 1) Mitarbeiter aus der Unit holen
-      const { data: mitarbeiter, error: error1 } = await supabase
+      // 1) Mitarbeitende der Unit
+      const { data: mitarbeiter, error: errUser } = await supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle')
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .eq('aktiv', true);
 
-      if (error1) {
-        console.error('Fehler beim Laden der Mitarbeitenden:', error1);
+      if (errUser) {
+        console.error('Fehler beim Laden der Mitarbeitenden:', errUser);
         setPersonen([]);
         return;
       }
@@ -86,38 +79,46 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         return;
       }
 
-      // 2) Qualifikationen dieser User laden
-      const { data: qualiEintraege, error: error2 } = await supabase
+      // 2) Qualifikationen dieser User laden (mit Start/Ende)
+      const { data: qualiEintraegeRaw, error: errQuali } = await supabase
         .from('DB_Qualifikation')
-        .select('user_id, quali')
+        .select('user_id, quali, quali_start, quali_endet')
         .in('user_id', userIds);
 
-      if (error2) {
-        console.error('Fehler beim Laden der Qualifikationen:', error2);
+      if (errQuali) {
+        console.error('Fehler beim Laden der Qualifikationen:', errQuali);
       }
 
-      // 3) Matrix für genutzte Quali-IDs laden (Position + Bezeichnung)
-      const qualiIds = Array.from(new Set((qualiEintraege || []).map((q) => q.quali)));
+      const heute = new Date().toISOString().split('T')[0];
+
+      // Nur heute gültige Qualifikationen: (start <= heute) && (ende ist NULL oder ende >= heute)
+      const qualiEintraege = (qualiEintraegeRaw || []).filter((q) => {
+        const start = q.quali_start ? String(q.quali_start).slice(0, 10) : null;
+        const ende  = q.quali_endet ? String(q.quali_endet).slice(0, 10) : null;
+        const startOk = !start || start <= heute;
+        const endeOk  = !ende || ende >= heute;
+        return startOk && endeOk;
+      });
+
+      // 3) Matrix für genutzte Quali-IDs (Position + Bezeichnung)
+      const qualiIds = Array.from(new Set(qualiEintraege.map((q) => q.quali)));
       let matrix = [];
       if (qualiIds.length > 0) {
-        const { data: matrixData, error: error3 } = await supabase
+        const { data: matrixData, error: errMatrix } = await supabase
           .from('DB_Qualifikationsmatrix')
           .select('id, qualifikation, position')
           .in('id', qualiIds)
           .eq('firma_id', firma)
           .eq('unit_id', unit);
 
-        if (error3) {
-          console.error('Fehler beim Laden der Qualifikationsmatrix:', error3);
+        if (errMatrix) {
+          console.error('Fehler beim Laden der Qualifikationsmatrix:', errMatrix);
         } else {
           matrix = matrixData || [];
         }
       }
 
       // 4) Team am HEUTIGEN Tag aus DB_SchichtZuweisung ermitteln
-      const heute = new Date().toISOString().split('T')[0];
-
-      // Hole alle Zuweisungen für diese User mit Start <= heute
       const { data: zuwRaw, error: zuwErr } = await supabase
         .from('DB_SchichtZuweisung')
         .select('user_id, schichtgruppe, von_datum, bis_datum')
@@ -141,15 +142,15 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           }
         });
 
-      // 5) Zusammenführen: höchste Quali + Team
+      // 5) Zusammenführen: höchste heute gültige Quali + Team
       const personenMitQuali = (mitarbeiter || []).map((person) => {
-        const eigeneQualis = (qualiEintraege || [])
+        const eigeneQualis = qualiEintraege
           .filter((q) => q.user_id === person.user_id)
           .map((q) => {
             const details = matrix.find((m) => m.id === q.quali);
             return {
               qualifikation: details?.qualifikation ?? '',
-              position: details?.position ?? 999,
+              position: Number.isFinite(details?.position) ? details.position : 999,
             };
           });
 
@@ -217,7 +218,6 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           onChange={(e) => setSuche(e.target.value)}
           className="border px-2 py-1 rounded w-full md:w-1/2 bg-gray-200 dark:bg-gray-800"
         />
-
         <select
           value={selectedQuali}
           onChange={(e) => setSelectedQuali(e.target.value)}
@@ -225,9 +225,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         >
           <option value="">Alle Qualifikationen</option>
           {qualifikationen.map((q) => (
-            <option key={q} value={q}>
-              {q}
-            </option>
+            <option key={q} value={q}>{q}</option>
           ))}
         </select>
       </div>
@@ -237,52 +235,28 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         <table className="min-w-full table-auto">
           <thead className="bg-gray-200 dark:bg-gray-700">
             <tr>
-              <th
-                className="p-2 text-left cursor-pointer select-none"
-                onClick={() => handleSortierung('name')}
-              >
+              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('name')}>
                 <div className="flex items-center gap-1">
                   Name
-                  <SortIcon
-                    aktiv={sortierung.feld === 'name'}
-                    richtung={sortierung.richtung}
-                  />
+                  <SortIcon aktiv={sortierung.feld === 'name'} richtung={sortierung.richtung} />
                 </div>
               </th>
-              <th
-                className="p-2 text-left cursor-pointer select-none"
-                onClick={() => handleSortierung('rolle')}
-              >
+              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('rolle')}>
                 <div className="flex items-center gap-1">
                   Rolle
-                  <SortIcon
-                    aktiv={sortierung.feld === 'rolle'}
-                    richtung={sortierung.richtung}
-                  />
+                  <SortIcon aktiv={sortierung.feld === 'rolle'} richtung={sortierung.richtung} />
                 </div>
               </th>
-              <th
-                className="p-2 text-left cursor-pointer select-none"
-                onClick={() => handleSortierung('hoechste_quali')}
-              >
+              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('hoechste_quali')}>
                 <div className="flex items-center gap-1">
                   Qualifikation
-                  <SortIcon
-                    aktiv={sortierung.feld === 'hoechste_quali'}
-                    richtung={sortierung.richtung}
-                  />
+                  <SortIcon aktiv={sortierung.feld === 'hoechste_quali'} richtung={sortierung.richtung} />
                 </div>
               </th>
-              <th
-                className="p-2 text-left cursor-pointer select-none"
-                onClick={() => handleSortierung('schichtgruppe')}
-              >
+              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('schichtgruppe')}>
                 <div className="flex items-center gap-1">
                   Team
-                  <SortIcon
-                    aktiv={sortierung.feld === 'schichtgruppe'}
-                    richtung={sortierung.richtung}
-                  />
+                  <SortIcon aktiv={sortierung.feld === 'schichtgruppe'} richtung={sortierung.richtung} />
                 </div>
               </th>
             </tr>
@@ -320,8 +294,11 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
             <h3 className="text-xl font-bold mb-2">Informationen</h3>
             <ul className="list-disc pl-6 space-y-1 text-sm">
               <li>Nur aktive User der aktuellen Unit werden angezeigt.</li>
-              <li>Pro Person wird die höchste zugewiesene Qualifikation angezeigt (nach Position).</li>
-              <li>Du kannst nach Namen suchen und nach Qualifikation filtern.</li>
+              <li>
+                Qualifikationen zählen nur, wenn sie <b>heute im Gültigkeitsintervall</b> liegen
+                (Start ≤ heute und Ende leer oder ≥ heute).
+              </li>
+              <li>Pro Person wird die höchste gültige Qualifikation angezeigt (nach Matrix-Position).</li>
               <li><strong>Team</strong> kommt aus <strong>DB_SchichtZuweisung</strong> (gültig am heutigen Tag).</li>
             </ul>
             <div className="mt-4 text-right">
@@ -340,4 +317,5 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 };
 
 export default Personalliste;
+
 

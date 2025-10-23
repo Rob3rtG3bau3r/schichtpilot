@@ -173,10 +173,10 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       setGeplanterWechsel(wechsel ? { datum: wechsel.von_datum, schichtgruppe: wechsel.schichtgruppe } : null);
 
       // Qualifikationen
-      const { data: qData } = await supabase
-        .from('DB_Qualifikation')
-        .select('quali, created_at')
-        .eq('user_id', u.user_id);
+const { data: qData } = await supabase
+  .from('DB_Qualifikation')
+  .select('quali, quali_start, quali_endet, created_at') // neu: Start/Ende
+  .eq('user_id', u.user_id);
 
       const ids = Array.from(new Set((qData||[]).map(q=>q.quali).filter(v=>v!=null)));
       const byId = new Map();
@@ -195,11 +195,20 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         }
       }
 
-      setQualis((qData||[]).map(q=>{
-        const m = byId.get(q.quali);
-        const label = m?.qualifikation || m?.quali_kuerzel || `#${q.quali}`;
-        return { label, seit: q.created_at ? dayjs(q.created_at).format('DD.MM.YYYY') : '—' };
-      }));
+setQualis((qData || []).map(q => {
+  const m = byId.get(q.quali);
+  const label = m?.qualifikation || m?.quali_kuerzel || `#${q.quali}`;
+
+  // Start aus quali_start, fallback auf created_at (Backfill-sicher)
+  const startISO = q.quali_start || q.created_at || null;
+  const endISO   = q.quali_endet || null;
+
+  const seit  = startISO ? dayjs(startISO).format('DD.MM.YYYY') : '—';
+  const endet = endISO   ? dayjs(endISO).format('DD.MM.YYYY')   : null;
+
+  return { label, seit, endet };  // endet kann null sein
+}));
+
     })();
   }, [userId, firma, unit]);
 
@@ -534,11 +543,15 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
           <div>
             <Label>Qualifikationen (seit)</Label>
             <div className="flex flex-wrap gap-2">
-              {qualis.length === 0 ? (
-                <span className="text-sm text-gray-500 dark:text-gray-300">Keine Qualifikationen hinterlegt.</span>
-              ) : (
-                qualis.map((q, idx) => (<Pill key={idx}>{q.label} · seit {q.seit}</Pill>))
-              )}
+{qualis.length === 0 ? (
+  <span className="text-sm text-gray-500 dark:text-gray-300">Keine Qualifikationen hinterlegt.</span>
+) : (
+  qualis.map((q, idx) => (
+    <Pill key={idx}>
+      {q.label} · seit {q.seit}{q.endet ? ` · läuft aus ${q.endet}` : ''}
+    </Pill>
+  ))
+)}
             </div>
           </div>
 
