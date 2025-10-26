@@ -368,7 +368,6 @@ for (const q of qualis) {
   }
 }
 
-
         const bedarfSortiert = bedarfHeute
           .map((b) => ({
             ...b,

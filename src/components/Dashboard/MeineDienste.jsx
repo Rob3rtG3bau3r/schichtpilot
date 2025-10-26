@@ -3,7 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
-import { Info, ArrowLeft } from 'lucide-react';
+import { Info, ArrowLeft, Printer } from 'lucide-react';
+import DienstPlanDruckModal from './DienstPlanDruckModal';
 
 const monate = [
   'Januar','Februar','März','April','Mai','Juni',
@@ -33,6 +34,7 @@ const MeineDienste = () => {
   // Daten
   const [eintraege, setEintraege] = useState([]);
   const [infoOffen, setInfoOffen] = useState(false);
+  const [druckOffen, setDruckOffen] = useState(false);
 
   // Tooltips
   const [hoverKey, setHoverKey] = useState(null); // 'c-YYYY-MM-DD-i' | 't-YYYY-MM-DD-i'
@@ -305,6 +307,13 @@ const MeineDienste = () => {
           >
             <Info className="w-5 h-5 text-blue-600 dark:text-blue-300" />
           </button>
+          <button
+           onClick={() => setDruckOffen(true)}
+           title="Dienstplan drucken"
+           className="px-2 py-1 rounded hover:bg-gray-300/60 dark:hover:bg-gray-700/60"
+         >
+           <Printer className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+         </button>
         </div>
       </div>
 
@@ -461,6 +470,14 @@ const MeineDienste = () => {
           </div>
         </div>
       )}
+      {druckOffen && (
+        <DienstPlanDruckModal
+         onClose={() => setDruckOffen(false)}
+          defaultYear={jahr}
+          defaultMonthIndex={startDatum.month()}  // 0..11
+        />
+      )}
+
     </div>
   );
 };
