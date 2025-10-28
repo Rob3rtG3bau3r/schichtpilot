@@ -13,8 +13,8 @@ const Card = ({ className = '', children, ...rest }) => (
 const Label = ({ children }) => <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">{children}</label>;
 const Input = (props) => <input {...props} className={`w-full rounded-xl border px-3 py-2 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
 const Select = (props) => <select {...props} className={`w-full rounded-xl border px-3 py-2 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
-const Checkbox = ({ label, checked, onChange, disabled }) => (
-  <label className={`inline-flex items-center gap-2 ${disabled ? 'opacity-60' : ''}`}>
+const Checkbox = ({ label, checked, onChange, disabled, title }) => (
+  <label className={`inline-flex items-center gap-2 ${disabled ? 'opacity-60' : ''}`} title={title}>
     <input type="checkbox" className="w-4 h-4" checked={checked} onChange={onChange} disabled={disabled} />
     <span className="text-sm text-gray-800 dark:text-gray-100">{label}</span>
   </label>
@@ -44,6 +44,15 @@ function Notice({ type='info', text, onClose }, ref) {
 }
 const NoticeBar = React.forwardRef(Notice);
 
+// Kleine UI-Hilfen für Abschnitte
+const SectionTitle = ({ children, tooltip }) => (
+  <div className="flex items-center gap-2">
+    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{children}</h3>
+    {tooltip ? <Info className="w-4 h-4 text-gray-500" title={tooltip} /> : null}
+  </div>
+);
+const Divider = () => <div className="border-t border-gray-200 dark:border-gray-700 my-2" />;
+
 // Hilfsfunktionen
 const todayStr = () => dayjs().format('YYYY-MM-DD');
 const within = (d, von, bis) => dayjs(d).isSameOrAfter(von) && (!bis || dayjs(d).isSameOrBefore(bis));
@@ -59,6 +68,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   const [user, setUser] = useState(null);
 
   // Editierbar
+  const [vorname, setVorname] = useState('');           // NEU: vorname änderbar
   const [nachname, setNachname] = useState('');
   const [rolle, setRolle] = useState('Employee');
 
@@ -97,7 +107,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   useEffect(()=>{
     // Reset
     setUser(null);
-    setNachname('');
+    setVorname(''); setNachname('');
     setRolle('Employee');
     setAktiv(true);
     setWillLoeschenKampfliste(false);
@@ -123,6 +133,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       if (uErr || !u) { console.error('DB_User:', uErr || 'not found'); return; }
 
       setUser(u);
+      setVorname(u.vorname || '');            // NEU
       setNachname(u.nachname || '');
       setRolle(u.rolle || 'Employee');
       setAktiv(u.aktiv ?? true);
@@ -173,10 +184,10 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       setGeplanterWechsel(wechsel ? { datum: wechsel.von_datum, schichtgruppe: wechsel.schichtgruppe } : null);
 
       // Qualifikationen
-const { data: qData } = await supabase
-  .from('DB_Qualifikation')
-  .select('quali, quali_start, quali_endet, created_at') // neu: Start/Ende
-  .eq('user_id', u.user_id);
+      const { data: qData } = await supabase
+        .from('DB_Qualifikation')
+        .select('quali, quali_start, quali_endet, created_at')
+        .eq('user_id', u.user_id);
 
       const ids = Array.from(new Set((qData||[]).map(q=>q.quali).filter(v=>v!=null)));
       const byId = new Map();
@@ -195,19 +206,15 @@ const { data: qData } = await supabase
         }
       }
 
-setQualis((qData || []).map(q => {
-  const m = byId.get(q.quali);
-  const label = m?.qualifikation || m?.quali_kuerzel || `#${q.quali}`;
-
-  // Start aus quali_start, fallback auf created_at (Backfill-sicher)
-  const startISO = q.quali_start || q.created_at || null;
-  const endISO   = q.quali_endet || null;
-
-  const seit  = startISO ? dayjs(startISO).format('DD.MM.YYYY') : '—';
-  const endet = endISO   ? dayjs(endISO).format('DD.MM.YYYY')   : null;
-
-  return { label, seit, endet };  // endet kann null sein
-}));
+      setQualis((qData || []).map(q => {
+        const m = byId.get(q.quali);
+        const label = m?.qualifikation || m?.quali_kuerzel || `#${q.quali}`;
+        const startISO = q.quali_start || q.created_at || null;
+        const endISO   = q.quali_endet || null;
+        const seit  = startISO ? dayjs(startISO).format('DD.MM.YYYY') : '—';
+        const endet = endISO   ? dayjs(endISO).format('DD.MM.YYYY')   : null;
+        return { label, seit, endet };
+      }));
 
     })();
   }, [userId, firma, unit]);
@@ -309,6 +316,7 @@ setQualis((qData || []).map(q => {
       }
 
       const payload = {
+        vorname,                 // NEU: vorname mitspeichern
         nachname,
         rolle,
         aktiv,
@@ -363,7 +371,7 @@ setQualis((qData || []).map(q => {
 
   return (
     <Card className="h-full flex flex-col shadow-xl border border-gray-300">
-      <div className="px-4 pt-4 font-bold text-lg text-gray-900 dark:text-gray-200 ">Stammdaten</div>
+      <div className="px-4 pt-4 font-bold text-lg text-gray-900 dark:text-gray-200">Stammdaten</div>
 
       {!userId ? (
         <div className="p-6 text-gray-500 dark:text-gray-300">Wähle links eine Person aus.</div>
@@ -371,45 +379,48 @@ setQualis((qData || []).map(q => {
         <div className="p-6 text-gray-500 dark:text-gray-300">Lade…</div>
       ) : (
         <div className="p-4 space-y-6">
-          {/* Namen */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label>Vorname (nicht änderbar)</Label>
-              <Input value={user.vorname || ''} disabled />
-            </div>
-            <div>
-              <Label>Nachname (änderbar)</Label>
-              <Input value={nachname} onChange={e=>setNachname(e.target.value)} disabled={disabled}/>
-            </div>
-          </div>
-
-          {/* Funktion / Rolle */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label>Funktion (nicht änderbar)</Label>
-              <Input value={user.funktion || '—'} disabled />
-            </div>
-            <div>
-              <Label>Rolle (änderbar)</Label>
-              <Select value={rolle} onChange={e=>setRolle(e.target.value)} disabled={disabled}>
-                {ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-              </Select>
-            </div>
-          </div>
-
-          {/* Ausgrauen-Fenster (mehrfach) */}
-          <div className="space-y-3">
-            <div className="flex items-start gap-2">
-              <Info className="w-4 h-4 mt-0.5 text-gray-600 dark:text-gray-300" />
-              <div className="text-sm text-gray-700 dark:text-gray-300">
-                <strong>Ausgrauen in der Planung</strong> kann über mehrere Zeitfenster gesteuert werden
-                (z. B. Elternzeit, Wiedereinstieg, erneute Elternzeit). Innerhalb eines Fensters wird die Person
-                ausgegraut und <strong>nicht</strong> in Berechnungen berücksichtigt.
+          {/* BASISDATEN */}
+          <div>
+            <SectionTitle>Basisdaten</SectionTitle>
+            <Divider />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+              <div>
+                <Label>Vorname (änderbar)</Label>
+                <Input value={vorname} onChange={e=>setVorname(e.target.value)} disabled={disabled}/>
+              </div>
+              <div>
+                <Label>Nachname (änderbar)</Label>
+                <Input value={nachname} onChange={e=>setNachname(e.target.value)} disabled={disabled}/>
               </div>
             </div>
+          </div>
 
+          {/* FUNKTION & ROLLE */}
+          <div>
+            <SectionTitle>Funktion &amp; Rolle</SectionTitle>
+            <Divider />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+              <div>
+                <Label>Funktion (nicht änderbar)</Label>
+                <Input value={user.funktion || '—'} disabled />
+              </div>
+              <div>
+                <Label>Rolle (änderbar)</Label>
+                <Select value={rolle} onChange={e=>setRolle(e.target.value)} disabled={disabled}>
+                  {ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* AUSGRAUEN IN DER PLANUNG */}
+          <div>
+            <SectionTitle tooltip="Mitarbeiter im Dienstplan ausgrauen und nicht berücksichtigen">
+              Ausgrauen in der Planung
+            </SectionTitle>
+            <Divider />
             {/* Liste */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mt-3">
               <div className="grid grid-cols-12 text-xs font-semibold bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-3 py-2">
                 <div className="col-span-3">Von</div>
                 <div className="col-span-3">Bis</div>
@@ -459,7 +470,7 @@ setQualis((qData || []).map(q => {
             </div>
 
             {/* Neu anlegen */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
               <div>
                 <Label>Neu: Von</Label>
                 <Input type="date" value={newVon} onChange={e=>setNewVon(e.target.value)} disabled={disabled}/>
@@ -482,76 +493,96 @@ setQualis((qData || []).map(q => {
             </div>
           </div>
 
-          {/* Aktiv */}
-          <div className="space-y-3">
-            <div className="flex items-start gap-2">
-              <Checkbox label="Aktiv" checked={!!aktiv} onChange={e=>setAktiv(e.target.checked)} disabled={disabled} />
-              <div className="text-xs text-gray-600 dark:text-gray-300 flex items-start gap-1">
-                <Info className="w-4 h-4 mt-0.5" />
-                <span>Wenn <em>Aktiv</em> deaktiviert ist, werden die <strong>Login-Daten in 24&nbsp;Std.</strong> automatisch gelöscht.</span>
+          {/* MITARBEITER AKTIV */}
+          <div>
+            <SectionTitle tooltip="Der Mitarbeiter kann deaktiviert werden. Löschung des Zugangs geschieht nach 24 Stunden.">
+              Mitarbeiter Aktiv
+            </SectionTitle>
+            <Divider />
+            <div className="space-y-3 mt-3">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  label="Aktiv"
+                  checked={!!aktiv}
+                  onChange={e=>setAktiv(e.target.checked)}
+                  disabled={disabled}
+                  title="Der Mitarbeiter kann deaktiviert werden. Löschung des Zugangs geschieht nach 24 Stunden."
+                />
+                <div className="text-xs text-gray-600 dark:text-gray-300 flex items-start gap-1">
+                  <Info className="w-4 h-4 mt-0.5" />
+                  <span>Wenn <em>Aktiv</em> deaktiviert ist, werden die <strong>Login-Daten in 24&nbsp;Std.</strong> automatisch gelöscht.</span>
+                </div>
+              </div>
+
+              {!aktiv && (
+                <div className="mt-2 p-3 rounded-xl border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700">
+                  <div className="mb-2 text-red-700 dark:text-red-300 text-sm">
+                    <strong>Achtung:</strong> Der Benutzerzugang wird innerhalb der nächsten <strong>24 Stunden</strong> dauerhaft deaktiviert (Login-Daten werden gelöscht).
+                  </div>
+                  <Checkbox
+                    label="Sollen Dienste vom User gelöscht werden?"
+                    checked={!!willLoeschenKampfliste}
+                    onChange={e=>setWillLoeschenKampfliste(e.target.checked)}
+                    disabled={disabled}
+                  />
+                  {willLoeschenKampfliste && (
+                    <div className="mt-3 p-3 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700">
+                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 mb-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="text-sm font-medium">Ab wann zukünftige Dienste entfernen?</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <Label>Datum (Standard: heute)</Label>
+                          <Input type="date" value={loeschDatum} onChange={e=>setLoeschDatum(e.target.value)} disabled={disabled}/>
+                        </div>
+                        <div className="text-xs text-gray-700 dark:text-gray-300 self-end">
+                          Bitte <strong>nicht</strong> rückwirkend löschen, damit der Dienstplan nachvollziehbar bleibt.
+                        </div>
+                      </div>
+                      {dayjs(loeschDatum).isBefore(dayjs().startOf('day')) && (
+                        <div className="mt-2 text-xs text-red-600 dark:text-red-400">Achtung: Das gewählte Datum liegt in der Vergangenheit. Bitte anpassen.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* AKTUELLE SCHICHTGRUPPE & GEPLANTER WECHSEL */}
+          <div>
+            <SectionTitle>Aktuelle Schichtgruppe &amp; geplanter Wechsel</SectionTitle>
+            <Divider />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+              <div>
+                <Label>Aktuelle Schichtgruppe</Label>
+                <Input value={aktuelleSchicht || '—'} disabled />
+              </div>
+              <div>
+                <Label>Geplanter Wechsel</Label>
+                <Input value={wechselText(geplanterWechsel)} disabled />
               </div>
             </div>
+          </div>
 
-            {!aktiv && (
-              <div className="mt-2 p-3 rounded-xl border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700">
-                <div className="mb-2 text-red-700 dark:text-red-300 text-sm">
-                  <strong>Achtung:</strong> Der Benutzerzugang wird innerhalb der nächsten <strong>24 Stunden</strong> dauerhaft deaktiviert (Login-Daten werden gelöscht).
-                </div>
-                <Checkbox
-                  label="Sollen Dienste vom User gelöscht werden?"
-                  checked={!!willLoeschenKampfliste}
-                  onChange={e=>setWillLoeschenKampfliste(e.target.checked)}
-                  disabled={disabled}
-                />
-                {willLoeschenKampfliste && (
-                  <div className="mt-3 p-3 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700">
-                    <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 mb-2">
-                      <AlertTriangle className="w-4 h-4" />
-                      <span className="text-sm font-medium">Ab wann zukünftige Dienste entfernen?</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <Label>Datum (Standard: heute)</Label>
-                        <Input type="date" value={loeschDatum} onChange={e=>setLoeschDatum(e.target.value)} disabled={disabled}/>
-                      </div>
-                      <div className="text-xs text-gray-700 dark:text-gray-300 self-end">
-                        Bitte <strong>nicht</strong> rückwirkend löschen, damit der Dienstplan nachvollziehbar bleibt.
-                      </div>
-                    </div>
-                    {dayjs(loeschDatum).isBefore(dayjs().startOf('day')) && (
-                      <div className="mt-2 text-xs text-red-600 dark:text-red-400">Achtung: Das gewählte Datum liegt in der Vergangenheit. Bitte anpassen.</div>
-                    )}
-                  </div>
+          {/* QUALIFIKATIONEN */}
+          <div>
+            <SectionTitle>Qualifikationen</SectionTitle>
+            <Divider />
+            <div className="mt-3">
+              <Label>Qualifikationen (seit)</Label>
+              <div className="flex flex-wrap gap-2">
+                {qualis.length === 0 ? (
+                  <span className="text-sm text-gray-500 dark:text-gray-300">Keine Qualifikationen hinterlegt.</span>
+                ) : (
+                  qualis.map((q, idx) => (
+                    <Pill key={idx}>
+                      {q.label} · seit {q.seit}{q.endet ? ` · läuft aus ${q.endet}` : ''}
+                    </Pill>
+                  ))
                 )}
               </div>
-            )}
-          </div>
-
-          {/* Schichtgruppe & Wechsel */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label>Aktuelle Schichtgruppe</Label>
-              <Input value={aktuelleSchicht || '—'} disabled />
-            </div>
-            <div>
-              <Label>Geplanter Wechsel</Label>
-              <Input value={wechselText(geplanterWechsel)} disabled />
-            </div>
-          </div>
-
-          {/* Qualifikationen */}
-          <div>
-            <Label>Qualifikationen (seit)</Label>
-            <div className="flex flex-wrap gap-2">
-{qualis.length === 0 ? (
-  <span className="text-sm text-gray-500 dark:text-gray-300">Keine Qualifikationen hinterlegt.</span>
-) : (
-  qualis.map((q, idx) => (
-    <Pill key={idx}>
-      {q.label} · seit {q.seit}{q.endet ? ` · läuft aus ${q.endet}` : ''}
-    </Pill>
-  ))
-)}
             </div>
           </div>
 
@@ -594,3 +625,4 @@ setQualis((qData || []).map(q => {
     </Card>
   );
 }
+
