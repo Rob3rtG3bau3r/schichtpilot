@@ -84,7 +84,7 @@ export default function KundenTab() {
           .from('DB_User')
           .select('user_id', { head:true, count:'exact' })
           .eq('firma_id', f.id)
-          .eq('user_visible', true);
+          .eq('aktiv', true);
         const plan_aktiv = !!f.plan && (!f.plan_valid_until || !today.isAfter(dayjs(f.plan_valid_until)));
         return { ...f, user_count: count||0, plan_aktiv };
       }));
@@ -155,7 +155,7 @@ export default function KundenTab() {
         .from('DB_User')
         .select('user_id', { head:true, count:'exact' })
         .eq('unit_id', u.id)
-        .eq('user_visible', true);
+        .eq('aktiv', true);
       return { ...u, user_count: count||0 };
     }));
     setUnits(unitsWithCounts);
