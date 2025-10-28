@@ -478,33 +478,83 @@ const fmtElapsed = (ms) => {
 
   /* ----------------------------- Verlauf laden ---------------------------- */
 
-  const ladeVerlauf = async () => {
-    const { data, error } = await supabase
-      .from('DB_KampflisteVerlauf')
-      .select(`
-        id,
-        datum,
-        ist_schicht,
-        soll_schicht,
-        startzeit_ist,
-        endzeit_ist,
-        kommentar,
-        change_on,
-        created_by,
-        ist_schicht_rel:ist_schicht (kuerzel),
-        user_rel:created_by (user_id, vorname, nachname)
-      `)
-      .eq('user', eintrag.user)
-      .eq('datum', eintrag.datum)
-      .eq('firma_id', firma)
-      .eq('unit_id', unit)
-      .order('change_on', { ascending: false })
-      .limit(10);
+const ladeVerlauf = async () => {
+  // 1) Aktuellen Zustand aus DB_Kampfliste holen
+  const { data: cur, error: curErr } = await supabase
+    .from('DB_Kampfliste')
+    .select(`
+      id,
+      datum,
+      ist_schicht,
+      soll_schicht,
+      startzeit_ist,
+      endzeit_ist,
+      kommentar,
+      created_at,
+      created_by,
+      ist_schicht_rel:ist_schicht (kuerzel),
+      user_rel:created_by (user_id, vorname, nachname)
+    `)
+    .eq('user', eintrag.user)
+    .eq('datum', eintrag.datum)
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .maybeSingle();
 
-    if (error) { console.error('Fehler beim Laden des Verlaufs:', error); return; }
-    setVerlaufDaten(data || []);
-    setVerlaufOffen(true);
-  };
+  if (curErr) {
+    console.error('Fehler aktueller Eintrag (DB_Kampfliste):', curErr);
+  }
+
+  // 2) Verlauf aus DB_KampflisteVerlauf holen (absteigend)
+  const { data: hist, error: histErr } = await supabase
+    .from('DB_KampflisteVerlauf')
+    .select(`
+      id,
+      datum,
+      ist_schicht,
+      soll_schicht,
+      startzeit_ist,
+      endzeit_ist,
+      kommentar,
+      change_on,
+      created_by,
+      ist_schicht_rel:ist_schicht (kuerzel),
+      user_rel:created_by (user_id, vorname, nachname)
+    `)
+    .eq('user', eintrag.user)
+    .eq('datum', eintrag.datum)
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .order('change_on', { ascending: false })
+    .limit(10);
+
+  if (histErr) {
+    console.error('Fehler beim Laden des Verlaufs:', histErr);
+    return;
+  }
+
+  // 3) Aktuelle Zeile als „synthetischen“ Verlaufseintrag oben einsetzen
+  const top = cur
+    ? [{
+        id: `current-${cur.id}`,
+        datum: cur.datum,
+        ist_schicht: cur.ist_schicht,
+        soll_schicht: cur.soll_schicht,
+        startzeit_ist: cur.startzeit_ist,
+        endzeit_ist: cur.endzeit_ist,
+        kommentar: cur.kommentar,
+        // Für die Anzeige verwenden wir created_at als "Zeitpunkt"
+        change_on: cur.created_at,
+        created_by: cur.created_by,
+        ist_schicht_rel: cur.ist_schicht_rel,
+        user_rel: cur.user_rel,
+        _aktuell: true, // Markierung für UI
+      }]
+    : [];
+
+  setVerlaufDaten([...(top || []), ...(hist || [])]);
+  setVerlaufOffen(true);
+};
 
   if (!offen || !eintrag) return null;
 
@@ -757,18 +807,25 @@ const fmtElapsed = (ms) => {
                   <th>Erstellt von</th>
                 </tr>
               </thead>
-              <tbody>
-                {verlaufDaten.map((v) => (
-                  <tr key={v.id}>
-                    <td className="p-2">{v.ist_schicht_rel?.kuerzel || '-'}</td>
-                    <td>{v.startzeit_ist}</td>
-                    <td>{v.endzeit_ist}</td>
-                    <td>{v.kommentar || '-'}</td>
-                    <td>{dayjs(v.change_on).format('DD.MM.YYYY HH:mm')}</td>
-                    <td>{v.user_rel ? `${v.user_rel.vorname || ''} ${v.user_rel.nachname || ''}`.trim() : v.created_by || 'Unbekannt'}</td>
-                  </tr>
-                ))}
-              </tbody>
+<tbody>
+  {verlaufDaten.map((v) => (
+    <tr key={v.id}>
+      <td className="p-2">
+        <span>{v.ist_schicht_rel?.kuerzel || '-'}</span>
+        {v._aktuell && (
+          <span className="ml-2 text-[10px] px-2  rounded-full bg-blue-600 text-white align-middle">
+            neu
+          </span>
+        )}
+      </td>
+      <td>{v.startzeit_ist}</td>
+      <td>{v.endzeit_ist}</td>
+      <td>{v.kommentar || '-'}</td>
+      <td>{dayjs(v.change_on).format('DD.MM.YYYY HH:mm')}</td>
+      <td>{v.user_rel ? `${v.user_rel.vorname || ''} ${v.user_rel.nachname || ''}`.trim() : v.created_by || 'Unbekannt'}</td>
+    </tr>
+  ))}
+</tbody>
             </table>
             <div className="text-right mt-4">
               <button onClick={() => setVerlaufOffen(false)} className="bg-gray-600 text-white px-4 py-2 rounded-xl">Schließen</button>
