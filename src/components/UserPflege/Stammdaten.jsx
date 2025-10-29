@@ -46,12 +46,22 @@ const NoticeBar = React.forwardRef(Notice);
 
 // Kleine UI-Hilfen für Abschnitte
 const SectionTitle = ({ children, tooltip }) => (
-  <div className="flex items-center gap-2">
-    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{children}</h3>
-    {tooltip ? <Info className="w-4 h-4 text-gray-500" title={tooltip} /> : null}
+  <div className="mt-5">
+    <div className="flex items-center gap-2 rounded-xl border border-gray-300 dark:border-gray-700
+                    bg-gray-300/80 dark:bg-gray-900/40 px-3 py-2">
+      <div aria-hidden className="h-5 w-1.5 rounded-full bg-indigo-500/80" />
+      <h3 className="text-lg sm:text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+        {children}
+      </h3>
+      {tooltip ? (
+        <Info className="w-4 h-4 text-gray-500" title={tooltip} />
+      ) : null}
+    </div>
   </div>
 );
-const Divider = () => <div className="border-t border-gray-200 dark:border-gray-700 my-2" />;
+
+const Divider = () => <div className="my-2" />; // optional: dünner Abstand, keine Linie nötig
+
 
 // Hilfsfunktionen
 const todayStr = () => dayjs().format('YYYY-MM-DD');
@@ -371,7 +381,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
 
   return (
     <Card className="h-full flex flex-col shadow-xl border border-gray-300">
-      <div className="px-4 pt-4 font-bold text-lg text-gray-900 dark:text-gray-200">Stammdaten</div>
+      <div className="px-4 pt-4 font-bold text-2xl text-gray-900 dark:text-gray-200">Stammdaten</div>
 
       {!userId ? (
         <div className="p-6 text-gray-500 dark:text-gray-300">Wähle links eine Person aus.</div>
@@ -385,11 +395,11 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
             <Divider />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
               <div>
-                <Label>Vorname (änderbar)</Label>
+                <Label>Vorname </Label>
                 <Input value={vorname} onChange={e=>setVorname(e.target.value)} disabled={disabled}/>
               </div>
               <div>
-                <Label>Nachname (änderbar)</Label>
+                <Label>Nachname </Label>
                 <Input value={nachname} onChange={e=>setNachname(e.target.value)} disabled={disabled}/>
               </div>
             </div>
@@ -405,7 +415,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
                 <Input value={user.funktion || '—'} disabled />
               </div>
               <div>
-                <Label>Rolle (änderbar)</Label>
+                <Label>Rolle </Label>
                 <Select value={rolle} onChange={e=>setRolle(e.target.value)} disabled={disabled}>
                   {ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
                 </Select>
@@ -625,4 +635,3 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     </Card>
   );
 }
-
