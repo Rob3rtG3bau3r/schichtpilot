@@ -65,10 +65,10 @@ const Home = () => {
 
   // Lightbox
 const screens = [
-  { src: office, alt: "SchichtPilot am Arbeitsplatz (Mockup)" },
-  { src: mobile, alt: "Mitarbeitende behalten mobil den Überblick." },
   { src: dash, alt: "Die persönliche Übersicht eines Planers." },
+  { src: office, alt: "SchichtPilot am Arbeitsplatz (Mockup)" },
   { src: kampf, alt: "Dienstplan des gesamten Teams im Überblick." },
+  { src: mobile, alt: "Mitarbeitende behalten mobil den Überblick." },
   { src: quali, alt: "Qualifikationen einfach zuweisen." },
 ];
 
