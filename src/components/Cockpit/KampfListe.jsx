@@ -12,6 +12,7 @@ dayjs.locale('de');
 
 const currentUserId = localStorage.getItem('user_id');
 
+
 // --- Helper: K/KO maskieren ---
 const maskKuerzelForEmployer = (kuerzel, cellUserId, role, me) => {
   if (role === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO') && String(cellUserId) !== String(me)) {
@@ -54,6 +55,14 @@ const KampfListe = ({
   const [tage, setTage] = useState([]);
   const [popupEintrag, setPopupEintrag] = useState(null);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
+
+  // Globale Auswahl aus dem Kalender (Listener nur innerhalb der Komponente!)
+  const [selectedDates, setSelectedDates] = useState(new Set());
+  useEffect(() => {
+    const onSel = (e) => setSelectedDates(new Set(e.detail?.selected || []));
+    window.addEventListener('sp:selectedDates', onSel);
+    return () => window.removeEventListener('sp:selectedDates', onSel);
+  }, []);
 
   const [qualiModalOffen, setQualiModalOffen] = useState(false);
   const [modalUser, setModalUser] = useState({ id: null, name: '' });
@@ -604,6 +613,7 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
                   {tage.map((t) => {
                     const eintragTag = e.tage[t.tag];
                     const zellenDatum = dateStrByTag[t.tag];
+                    const isSelected = selectedDates.has(zellenDatum);
                     const istHeute = zellenDatum === heutigesDatum;
                     const zelleGrey = isGrey(userId, zellenDatum);
 
@@ -612,6 +622,7 @@ const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
                         key={t.tag}
                         className={`relative group w-[48px] min-w-[48px] h-[18px] text-center border-b flex items-center justify-center rounded cursor-pointer
                           ${istHeute ? 'ring-2 ring-yellow-400' : ''}
+                          ${isSelected ? 'ring-1 ring-orange-400 ring-offset-[1px] ring-offset-transparent' : ''}
                           border-gray-300 dark:border-gray-700
                           ${!eintragTag ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200' : ''}
                           ${zelleGrey ? 'opacity-50' : ''}`}

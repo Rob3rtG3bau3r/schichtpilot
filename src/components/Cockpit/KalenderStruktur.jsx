@@ -12,6 +12,28 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
   const [tage, setTage] = useState([]);
   const [eintraege, setEintraege] = useState({ feiertage: [], termine: [] });
   const [qualiMap, setQualiMap] = useState({});
+
+  // Ausgewählte Tage (global per CustomEvent geteilt)
+  const [selectedDates, setSelectedDates] = useState(new Set());
+
+  // Auf globale Änderungen hören
+  useEffect(() => {
+    const onSel = (e) => {
+      setSelectedDates(new Set(e.detail?.selected || []));
+    };
+    window.addEventListener('sp:selectedDates', onSel);
+    return () => window.removeEventListener('sp:selectedDates', onSel);
+  }, []);
+
+  // Helfer: Toggle & broadcast
+  const toggleSelectedDate = (iso) => {
+    const next = new Set(selectedDates);
+    if (next.has(iso)) next.delete(iso); else next.add(iso);
+    setSelectedDates(next);
+    window.dispatchEvent(
+      new CustomEvent('sp:selectedDates', { detail: { selected: Array.from(next) } })
+    );
+  };
   
   const { sichtFirma: firma, sichtUnit: unit } = useRollen(); // ✅ Richtig platziert!
 
@@ -133,7 +155,10 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
       <div className="flex overflow-x-visible text-center text-sm">
         <div className="w-[160px] min-w-[160px] flex-shrink-0"></div>
         <div className="flex gap-[2px] min-w-fit">
-          {tage.map((t, index) => (
+          {tage.map((t, index) => {
+            const iso = dayjs(new Date(jahr, monat, t.tag)).format('YYYY-MM-DD');
+            const isSelected = selectedDates.has(iso);
+            return (
             <div
               key={index}
               className={`relative flex flex-col items-center justify-center h-[42px] w-[48px] min-w-[48px] rounded 
@@ -141,7 +166,9 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
                 ${t.isSamstag ? 'bg-orange-500 text-white' : ''}
                 ${!t.isSonntag && !t.isSamstag ? 'bg-gray-300 dark:bg-gray-700 text-gray-800 dark:text-white' : ''}
                 ${t.isHeute ? 'border-2 border-yellow-400' : ''}
+                ${isSelected ? 'outline outline-2 outline-orange-400' : ''}
               `}
+              onClick={() => toggleSelectedDate(iso)}
             >
               {/* Feiertage/Ferien */}
               {eintraege?.feiertage
@@ -199,7 +226,7 @@ return (
               <span className="text-[12px] leading-none">{t.wochentag}</span>
               <span className="font-semibold text-sm leading-none">{t.tag}</span>
             </div>
-          ))}
+          )})}
         </div>
       </div>
     </div>

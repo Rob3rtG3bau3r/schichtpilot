@@ -17,6 +17,15 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
 
+  // Aus Kalender ausgewählte Tage (global)
+  const [selectedDates, setSelectedDates] = useState(new Set());
+  useEffect(() => {
+    const onSel = (e) => setSelectedDates(new Set(e.detail?.selected || []));
+    window.addEventListener('sp:selectedDates', onSel);
+    return () => window.removeEventListener('sp:selectedDates', onSel);
+  }, []);
+
+
   // Tooltip-Datenquellen (für sprechende Namen/Bezeichnungen)
   const [userNameMapState, setUserNameMapState] = useState({});
   const [matrixMapState, setMatrixMapState] = useState({});
@@ -33,6 +42,9 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
+
+  // Heute (YYYY-MM-DD) für gelbe Markierung
+  const heutigesDatum = React.useMemo(() => dayjs().format('YYYY-MM-DD'), []);
 
   // ===== Tooltip infra =====
   const [tipData, setTipData] = useState(null); // { text, top, left, flip, header, width }
@@ -632,7 +644,7 @@ for (const q of qualis) {
                     allowAnalyse ? 'cursor-pointer' : 'cursor-default'
                   } w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${
                     cell?.farbe || 'bg-gray-200 dark:bg-gray-600'
-                  }`}
+                  } ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''} ${selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''}`}
                 >
                   {cell?.topLeft && (
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
