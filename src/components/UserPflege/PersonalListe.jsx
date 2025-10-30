@@ -36,7 +36,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
       // 1) Mitarbeitende laden
       let mitarbeiterRes = supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, firma_id, unit_id, aktiv');
+        .select('user_id, vorname, nachname, rolle, firma_id, unit_id');
 
       if (!isSuperAdmin) {
         mitarbeiterRes = mitarbeiterRes.eq('firma_id', firma).eq('unit_id', unit);
@@ -279,4 +279,3 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 };
 
 export default Personalliste;
-

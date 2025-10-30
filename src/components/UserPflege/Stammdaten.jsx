@@ -81,6 +81,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   const [vorname, setVorname] = useState('');           // NEU: vorname änderbar
   const [nachname, setNachname] = useState('');
   const [rolle, setRolle] = useState('Employee');
+  const [deaktiviertAb, setDeaktiviertAb] = useState('');
 
   // Aktiv-Status
   const [aktiv, setAktiv] = useState(true);
@@ -135,7 +136,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     (async ()=>{
       let uQ = supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, aktiv, inaktiv_at, funktion, firma_id, unit_id')
+        .select('user_id, vorname, nachname, rolle, aktiv, inaktiv_at, deaktiviert_ab, funktion, firma_id, unit_id')
         .eq('user_id', userId);
       uQ = addEq(addEq(uQ, 'firma_id', firma), 'unit_id', unit);
 
@@ -147,6 +148,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       setNachname(u.nachname || '');
       setRolle(u.rolle || 'Employee');
       setAktiv(u.aktiv ?? true);
+      setDeaktiviertAb(u.deaktiviert_ab || '');
 
       const heute = todayStr();
 
@@ -326,10 +328,11 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       }
 
       const payload = {
-        vorname,                 // NEU: vorname mitspeichern
+        vorname,                 
         nachname,
         rolle,
         aktiv,
+        deaktiviert_ab: deaktiviertAb || null,           
         inaktiv_at: !aktiv ? dayjs().toISOString() : null,
       };
       let upd = supabase.from('DB_User').update(payload).eq('user_id', user.user_id);
@@ -340,6 +343,101 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
         showNotice('error', 'Speichern fehlgeschlagen.');
         setLoading(false);
         return;
+      }
+// === Sofort-Deaktivierung: Zuweisungen kappen (alle aktuellen & zukünftigen) ===
+if (!aktiv) {
+  const start = dayjs().format('YYYY-MM-DD');                          // ab heute
+  const cutoff = dayjs(start).subtract(1, 'day').format('YYYY-MM-DD'); // letzter gültiger Tag
+
+  // optional: deaktiviert_ab auf heute setzen, falls leer (Nachvollziehbarkeit)
+  if (!deaktiviertAb) {
+    await supabase
+      .from('DB_User')
+      .update({ deaktiviert_ab: start })
+      .eq('user_id', user.user_id);
+  }
+
+  // (1) Laufende Zuweisungen bis gestern beenden
+  try {
+    let updRun = supabase
+      .from('DB_SchichtZuweisung')
+      .update({ bis_datum: cutoff })
+      .eq('user_id', user.user_id)
+      .lte('von_datum', start)
+      .or(`bis_datum.is.null,bis_datum.gte.${start}`);
+    updRun = addEq(addEq(updRun, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
+    const { error: updRunErr } = await updRun;
+    if (updRunErr) console.error('Zuweisung (laufend) beenden:', updRunErr);
+  } catch (e) {
+    console.error('Zuweisung (laufend) beenden (Exception):', e);
+  }
+
+  // (2) Rein zukünftige Zuweisungen ebenfalls kappen (explizit mit bis_datum = cutoff)
+  try {
+    let updFut = supabase
+      .from('DB_SchichtZuweisung')
+      .update({ bis_datum: cutoff })
+      .eq('user_id', user.user_id)
+      .gte('von_datum', start);
+    updFut = addEq(addEq(updFut, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
+    const { error: updFutErr } = await updFut;
+    if (updFutErr) console.error('Zuweisung (zukünftig) kappen:', updFutErr);
+  } catch (e) {
+    console.error('Zuweisung (zukünftig) kappen (Exception):', e);
+  }
+}
+
+      // Folgeaktionen bei geplanter Deaktivierung
+        if (deaktiviertAb) {
+        const today = dayjs().format('YYYY-MM-DD');
+        const start = dayjs(deaktiviertAb).isBefore(dayjs(today)) ? today : deaktiviertAb; // nie rückwirkend
+        const cutoff = dayjs(start).subtract(1, 'day').format('YYYY-MM-DD'); // letzter zulässiger Tag
+if (start !== deaktiviertAb) {
+  showNotice('warning', `Datum lag in der Vergangenheit. Verwende ${dayjs(start).format('DD.MM.YYYY')} als Stichtag.`, 6000);
+}
+        // 1) DB_Kampfliste: alle zukünftigen Dienste ab start löschen
+        try {
+          let delK = supabase
+            .from('DB_Kampfliste')
+            .delete()
+            .gte('datum', start)
+            .eq('user_id', user.user_id);
+          delK = addEq(addEq(delK, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
+          const { error: delKErr } = await delK;
+          if (delKErr) console.error('Kampfliste löschen:', delKErr);
+        } catch(e) {
+          console.error('Kampfliste löschen (Exception):', e);
+        }
+
+        // 2a) DB_SchichtZuweisung: laufende Zuweisungen sauber beenden
+        try {
+          let updZu = supabase
+            .from('DB_SchichtZuweisung')
+            .update({ bis_datum: cutoff })
+            .eq('user_id', user.user_id)
+            // nur Zuweisungen, die in den Zeitraum ragen
+            .lte('von_datum', cutoff)
+            .or(`bis_datum.is.null,bis_datum.gte.${start}`);
+          updZu = addEq(addEq(updZu, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
+          const { error: updZuErr } = await updZu;
+          if (updZuErr) console.error('Zuweisung beenden:', updZuErr);
+        } catch(e) {
+          console.error('Zuweisung beenden (Exception):', e);
+        }
+
+        // 2b) DB_SchichtZuweisung: rein zukünftige Zuweisungen ab start entfernen (falls es solche Einträge gibt)
+        try {
+          let delZu = supabase
+            .from('DB_SchichtZuweisung')
+            .delete()
+            .eq('user_id', user.user_id)
+            .gte('von_datum', start);
+          delZu = addEq(addEq(delZu, 'firma_id', firma ?? user.firma_id), 'unit_id', unit ?? user.unit_id);
+          const { error: delZuErr } = await delZu;
+          if (delZuErr) console.error('Zuweisung zukünftige löschen:', delZuErr);
+        } catch(e) {
+          console.error('Zuweisung zukünftige löschen (Exception):', e);
+        }
       }
 
       // Zukünftige Dienste löschen (optional)
@@ -520,9 +618,46 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
                 />
                 <div className="text-xs text-gray-600 dark:text-gray-300 flex items-start gap-1">
                   <Info className="w-4 h-4 mt-0.5" />
-                  <span>Wenn <em>Aktiv</em> deaktiviert ist, werden die <strong>Login-Daten in 24&nbsp;Std.</strong> automatisch gelöscht.</span>
+                  <span>
+                    Sofort deaktivieren über den Schalter <em>Aktiv</em>.<br/>
+                    Für eine <strong>geplante</strong> Deaktivierung wähle unten ein Datum – am Stichtag wird der Zugang automatisch inaktiv.
+                  </span>
                 </div>
               </div>
+
+    {/* Geplante Deaktivierung */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <Label>Deaktiviert ab (geplant)</Label>
+        <Input
+          type="date"
+          value={deaktiviertAb || ''}
+          onChange={e=>{
+            const v = e.target.value || '';
+            setDeaktiviertAb(v);
+            // Komfort: wenn leer, loeschDatum nicht anfassen; wenn gesetzt & loeschDatum leer → übernehmen
+            if (v && !loeschDatum) setLoeschDatum(v);
+          }}
+          disabled={disabled}
+        />
+        <div className="text-[11px] text-gray-500 mt-0.5">Leer lassen = keine geplante Deaktivierung.</div>
+      </div>
+      <div className="self-end text-sm">
+        {(!aktiv) ? (
+          <span className="inline-flex items-center rounded-full border px-2 py-0.5 border-red-300 text-red-600 dark:border-red-700 dark:text-red-300">
+            Inaktiv (sofort)
+          </span>
+        ) : deaktiviertAb ? (
+          <span className="inline-flex items-center rounded-full border px-2 py-0.5 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300">
+            Geplante Deaktivierung ab {dayjs(deaktiviertAb).format('DD.MM.YYYY')}
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full border px-2 py-0.5 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300">
+            Aktiv
+          </span>
+        )}
+      </div>
+    </div>
 
               {!aktiv && (
                 <div className="mt-2 p-3 rounded-xl border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700">
