@@ -9,6 +9,7 @@ import dash from "../assets/screens/dashboard.webp";
 import kampf from "../assets/screens/kampfliste.webp";
 import mobile from "../assets/screens/mobile.webp";
 import quali from "../assets/screens/qualimatrix.webp";
+import office from "../assets/screens/SchichtPilotimBuero.png"; 
 
 const erstellePDF = () => {
   const doc = new jsPDF();
@@ -63,12 +64,14 @@ const Home = () => {
   });
 
   // Lightbox
-  const screens = [
-    { src: dash, alt: "Deine persönliche Übersicht." },
-    { src: kampf, alt: "Dienstplan" },
-    { src: mobile, alt: "Mobile PWA" },
-    { src: quali, alt: "Qualifikationen einfach zuweisen." },
-  ];
+const screens = [
+  { src: office, alt: "SchichtPilot am Arbeitsplatz (Mockup)" },
+  { src: mobile, alt: "Mitarbeitende behalten mobil den Überblick." },
+  { src: dash, alt: "Die persönliche Übersicht eines Planers." },
+  { src: kampf, alt: "Dienstplan des gesamten Teams im Überblick." },
+  { src: quali, alt: "Qualifikationen einfach zuweisen." },
+];
+
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const lightboxOpen = lightboxIndex !== null;
 
@@ -240,7 +243,7 @@ const Home = () => {
           Ein kurzer Einblick in das Dashboard, den Dienstplan, die Mobile-Ansicht & die Qualifikations Verwaltung.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
           {screens.map((it, i) => (
             <button
               key={i}
