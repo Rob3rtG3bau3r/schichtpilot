@@ -1,6 +1,6 @@
 {
   "name": "schichtpilot",
-  "version": "0.9.85",
+  "version": "0.9.88",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
