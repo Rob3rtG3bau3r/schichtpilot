@@ -295,7 +295,7 @@ const fmtElapsed = (ms) => {
       .select(`
         user, datum, firma_id, unit_id, ist_schicht, soll_schicht,
         startzeit_ist, endzeit_ist, dauer_ist, dauer_soll, kommentar,
-        created_at, schichtgruppe,
+        created_at, created_by, schichtgruppe,
         ist_rel:ist_schicht ( id, kuerzel, startzeit, endzeit )
       `)
       .eq('user', eintrag.user)
@@ -395,15 +395,16 @@ const fmtElapsed = (ms) => {
           datum: oldRow.datum,
           firma_id: oldRow.firma_id,
           unit_id: oldRow.unit_id,
-          ist_schicht: oldRow.ist_schicht,   // BIGINT (FK)
-          soll_schicht: oldRow.soll_schicht, // TEXT (Kürzel)
+          ist_schicht: oldRow.ist_schicht,  
+          soll_schicht: oldRow.soll_schicht, 
           startzeit_ist: oldRow.startzeit_ist,
           endzeit_ist: oldRow.endzeit_ist,
           dauer_ist: oldRow.dauer_ist,
           dauer_soll: oldRow.dauer_soll,
           kommentar: oldRow.kommentar,
           change_on: now,
-          created_by: createdBy,
+          created_by: oldRow.created_by,    // ✅ ursprünglicher Ersteller bleibt erhalten
+          change_by: createdBy,             // ✅ NEU: der aktuelle Ändernde
           created_at: oldRow.created_at,
           schichtgruppe: oldRow.schichtgruppe,
         });
@@ -506,27 +507,28 @@ const ladeVerlauf = async () => {
   }
 
   // 2) Verlauf aus DB_KampflisteVerlauf holen (absteigend)
-  const { data: hist, error: histErr } = await supabase
-    .from('DB_KampflisteVerlauf')
-    .select(`
-      id,
-      datum,
-      ist_schicht,
-      soll_schicht,
-      startzeit_ist,
-      endzeit_ist,
-      kommentar,
-      change_on,
-      created_by,
-      ist_schicht_rel:ist_schicht (kuerzel),
-      user_rel:created_by (user_id, vorname, nachname)
-    `)
-    .eq('user', eintrag.user)
-    .eq('datum', eintrag.datum)
-    .eq('firma_id', firma)
-    .eq('unit_id', unit)
-    .order('change_on', { ascending: false })
-    .limit(10);
+const { data: hist, error: histErr } = await supabase
+  .from('DB_KampflisteVerlauf')
+  .select(`
+    id,
+    datum,
+    ist_schicht,
+    soll_schicht,
+    startzeit_ist,
+    endzeit_ist,
+    kommentar,
+    created_at,
+    change_on,
+    created_by,
+    ist_schicht_rel:ist_schicht (kuerzel),
+    user_rel:created_by (user_id, vorname, nachname)
+  `)
+  .eq('user', eintrag.user)
+  .eq('datum', eintrag.datum)
+  .eq('firma_id', firma)
+  .eq('unit_id', unit)
+  .order('created_at', { ascending: false })   // <<< jetzt chronologisch nach created_at
+  .limit(10);
 
   if (histErr) {
     console.error('Fehler beim Laden des Verlaufs:', histErr);
@@ -534,23 +536,22 @@ const ladeVerlauf = async () => {
   }
 
   // 3) Aktuelle Zeile als „synthetischen“ Verlaufseintrag oben einsetzen
-  const top = cur
-    ? [{
-        id: `current-${cur.id}`,
-        datum: cur.datum,
-        ist_schicht: cur.ist_schicht,
-        soll_schicht: cur.soll_schicht,
-        startzeit_ist: cur.startzeit_ist,
-        endzeit_ist: cur.endzeit_ist,
-        kommentar: cur.kommentar,
-        // Für die Anzeige verwenden wir created_at als "Zeitpunkt"
-        change_on: cur.created_at,
-        created_by: cur.created_by,
-        ist_schicht_rel: cur.ist_schicht_rel,
-        user_rel: cur.user_rel,
-        _aktuell: true, // Markierung für UI
-      }]
-    : [];
+const top = cur
+  ? [{
+      id: `current-${cur.id}`,
+      datum: cur.datum,
+      ist_schicht: cur.ist_schicht,
+      soll_schicht: cur.soll_schicht,
+      startzeit_ist: cur.startzeit_ist,
+      endzeit_ist: cur.endzeit_ist,
+      kommentar: cur.kommentar,
+      created_at: cur.created_at,   // ✅ echtes created_at mitgeben
+      created_by: cur.created_by,
+      ist_schicht_rel: cur.ist_schicht_rel,
+      user_rel: cur.user_rel,
+      _aktuell: true,
+    }]
+  : [];
 
   setVerlaufDaten([...(top || []), ...(hist || [])]);
   setVerlaufOffen(true);
@@ -803,7 +804,7 @@ const ladeVerlauf = async () => {
                   <th>Von</th>
                   <th>Bis</th>
                   <th>Kommentar</th>
-                  <th>Geändert am</th>
+                  <th>Erstellt am</th>
                   <th>Erstellt von</th>
                 </tr>
               </thead>
@@ -821,7 +822,7 @@ const ladeVerlauf = async () => {
       <td>{v.startzeit_ist}</td>
       <td>{v.endzeit_ist}</td>
       <td>{v.kommentar || '-'}</td>
-      <td>{dayjs(v.change_on).format('DD.MM.YYYY HH:mm')}</td>
+      <td>{dayjs(v.created_at).format('DD.MM.YYYY HH:mm')}</td>
       <td>{v.user_rel ? `${v.user_rel.vorname || ''} ${v.user_rel.nachname || ''}`.trim() : v.created_by || 'Unbekannt'}</td>
     </tr>
   ))}

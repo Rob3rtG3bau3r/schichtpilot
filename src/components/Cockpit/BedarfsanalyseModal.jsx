@@ -2,6 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
+dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter);
 import { useRollen } from '../../context/RollenContext';
 import { Info } from 'lucide-react';
 
@@ -17,6 +21,9 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
     if (rolle === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO')) return '-';
     return kuerzel || '-';
   };
+
+  const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
+  const sch = String(modalSchicht || '').toUpperCase();
 
   useEffect(() => {
     if (!offen || !modalDatum || !modalSchicht || !firma || !unit) return;
@@ -122,13 +129,13 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       }
 
       // Dienst/Frei bestimmen (nur sichtbare = nicht ausgegraut)
-      const dienstUserIds = allUserIdsAtDay
-        .filter(uid => !greySet.has(String(uid)))
-        .filter(uid => finalAtDay.get(uid) === modalSchicht);
+const dienstUserIds = allUserIdsAtDay
+  .filter(uid => !greySet.has(String(uid)))
+  .filter(uid => finalAtDay.get(uid) === sch);
 
-      const freiUserIds   = allUserIdsAtDay
-        .filter(uid => !greySet.has(String(uid)))
-        .filter(uid => finalAtDay.get(uid) === '-');
+const freiUserIds = allUserIdsAtDay
+  .filter(uid => !greySet.has(String(uid)))
+  .filter(uid => finalAtDay.get(uid) === '-');
 
       // (F) Namen laden
       const alleIds = Array.from(new Set([...dienstUserIds, ...freiUserIds]));
@@ -435,9 +442,9 @@ if (kandidaten.length === 0) {
           </button>
         </div>
 
-        <h2 className="text-xl font-semibold text-center">
-          {modalSchicht}-Schicht am {dayjs(modalDatum).format('DD.MM.YYYY')}
-        </h2>
+<h2 className="text-xl font-semibold text-center">
+  {SCH_LABEL[sch] || sch}-Schicht am {dayjs(modalDatum).format('DD.MM.YYYY')}
+</h2>
         <p>❌ Fehlende Qualifikationen: {fehlendeQualis.length ? fehlendeQualis.join(', ') : '—'}</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

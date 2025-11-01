@@ -4,6 +4,10 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
+dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter);
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
 import { Info } from 'lucide-react';
 
@@ -161,6 +165,47 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     return out;
   };
 
+// --- Schicht-Helpers (neu) ---
+const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
+const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
+
+const schichtInnerhalbGrenzen = (b, datumISO, schLabel) => {
+  // Grenzen gelten nur für zeitlich begrenzt
+  if (b.normalbetrieb) return true;
+  const startLabel = b.start_schicht || 'Früh';
+  const endLabel   = b.end_schicht   || 'Nacht';
+  const sIdx = SCH_INDEX[schLabel];
+  const startIdx = SCH_INDEX[startLabel];
+  const endIdx   = SCH_INDEX[endLabel];
+
+  const amStart = b.von && datumISO === b.von;
+  const amEnde  = b.bis && datumISO === b.bis;
+
+  if (amStart && amEnde) {
+    return sIdx >= startIdx && sIdx <= endIdx;
+  } else if (amStart) {
+    return sIdx >= startIdx;
+  } else if (amEnde) {
+    return sIdx <= endIdx;
+  }
+  return true;
+};
+
+const bedarfGiltFuerSchicht = (b, datumISO, schKey) => {
+  // Zeitfenster
+  if (b.von && datumISO <  b.von) return false;
+  if (b.bis && datumISO >  b.bis) return false;
+
+  const schLabel = SCH_LABEL[schKey]; // 'Früh'|'Spät'|'Nacht'
+
+  // Schichtgrenzen beachten (nur ZB)
+  if (!schichtInnerhalbGrenzen(b, datumISO, schLabel)) return false;
+
+  // schichtart: null = ganztägig (alle Schichten), sonst nur diese Schicht
+  if (b.schichtart == null) return true;
+  return b.schichtart === schLabel;
+};
+
   // ===== Daten laden (Plan + Zuweisung als Basis, Kampfliste überschreibt) =====
   const ladeMitarbeiterBedarf = async () => {
     if (!firma || !unit || tage.length === 0) return;
@@ -245,11 +290,11 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     }
 
     // 5) Bedarf & Matrix
-    const { data: bedarf } = await supabase
-      .from('DB_Bedarf')
-      .select('quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
-      .eq('firma_id', firma)
-      .eq('unit_id', unit);
+const { data: bedarf } = await supabase
+  .from('DB_Bedarf')
+  .select('quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb, schichtart, start_schicht, end_schicht')
+  .eq('firma_id', firma)
+  .eq('unit_id', unit);
 
     const { data: qualiMatrix } = await supabase
       .from('DB_Qualifikationsmatrix')
@@ -349,141 +394,143 @@ if (userIds.length > 0) {
       return false;
     };
 
-    // 7) Bewertung/Status
-    const status = { F: {}, S: {}, N: {} };
+// 7) Bewertung/Status
+const status = { F: {}, S: {}, N: {} };
 
-    for (const datum of tage) {
-      const bedarfHeuteAlle = (bedarf || []).filter(
-        (b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis)
-      );
-      const hatSpezial = bedarfHeuteAlle.some((b) => b.normalbetrieb === false);
-      const bedarfHeute = bedarfHeuteAlle.filter((b) => b.normalbetrieb === !hatSpezial);
+for (const datum of tage) {
+  for (const schicht of ['F', 'S', 'N']) {
+    // 1) Kandidaten (Zeitfenster)
+    const bedarfTag = (bedarf || []).filter(
+      (b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis)
+    );
 
-      for (const schicht of ['F', 'S', 'N']) {
-        // aktive User dedupliziert + (NEU) nur NICHT-ausgegraute Personen
-        const aktiveUserRaw = dienste
-          .filter((d) => d.datum === datum && d.ist_schicht?.kuerzel === schicht)
-          .map((d) => d.user);
-        const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => !isGrey(uid, datum));
+    // 2) Nur Bedarfe, die für diese Schicht gelten
+    const bedarfTagSchicht = bedarfTag.filter((b) =>
+      bedarfGiltFuerSchicht(b, datum, schicht)
+    );
 
-        // Qualis je User (nur bis Datum gültig)
-// Qualis je User (nur am Datum gültig)
-const userQualiMap = {};
-const tag = dayjs(datum);
-for (const q of qualis) {
-  if (!aktiveUser.includes(q.user_id)) continue;
-  const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
-  const endOk   = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
-  if (startOk && endOk) {
-    if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
-    userQualiMap[q.user_id].push(q.quali);
-  }
-}
+    // 3) Override-Regel pro Schicht
+    const hatZeitlich = bedarfTagSchicht.some((b) => b.normalbetrieb === false);
+    const bedarfHeute = bedarfTagSchicht.filter(
+      (b) => b.normalbetrieb === !hatZeitlich
+    );
 
-        const bedarfSortiert = bedarfHeute
-          .map((b) => ({
-            ...b,
-            position: matrixMap[b.quali_id]?.position ?? 999,
-            kuerzel: matrixMap[b.quali_id]?.kuerzel || '???',
-            relevant: matrixMap[b.quali_id]?.relevant,
-          }))
-          .filter((b) => b.relevant)
-          .sort((a, b) => a.position - b.position);
+    // --- aktive User (nur nicht-ausgegraut) ---
+    const aktiveUserRaw = dienste
+      .filter((d) => d.datum === datum && d.ist_schicht?.kuerzel === schicht)
+      .map((d) => d.user);
+    const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => !isGrey(uid, datum));
 
-        const verwendeteUser = new Set();
-        const userSortMap = aktiveUser.map((userId) => {
-          const userQualis = userQualiMap[userId] || [];
-          const relevantQualis = userQualis
-            .filter((qid) => matrixMap[qid]?.relevant)
-            .map((qid) => ({ id: qid, position: matrixMap[qid]?.position ?? 999 }));
-          const posSum = relevantQualis.reduce((s, q) => s + q.position, 0);
-          return {
-            userId,
-            qualis: relevantQualis.map((q) => q.id),
-            anzahl: relevantQualis.length,
-            posSumme: posSum,
-          };
-        });
-
-        const userReihenfolge = userSortMap
-          .sort((a, b) => a.anzahl - b.anzahl || a.posSumme - b.posSumme)
-          .map((u) => u.userId);
-
-        const abdeckung = {};
-        for (const b of bedarfSortiert) {
-          abdeckung[b.quali_id] = [];
-          for (const uid of userReihenfolge) {
-            if (verwendeteUser.has(uid)) continue;
-            const qualisDesUsers = userQualiMap[uid] || [];
-            if (qualisDesUsers.includes(b.quali_id)) {
-              abdeckung[b.quali_id].push(uid);
-              verwendeteUser.add(uid);
-              if (abdeckung[b.quali_id].length >= (b.anzahl || 0)) break;
-            }
-          }
-        }
-
-        let statusfarbe = 'bg-green-500';
-        let totalMissing = 0;
-        const fehlend = [];
-        let topMissingKuerzel = null;
-
-        for (const b of bedarfSortiert) {
-          const gedeckt = abdeckung[b.quali_id]?.length || 0;
-          const benoetigt = b.anzahl || 0;
-          if (gedeckt < benoetigt) {
-            const missing = benoetigt - gedeckt;
-            totalMissing += missing;
-            if (!topMissingKuerzel) topMissingKuerzel = matrixMap[b.quali_id]?.kuerzel || b.kuerzel;
-            if (!fehlend.includes(b.kuerzel)) fehlend.push(b.kuerzel);
-            statusfarbe = 'bg-red-500';
-          }
-        }
-
-        // Kopfzahl-Ecke (unabhängig von Quali)
-        let topRight = null;
-        if (bedarfSortiert.length > 0) {
-          const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
-          const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
-          if (ueberschussGesamt === 1) topRight = 'blau-1';
-          else if (ueberschussGesamt >= 2) topRight = 'blau-2';
-        }
-
-        // Zusatzqualis (nicht betriebsrelevant)
-        const zusatzFehlt = [];
-        bedarfHeute
-          .filter((b) => !matrixMap[b.quali_id]?.relevant)
-          .forEach((b) => {
-            const kurz = matrixMap[b.quali_id]?.kuerzel || '???';
-            let vorhanden = 0;
-            for (const uid of aktiveUser) {
-              const qlist = userQualiMap[uid] || [];
-              if (qlist.includes(b.quali_id)) vorhanden++;
-            }
-            if (vorhanden < (b.anzahl || 0)) zusatzFehlt.push(kurz);
-          });
-
-        const nichtVerwendete = aktiveUser.filter((id) => !verwendeteUser.has(id));
-        const bottom = topMissingKuerzel
-          ? `${topMissingKuerzel}${totalMissing > 1 ? '+' : ''}`
-          : null;
-
-        status[schicht][datum] = {
-          farbe: statusfarbe,
-          bottom,
-          topLeft: zusatzFehlt.length > 0 ? zusatzFehlt[0] : null,
-          topRight,
-          fehlend,
-          meta: {
-            aktiveUserIds: aktiveUser,
-            abdeckung,
-            nichtVerwendeteIds: nichtVerwendete,
-            userQualiMap,
-            zusatzFehltKuerzel: zusatzFehlt,
-          },
-        };
+    // --- Qualis am Tag ---
+    const userQualiMap = {};
+    const tag = dayjs(datum);
+    for (const q of qualis) {
+      if (!aktiveUser.includes(q.user_id)) continue;
+      const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
+      const endOk   = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
+      if (startOk && endOk) {
+        if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
+        userQualiMap[q.user_id].push(q.quali);
       }
     }
+
+    // --- Bedarf sortieren ---
+    const bedarfSortiert = bedarfHeute
+      .map((b) => ({
+        ...b,
+        position: matrixMap[b.quali_id]?.position ?? 999,
+        kuerzel:  matrixMap[b.quali_id]?.kuerzel  || '???',
+        relevant: matrixMap[b.quali_id]?.relevant,
+      }))
+      .filter((b) => b.relevant)
+      .sort((a, b) => a.position - b.position);
+
+    // --- Zuweisung (jede Person deckt max. 1 Quali) ---
+    const verwendeteUser = new Set();
+    const userSortMap = aktiveUser.map((userId) => {
+      const userQualis = userQualiMap[userId] || [];
+      const relevantQualis = userQualis
+        .filter((qid) => matrixMap[qid]?.relevant)
+        .map((qid) => ({ id: qid, position: matrixMap[qid]?.position ?? 999 }));
+      const posSum = relevantQualis.reduce((s, q) => s + q.position, 0);
+      return { userId, qualis: relevantQualis.map((q) => q.id), anzahl: relevantQualis.length, posSumme: posSum };
+    });
+    const userReihenfolge = userSortMap
+      .sort((a, b) => a.anzahl - b.anzahl || a.posSumme - b.posSumme)
+      .map((u) => u.userId);
+
+    const abdeckung = {};
+    for (const b of bedarfSortiert) {
+      abdeckung[b.quali_id] = [];
+      for (const uid of userReihenfolge) {
+        if (verwendeteUser.has(uid)) continue;
+        const qualisDesUsers = userQualiMap[uid] || [];
+        if (qualisDesUsers.includes(b.quali_id)) {
+          abdeckung[b.quali_id].push(uid);
+          verwendeteUser.add(uid);
+          if (abdeckung[b.quali_id].length >= (b.anzahl || 0)) break;
+        }
+      }
+    }
+
+    // --- Statusindikatoren ---
+    let statusfarbe = 'bg-green-500';
+    let totalMissing = 0;
+    const fehlend = [];
+    let topMissingKuerzel = null;
+
+    for (const b of bedarfSortiert) {
+      const gedeckt = abdeckung[b.quali_id]?.length || 0;
+      const benoetigt = b.anzahl || 0;
+      if (gedeckt < benoetigt) {
+        const missing = benoetigt - gedeckt;
+        totalMissing += missing;
+        if (!topMissingKuerzel) topMissingKuerzel = matrixMap[b.quali_id]?.kuerzel || b.kuerzel;
+        if (!fehlend.includes(b.kuerzel)) fehlend.push(b.kuerzel);
+        statusfarbe = 'bg-red-500';
+      }
+    }
+
+    let topRight = null;
+    if (bedarfSortiert.length > 0) {
+      const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
+      const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
+      if (ueberschussGesamt === 1) topRight = 'blau-1';
+      else if (ueberschussGesamt >= 2) topRight = 'blau-2';
+    }
+
+    const zusatzFehlt = [];
+    bedarfHeute
+      .filter((b) => !matrixMap[b.quali_id]?.relevant)
+      .forEach((b) => {
+        const kurz = matrixMap[b.quali_id]?.kuerzel || '???';
+        let vorhanden = 0;
+        for (const uid of aktiveUser) {
+          const qlist = userQualiMap[uid] || [];
+          if (qlist.includes(b.quali_id)) vorhanden++;
+        }
+        if (vorhanden < (b.anzahl || 0)) zusatzFehlt.push(kurz);
+      });
+
+    const nichtVerwendete = aktiveUser.filter((id) => !verwendeteUser.has(id));
+    const bottom = topMissingKuerzel ? `${topMissingKuerzel}${totalMissing > 1 ? '+' : ''}` : null;
+
+    status[schicht][datum] = {
+      farbe: statusfarbe,
+      bottom,
+      topLeft: zusatzFehlt.length > 0 ? zusatzFehlt[0] : null,
+      topRight,
+      fehlend,
+      meta: {
+        aktiveUserIds: aktiveUser,
+        abdeckung,
+        nichtVerwendeteIds: nichtVerwendete,
+        userQualiMap,
+        zusatzFehltKuerzel: zusatzFehlt,
+      },
+    };
+  }
+}
 
     // 8) Farbleiste (Sonder-/Zeitbedarfe)
     const leiste = {};
@@ -505,7 +552,15 @@ for (const q of qualis) {
         leiste[tag] = {
           gradient,
           eventName,
-          items: tagBedarfe.map((b) => ({ quali_id: b.quali_id, anzahl: b.anzahl })),
+          items: tagBedarfe.map((b) => ({
+            quali_id: b.quali_id,
+            anzahl: b.anzahl,
+            name: b.namebedarf,
+            von: b.von,
+            bis: b.bis,
+            start_schicht: b.start_schicht, // 'Früh' | 'Spät' | 'Nacht' | null
+            end_schicht: b.end_schicht      // dito
+          })),
         };
       }
     }
@@ -556,18 +611,43 @@ for (const q of qualis) {
     return lines.join('\n');
   };
 
-  // Tooltip-Builder (Bar)
-  const buildBarTooltip = (datum, entry) => {
-    if (!entry) return '';
-    const lines = [];
-    lines.push(`${dayjs(datum).format('DD.MM.YYYY')} – ${entry.eventName}`);
-    for (const it of entry.items || []) {
-      const bez = matrixMapState[it.quali_id]?.bezeichnung || 'Unbekannt';
-      const icon = it.anzahl === 1 ? '👤' : '👥';
-      lines.push(`${icon} ${bez}: ${it.anzahl} ${it.anzahl === 1 ? 'Person' : 'Personen'}`);
+const buildBarHeader = (entry) => {
+  if (!entry || !entry.items?.length) return 'Sonderbedarf';
+
+  const fmt = (d) => (d ? dayjs(d).format('DD.MM.YYYY') : '—');
+
+  // Min(von), Max(bis) + passende Start/End-Schicht ermitteln
+  let minVon = null, maxBis = null, startSchicht = 'Früh', endSchicht = 'Nacht';
+
+  for (const it of entry.items) {
+    if (it.von && (!minVon || dayjs(it.von).isBefore(minVon, 'day'))) {
+      minVon = dayjs(it.von);
+      startSchicht = it.start_schicht || 'Früh';
     }
-    return lines.join('\n');
-  };
+    if (it.bis && (!maxBis || dayjs(it.bis).isAfter(maxBis, 'day'))) {
+      maxBis = dayjs(it.bis);
+      endSchicht = it.end_schicht || 'Nacht';
+    }
+  }
+
+  const start = fmt(minVon);
+  const end   = fmt(maxBis);
+
+  return `Beginnt am ${start} in der ${startSchicht}-Schicht\nEndet am ${end} in der ${endSchicht}-Schicht`;
+};
+
+  // Tooltip-Builder (Bar)
+const buildBarTooltip = (datum, entry) => {
+  if (!entry) return '';
+  const lines = [];
+  lines.push(`${dayjs(datum).format('DD.MM.YYYY')} – ${entry.eventName}`);
+  for (const it of entry.items || []) {
+    const bez = matrixMapState[it.quali_id]?.bezeichnung || 'Unbekannt';
+    const icon = it.anzahl === 1 ? '👤' : '👥';
+    lines.push(`${icon} ${bez}: ${it.anzahl} ${it.anzahl === 1 ? 'Person' : 'Personen'}`);
+  }
+  return lines.join('\n');
+};
 
   const handleModalOeffnen = (datum, kuerzel) => {
     if (!allowAnalyse) return;
@@ -599,7 +679,7 @@ for (const q of qualis) {
           {tage.map((datum) => {
             const eintrag = bedarfsLeiste[datum];
             const key = `BAR|${datum}`;
-            const header = `${dayjs(datum).format('DD.MM.YYYY')} · Sonderbedarf`;
+            const header = buildBarHeader(eintrag);
             return (
               <div
                 key={datum}

@@ -1,241 +1,277 @@
 // components/BedarfsVerwaltung/ZeitlichBegrenztBearbeiten.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
-import { ChevronDown, ChevronRight, Info, Trash2 } from 'lucide-react';
-import dayjs from 'dayjs';
+import { Trash2 } from 'lucide-react';
 
-const ZeitlichBegrenztBearbeiten = ({ eintrag, refreshKey }) => {
+const ZeitlichBegrenztBearbeiten = ({ eintrag, refreshKey, onSaved, onClose }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
-  const [daten, setDaten] = useState([]);
-  const [eingeklappt, setEingeklappt] = useState(true);
-  const [infoOffen, setInfoOffen] = useState(false);
+  // Editfelder
+  const [namebedarf, setNamebedarf] = useState('');
+  const [farbe, setFarbe] = useState('#888888');
+  const [von, setVon] = useState('');
+  const [bis, setBis] = useState('');
+  const [startSchicht, setStartSchicht] = useState('Früh');
+  const [endSchicht, setEndSchicht] = useState('Nacht');
 
-  // 🔔 Toast
-  const [toast, setToast] = useState({ open: false, text: '', type: 'success' });
-  const showToast = (text, type = 'success') => {
-    setToast({ open: true, text, type });
-    setTimeout(() => setToast((t) => ({ ...t, open: false })), 1600);
-  };
+  // Übersicht über enthaltene Zeilen (nur Anzeige)
+  const [rows, setRows] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [feedback, setFeedback] = useState('');
 
-  // 🎯 Auto-Vorauswahl, wenn nix über Props kommt (oder nach Anlegen via Event)
-  const [automatischEintrag, setAutomatischEintrag] = useState(null);
-  const aktiverEintrag = eintrag || automatischEintrag;
-
-  // ✨ Auto-Highlight + Scroll
-  const headerRef = useRef(null);
-  const [highlight, setHighlight] = useState(false);
-
-  // 🔄 Einträge laden (für aktuellen Zeitraum/Name)
-  const ladeEintraege = async (ziel) => {
-    if (!firma || !unit || !ziel) return;
-    const { data, error } = await supabase
-      .from('DB_Bedarf')
-      .select('id, anzahl, quali_id, farbe, DB_Qualifikationsmatrix(qualifikation, quali_kuerzel, betriebs_relevant)')
-      .eq('firma_id', firma)
-      .eq('unit_id', unit)
-      .eq('normalbetrieb', false)
-      .eq('von', ziel.von)
-      .eq('bis', ziel.bis)
-      .eq('namebedarf', ziel.namebedarf);
-
-    if (error) {
-      console.error('Fehler beim Laden der Einträge:', error.message);
-      showToast('Konnte Einträge nicht laden', 'error');
-      setDaten([]);
-    } else {
-      setDaten(data || []);
-    }
-  };
-
-  // ▶️ Erstes Laden: falls kein Prop-Eintrag da ist, den nächsten zukünftigen holen
+  // Vorbelegen
   useEffect(() => {
-    const vorauswaehlen = async () => {
-      if (!firma || !unit) return;
-      if (eintrag) return; // Prop hat Vorrang
+    if (!eintrag) {
+      setRows([]); setFeedback(''); return;
+    }
+    setNamebedarf(eintrag.namebedarf || '');
+    setFarbe(eintrag.farbe || '#888888');
+    setVon(eintrag.von || '');
+    setBis(eintrag.bis || '');
+    setStartSchicht(eintrag.start_schicht || 'Früh');
+    setEndSchicht(eintrag.end_schicht || 'Nacht');
+  }, [eintrag]);
 
-      const heute = dayjs().format('YYYY-MM-DD');
+  // Zeilen des Blocks laden (für Übersicht)
+  useEffect(() => {
+    const lade = async () => {
+      if (!eintrag || !firma || !unit) return;
       const { data, error } = await supabase
         .from('DB_Bedarf')
-        .select('von, bis, namebedarf, farbe')
+        .select(`
+          id, quali_id, schichtart, anzahl,
+          DB_Qualifikationsmatrix ( quali_kuerzel )
+        `)
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .eq('normalbetrieb', false)
-        .gte('von', heute)
-        .order('von', { ascending: true })
-        .limit(1);
+        .eq('von', eintrag.von)
+        .eq('bis', eintrag.bis)
+        .eq('namebedarf', eintrag.namebedarf || null)
+        .eq('start_schicht', eintrag.start_schicht || 'Früh')
+        .eq('end_schicht', eintrag.end_schicht || 'Nacht');
 
-      if (!error && data?.length) {
-        setAutomatischEintrag(data[0]);
+      if (error) {
+        console.error('Zeilen laden (ZB) fehlgeschlagen:', error.message);
+        setRows([]); return;
       }
+      setRows(data || []);
     };
-    vorauswaehlen();
-  }, [firma, unit, eintrag]);
+    lade();
+  }, [eintrag, firma, unit, refreshKey]);
 
-  // 📡 Auf globales Anlege-Event reagieren (Formular kann das dispatchen)
-  // window.dispatchEvent(new CustomEvent('bedarf:new', { detail: { von, bis, namebedarf, farbe } }))
-  useEffect(() => {
-    const handler = (ev) => {
-      const d = ev.detail;
-      if (!d) return;
-      setAutomatischEintrag({ von: d.von, bis: d.bis, namebedarf: d.namebedarf, farbe: d.farbe });
-      showToast('Angelegt – Details geöffnet', 'success');
-    };
-    window.addEventListener('bedarf:new', handler);
-    return () => window.removeEventListener('bedarf:new', handler);
-  }, []);
+  const minBis = useMemo(() => (von ? dayjs(von).add(1,'day').format('YYYY-MM-DD') : ''), [von]);
 
-  // 🔁 Daten laden, wenn aktiver Eintrag/Firma/Unit/refreshKey wechselt
-  useEffect(() => {
-    ladeEintraege(aktiverEintrag);
-  }, [firma, unit, aktiverEintrag, refreshKey]);
-
-  // 🪟 Bei Eintragswechsel automatisch aufklappen, scrollen & highlighten
-  useEffect(() => {
-    if (!aktiverEintrag) return;
-    setEingeklappt(false);
-    // Scroll sanft zum Header
-    requestAnimationFrame(() => {
-      headerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setHighlight(true);
-      setTimeout(() => setHighlight(false), 1500);
-    });
-  }, [aktiverEintrag]);
-
-  // 🗑️ Löschen + Reload (DB-Wahrheit)
-  const handleLöschen = async (id) => {
-    const confirm = window.confirm('Soll dieser Eintrag gelöscht werden?');
-    if (!confirm) return;
-
-    const { error } = await supabase.from('DB_Bedarf').delete().eq('id', id);
-    if (error) {
-      console.error('Fehler beim Löschen:', error.message);
-      showToast(error.message || 'Löschen fehlgeschlagen', 'error');
-      return;
-    }
-
-    showToast('Gelöscht', 'success');
-    // Neu laden, statt nur lokal zu filtern (damit DB-Status sicher gespiegelt ist)
-    ladeEintraege(aktiverEintrag);
+  const validate = () => {
+    if (!eintrag) return 'Kein Eintrag ausgewählt.';
+    if (!namebedarf?.trim()) return 'Bitte eine Bezeichnung angeben.';
+    if (!von || !bis) return 'Bitte Von/Bis angeben.';
+    if (dayjs(bis).isBefore(dayjs(von).add(1,'day'))) return '„Bis“ muss mindestens einen Tag nach „Von“ liegen.';
+    return '';
   };
 
-  if (!aktiverEintrag) {
-    return <p className="text-sm text-gray-500 italic">Kein Eintrag ausgewählt.</p>;
+  const handleSave = async () => {
+    setFeedback('');
+    const err = validate();
+    if (err) { setFeedback(err); return; }
+    setSaving(true);
+
+    const match = {
+      firma_id: Number(firma),
+      unit_id: Number(unit),
+      normalbetrieb: false,
+      von: eintrag.von,
+      bis: eintrag.bis,
+      namebedarf: eintrag.namebedarf,
+      start_schicht: eintrag.start_schicht || 'Früh',
+      end_schicht: eintrag.end_schicht || 'Nacht',
+    };
+
+    const patch = {
+      von, bis,
+      namebedarf: namebedarf.trim(),
+      farbe,
+      start_schicht: startSchicht,
+      end_schicht: endSchicht,
+    };
+
+    const { error } = await supabase.from('DB_Bedarf').update(patch).match(match);
+    setSaving(false);
+
+    if (error) {
+      console.error('Speichern fehlgeschlagen:', error.message);
+      setFeedback('Fehler beim Speichern.'); return;
+    }
+    setFeedback('Gespeichert.');
+    onSaved?.();
+  };
+
+  // >>> Einzellöschung pro Zeile
+  const handleDeleteRow = async (rowId) => {
+    if (!rowId) return;
+    if (!window.confirm('Diesen Bedarfseintrag wirklich löschen?')) return;
+
+    setDeletingId(rowId);
+    const { error } = await supabase
+      .from('DB_Bedarf')
+      .delete()
+      .eq('id', rowId)
+      .eq('firma_id', Number(firma))
+      .eq('unit_id', Number(unit));
+
+    setDeletingId(null);
+
+    if (error) {
+      console.error('Löschen fehlgeschlagen:', error.message);
+      setFeedback('Fehler beim Löschen.'); return;
+    }
+
+    // lokal aus Liste entfernen
+    setRows(prev => prev.filter(r => r.id !== rowId));
+    setFeedback('Eintrag gelöscht.');
+    onSaved?.(); // damit ggf. rechts die Listen/Leiste aktualisieren
+  };
+
+  if (!eintrag) {
+    return (
+      <div className="p-4 border border-gray-300 dark:border-gray-700 rounded-xl">
+        <div className="text-sm text-gray-500">
+          Wähle oben einen zeitlich begrenzten Eintrag aus, um ihn hier zu bearbeiten.
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="relative p-4 border border-gray-300 dark:border-gray-700 shadow-xl rounded-xl">
-      {/* Header */}
-      <div
-        ref={headerRef}
-        className={`flex justify-between items-center mb-3 transition-all ${
-          highlight ? 'ring-2 ring-blue-400 rounded-lg' : ''
-        }`}
-      >
-        <div
-          className="flex items-center gap-2 cursor-pointer"
-          onClick={() => setEingeklappt(!eingeklappt)}
-          title={eingeklappt ? 'Aufklappen' : 'Zuklappen'}
-        >
-          {eingeklappt ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-          <h3 className="text-md font-semibold flex items-center gap-2">
-            {aktiverEintrag.namebedarf} → {dayjs(aktiverEintrag.von).format('DD.MM.YYYY')} –{' '}
-            {dayjs(aktiverEintrag.bis).format('DD.MM.YYYY')}
-            <span
-              className="inline-block w-20 h-3 rounded-full border border-gray-400"
-              style={{ backgroundColor: aktiverEintrag.farbe || '#ccc' }}
-            />
-            {/* Badge mit Anzahl */}
-            <span className="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 dark:bg-gray-700">
-              {daten.length}
-            </span>
-          </h3>
-        </div>
+    <div className="p-4 border border-gray-300 dark:border-gray-700 rounded-xl">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-md font-semibold">Zeitlich begrenzt – Bearbeiten</h3>
         <button
-          className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
-          onClick={() => setInfoOffen(true)}
-          title="Informationen"
+          className="text-xs px-3 py-1 rounded bg-gray-200 dark:bg-gray-700"
+          onClick={() => onClose?.()}
         >
-          <Info size={20} />
+          Schließen
         </button>
       </div>
 
-      {/* Inhalt */}
-      {!eingeklappt && (
-        <>
-          {daten.length === 0 ? (
-            <p className="text-sm text-gray-500 italic">Keine Einträge vorhanden.</p>
-          ) : (
-            <ul className="text-sm space-y-2">
-              {daten.map((e) => (
-                <li
-                  key={e.id}
-                  className="bg-gray-100 dark:bg-gray-700 p-2 rounded flex justify-between items-center"
-                >
-                  <div>
-                    <div className="font-medium">{e.DB_Qualifikationsmatrix?.qualifikation || '–'}</div>
-                    <div className="text-xs text-gray-500">{e.DB_Qualifikationsmatrix?.quali_kuerzel}</div>
-                  </div>
-                  <div className="text-right flex items-center gap-2">
-                    <span className="text-sm font-semibold">{e.anzahl}</span>
-                    <span className="text-xs text-gray-500">Personen</span>
-                    <button
-                      onClick={() => handleLöschen(e.id)}
-                      className="text-red-500 hover:text-red-700"
-                      title="Löschen"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
-
-      {/* Info-Modal */}
-      {infoOffen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex backdrop-blur-sm items-center justify-center z-50"
-          onClick={() => setInfoOffen(false)}
-        >
-          <div
-            className="bg-white dark:bg-gray-800 p-6 rounded-xl animate-fade-in shadow max-w-lg w-full"
-            onClick={(e) => e.stopPropagation()}
+      {/* Formular */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium mb-1">Bezeichnung</label>
+          <input
+            type="text"
+            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            value={namebedarf}
+            onChange={(e) => setNamebedarf(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Farbe</label>
+          <input
+            type="color"
+            className="w-full h-9 rounded bg-gray-200 dark:bg-gray-800"
+            value={farbe}
+            onChange={(e) => setFarbe(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Von</label>
+          <input
+            type="date"
+            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            value={von}
+            onChange={(e) => setVon(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Bis</label>
+          <input
+            type="date"
+            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            value={bis}
+            min={minBis}
+            onChange={(e) => setBis(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Start-Schicht</label>
+          <select
+            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            value={startSchicht}
+            onChange={(e) => setStartSchicht(e.target.value)}
           >
-            <h3 className="text-lg font-semibold mb-2">Hinweise zur Bearbeitung</h3>
-            <ul className="list-disc pl-5 text-sm space-y-2">
-              <li>Hier siehst du alle Einträge zum gewählten Zeitraum und Namen.</li>
-              <li>Du kannst einzelne Bedarfe löschen.</li>
-              <li>Die Einträge stammen aus der Tabelle <b>DB_Bedarf</b>.</li>
-              <li>Nach Anlegen/Löschen werden die Details automatisch geöffnet und hervorgehoben.</li>
-            </ul>
-            <div className="text-right mt-4">
-              <button
-                className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700"
-                onClick={() => setInfoOffen(false)}
-              >
-                Schließen
-              </button>
-            </div>
-          </div>
+            <option value="Früh">Früh</option>
+            <option value="Spät">Spät</option>
+            <option value="Nacht">Nacht</option>
+          </select>
         </div>
-      )}
+        <div>
+          <label className="block text-sm font-medium mb-1">End-Schicht</label>
+          <select
+            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            value={endSchicht}
+            onChange={(e) => setEndSchicht(e.target.value)}
+          >
+            <option value="Früh">Früh</option>
+            <option value="Spät">Spät</option>
+            <option value="Nacht">Nacht</option>
+          </select>
+        </div>
+      </div>
 
-      {/* Toast */}
-      {toast.open && (
-        <div
-          className={`fixed bottom-4 right-4 z-50 px-3 py-2 rounded shadow-lg text-sm ${
-            toast.type === 'error'
-              ? 'bg-red-600 text-white'
-              : 'bg-green-600 text-white'
-          }`}
+      {/* Enthaltene Zeilen (Read-only) mit Einzellöschung */}
+      <div className="mt-4">
+        <div className="text-sm font-medium mb-1">Enthaltene Zeilen</div>
+        {rows.length === 0 ? (
+          <div className="text-sm text-gray-500">Keine Zeilen geladen.</div>
+        ) : (
+          <div className="rounded border border-gray-200 dark:border-gray-700 divide-y dark:divide-gray-700">
+            {rows.map(r => (
+              <div key={r.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 border">
+                    {r.schichtart ?? 'Alle'}
+                  </span>
+                  <span className="text-gray-600 dark:text-gray-300">
+                    {r.DB_Qualifikationsmatrix?.quali_kuerzel || '—'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-medium">{Number(r.anzahl || 0)}</span>
+                  <button
+                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30"
+                    onClick={() => handleDeleteRow(r.id)}
+                    disabled={deletingId === r.id}
+                    title="Eintrag löschen"
+                  >
+                    <Trash2
+                      size={16}
+                      className={deletingId === r.id ? 'text-red-300' : 'text-red-600'}
+                    />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Feedback + Aktionen */}
+      <div className="mt-4 flex items-center justify-between">
+        <span className={`text-sm ${feedback?.startsWith('Fehler') || feedback?.includes('Bitte') ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+          {feedback}
+        </span>
+        <button
+          onClick={handleSave}
+          disabled={saving || deletingId !== null}
+          className={`px-4 py-1 rounded text-white ${saving ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
         >
-          {toast.text}
-        </div>
-      )}
+          {saving ? 'Speichern…' : 'Speichern'}
+        </button>
+      </div>
     </div>
   );
 };
