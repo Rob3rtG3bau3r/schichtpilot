@@ -339,53 +339,80 @@ const andere = Array.from(andereMap.entries())
         krankArr.sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
         // --- 10) Bedarf ---
-        const { data: bedarfRows, error: bedErr } = await supabase
-          .from('DB_Bedarf')
-          .select('id, quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb')
-          .eq('firma_id', Number(firma))
-          .eq('unit_id', Number(unit));
-        if (bedErr) throw bedErr;
+const { data: bedarfRows, error: bedErr } = await supabase
+  .from('DB_Bedarf')
+  .select(`
+    id, quali_id, anzahl, von, bis, namebedarf, farbe,
+    normalbetrieb, schichtart, start_schicht, end_schicht
+  `)
+  .eq('firma_id', Number(firma))
+  .eq('unit_id', Number(unit));
+if (bedErr) throw bedErr;
 
-        const { data: matrixRows, error: matrixErr } = await supabase
-          .from('DB_Qualifikationsmatrix')
-          .select('id, quali_kuerzel, qualifikation');
-        if (matrixErr) throw matrixErr;
+const { data: matrixRows, error: matrixErr } = await supabase
+  .from('DB_Qualifikationsmatrix')
+  .select('id, quali_kuerzel, qualifikation, firma_id, unit_id, aktiv, betriebs_relevant')
+  .eq('firma_id', Number(firma))
+  .eq('unit_id', Number(unit));
+if (matrixErr) throw matrixErr;
 
-        const qmById = new Map();
-        (matrixRows || []).forEach(q => {
-          qmById.set(q.id, { kuerzel: q.quali_kuerzel, label: q.qualifikation });
-        });
 
-        const isWithin = (row) => (!row.von || row.von <= heute) && (!row.bis || row.bis >= heute);
-        const heuteAlle = (bedarfRows || []).filter(isWithin);
+const qmById = new Map();
+(matrixRows || []).forEach(q => {
+  const relevant = (q.aktiv ?? q.betriebs_relevant);
+  // Default: true, wenn beide Felder fehlen/undefined
+  const isRelevant = (relevant === undefined ? true : !!relevant);
+  qmById.set(q.id, {
+    kuerzel: q.quali_kuerzel,
+    label: q.qualifikation,
+    relevant: isRelevant,
+  });
+});
 
-        const hatZeitlich = heuteAlle.some(b => b.normalbetrieb === false);
-        const aktivSet = hatZeitlich
-          ? heuteAlle.filter(b => b.normalbetrieb === false)
-          : heuteAlle.filter(b => b.normalbetrieb !== false);
+// „Heute gültig“: Zeitbedarf über von/bis; Normalbetrieb gilt immer
+const isWithin = (row) =>
+  row.normalbetrieb === true ||
+  ((!row.von || row.von <= heute) && (!row.bis || row.bis >= heute));
 
-        const mapped = aktivSet.map(b => ({
-          id: b.id,
-          quali_kuerzel: qmById.get(b.quali_id)?.kuerzel || '???',
-          quali_label: qmById.get(b.quali_id)?.label || null,
-          anzahl: b.anzahl || 0,
-          namebedarf: null,
-          farbe: b.farbe || null,
-          von: b.von || null,
-          bis: b.bis || null,
-        }));
+const heuteAlle    = (bedarfRows || []).filter(isWithin);
+const zeitlichAlle = heuteAlle.filter(b => b.normalbetrieb === false);
 
-        const normalbetrieb = hatZeitlich ? [] : mapped;
-        const zeitlich = hatZeitlich ? mapped : [];
+// Priorität: gibt es *irgendeinen* zeitlich begrenzten Bedarf heute?
+const aktivSet = zeitlichAlle.length
+  ? zeitlichAlle
+  : heuteAlle.filter(b => b.normalbetrieb === true);
 
-        const summeMap = new Map();
-        for (const e of mapped) {
-          const key = e.quali_kuerzel;
-          summeMap.set(key, (summeMap.get(key) || 0) + (e.anzahl || 0));
-        }
-        const summiert = Array.from(summeMap.entries())
-          .map(([quali_kuerzel, total_anzahl]) => ({ quali_kuerzel, total_anzahl }))
-          .sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
+const mapped = aktivSet.map(b => ({
+  id: b.id,
+  quali_kuerzel: qmById.get(b.quali_id)?.kuerzel || '???',
+  quali_label:   qmById.get(b.quali_id)?.label  || null,
+  relevant:      qmById.get(b.quali_id)?.relevant ?? true, 
+  anzahl: Number(b.anzahl || 0),
+  namebedarf: b.namebedarf || null,
+  farbe: b.farbe || null,
+  von: b.von || null,
+  bis: b.bis || null,
+  normalbetrieb: !!b.normalbetrieb,
+  schichtart: b.schichtart || null,
+  start_schicht: b.start_schicht || 'Früh',
+  end_schicht: b.end_schicht || 'Nacht',
+}));
+
+
+// Anzeigeaufteilung: entweder „zeitlich“ ODER „Normalbetrieb“
+const showingZeitlich = mapped.some(e => !e.normalbetrieb);
+const normalbetrieb = showingZeitlich ? [] : mapped;
+const zeitlich      = showingZeitlich ? mapped : [];
+
+// Summen (qualifikationsweise)
+const summeMap = new Map();
+for (const e of mapped) {
+  const key = e.quali_kuerzel;
+  summeMap.set(key, (summeMap.get(key) || 0) + (e.anzahl || 0));
+}
+const summiert = Array.from(summeMap.entries())
+  .map(([quali_kuerzel, total_anzahl]) => ({ quali_kuerzel, total_anzahl }))
+  .sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
 
         // --- 11) Termine heute (nur explicit heute, wie gehabt) ---
         const { data: termRows, error: termErr } = await supabase
@@ -555,68 +582,116 @@ const andere = Array.from(andereMap.entries())
               </Section>
 
               {/* Bedarf */}
-              <Section id="bedarf" title="Bedarf heute">
-                <div className={`grid grid-cols-1 ${showZeitlich ? '' : 'md:grid-cols-2'} gap-3`}>
-                  {!showZeitlich && (
-                    <div>
-                      <div className="text-xs uppercase opacity-70 mb-1">Normalbetrieb</div>
-                      {nb.length === 0 ? (
-                        <div className="text-sm opacity-70">Keine Einträge.</div>
-                      ) : (
-                        <ul className="text-sm space-y-1">
-                          {nb.map((e) => (
-                            <li key={`nb-${e.id}`} className="flex items-center justify-between">
-                              <div>
-                                <span className="font-mono mr-2">{e.quali_kuerzel}</span>
-                                {e.quali_label && e.quali_label !== e.quali_kuerzel && (
-                                  <span className="opacity-80">{e.quali_label}</span>
-                                )}
-                              </div>
-                              <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
+{/* Bedarf */}
+<Section id="bedarf" title="Bedarf heute">
+  {(() => {
+    // Aktiver Datensatz: wenn zeitlich vorhanden, dann den – sonst Normalbetrieb
+    const aktive = showZeitlich ? zb : nb;
 
-                  {showZeitlich && (
-                    <div>
-                      <div className="text-xs uppercase opacity-70 mb-1">Zeitlich</div>
-                      <ul className="text-sm space-y-1">
-                        {zb.map((e) => (
-                          <li key={`zb-${e.id}`} className="flex items-center justify-between">
-                            <div>
-                              <span className="font-mono mr-2">{e.quali_kuerzel}</span>
-                              {e.quali_label && e.quali_label !== e.quali_kuerzel && (
-                                <span className="opacity-80">{e.quali_label}</span>
-                              )}
-                              <span className="opacity-60"> • {dayjs(e.von).format('DD.MM.')}–{dayjs(e.bis).format('DD.MM.')}</span>
-                            </div>
-                            <span className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800">{e.anzahl}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+    // Kopfzeile (nur bei Zeitbedarf mit Name/Farbe/Zeitraum)
+    const Kopf = () => (
+      showZeitlich && aktive.length > 0 ? (
+        <div className="flex items-center flex-wrap gap-2 mb-2">
+          {aktive[0].farbe && (
+            <span
+              className="inline-block w-3 h-3 rounded-full border border-black/10"
+              style={{ backgroundColor: aktive[0].farbe }}
+              title={aktive[0].farbe}
+            />
+          )}
+          {aktive[0].namebedarf && (
+            <span className="text-sm font-medium">{aktive[0].namebedarf}</span>
+          )}
+          <span className="text-xs opacity-70">
+            {dayjs(aktive[0].von).format('DD.MM.YYYY')} – {dayjs(aktive[0].bis).format('DD.MM.YYYY')}
+          </span>
+          <span className="text-xs opacity-70">
+            • {aktive[0].start_schicht} → {aktive[0].end_schicht}
+          </span>
+        </div>
+      ) : (
+        <div className="text-xs uppercase opacity-70 mb-2">Normalbetrieb</div>
+      )
+    );
 
-                <div className="mt-3">
-                  <div className="text-xs uppercase opacity-70 mb-1">Summiert</div>
-                  {summe.length === 0 ? (
-                    <div className="text-sm opacity-70">Keine Summen.</div>
-                  ) : (
-                    <div className="flex flex-wrap">
-                      {summe.map((s, i) => (
-                        <Pill key={i}>
-                          <span className="font-mono mr-1">{s.quali_kuerzel}</span>
-                          <span>{s.total_anzahl}</span>
-                        </Pill>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Section>
+    // Matrix aufbauen: key = quali_kuerzel|label
+const matrix = new Map();
+for (const e of aktive) {
+  const key = `${e.quali_kuerzel}|${e.quali_label || ''}`;
+  if (!matrix.has(key)) {
+    matrix.set(key, {
+      kuerzel: e.quali_kuerzel,
+      label: e.quali_label || '',
+      relevant: e.relevant !== false, // default true
+      frueh: 0, spaet: 0, nacht: 0
+    });
+  }
+  const row = matrix.get(key);
+  const add = (col) => { row[col] = (row[col] || 0) + Number(e.anzahl || 0); };
+  if (!e.schichtart) { add('frueh'); add('spaet'); add('nacht'); }
+  else if (e.schichtart === 'Früh') add('frueh');
+  else if (e.schichtart === 'Spät') add('spaet');
+  else if (e.schichtart === 'Nacht') add('nacht');
+}
+
+
+    const rows = Array.from(matrix.values())
+      .sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
+
+    if (rows.length === 0) {
+      return <div className="text-sm opacity-70">Kein Bedarf erfasst.</div>;
+    }
+
+    return (
+      <div className="space-y-2">
+        <Kopf />
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm border-separate border-spacing-y-1">
+            <thead>
+              <tr className="text-left text-xs uppercase opacity-70">
+                <th className="py-1 pr-4">Quali</th>
+                <th className="py-1 pr-4">Früh</th>
+                <th className="py-1 pr-4">Spät</th>
+                <th className="py-1 pr-0">Nacht</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="bg-gray-50 dark:bg-gray-900/30">
+<td className={`py-1 pr-4 ${!r.relevant ? 'opacity-60 italic' : ''}`}>
+  <span className="font-mono mr-2">{r.kuerzel}</span>
+  {r.label && r.label !== r.kuerzel && <span className="opacity-80">{r.label}</span>}
+  {!r.relevant && (
+    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-700">
+      nicht betriebsl.
+    </span>
+  )}
+</td>
+                  <td className="py-1 pr-4">
+                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 inline-block min-w-[2.5rem] text-center">
+                      {r.frueh}
+                    </span>
+                  </td>
+                  <td className="py-1 pr-4">
+                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 inline-block min-w-[2.5rem] text-center">
+                      {r.spaet}
+                    </span>
+                  </td>
+                  <td className="py-1 pr-0">
+                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 inline-block min-w-[2.5rem] text-center">
+                      {r.nacht}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  })()}
+</Section>
+
             </div>
           )}
         </>

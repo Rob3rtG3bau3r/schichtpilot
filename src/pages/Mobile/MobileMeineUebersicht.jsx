@@ -141,7 +141,7 @@ export default function MobileMeineUebersicht() {
       {err && <div className="text-sm text-red-500">{err}</div>}
 
       {!loading && !err && (
-        <div className="space-y-4">
+        <div className="space-y-4 bg-gray-300">
           {/* Stunden */}
           <Card title="Arbeitsstunden (Jahr)">
             <div className="flex items-end justify-between">
@@ -235,12 +235,6 @@ export default function MobileMeineUebersicht() {
           </Card>
 
           <div className="flex justify-end">
-            <button
-              onClick={load}
-              className="px-3 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-sm"
-            >
-              Aktualisieren
-            </button>
           </div>
         </div>
       )}
