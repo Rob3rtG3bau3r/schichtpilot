@@ -359,15 +359,17 @@ if (matrixErr) throw matrixErr;
 
 const qmById = new Map();
 (matrixRows || []).forEach(q => {
-  const relevant = (q.aktiv ?? q.betriebs_relevant);
-  // Default: true, wenn beide Felder fehlen/undefined
-  const isRelevant = (relevant === undefined ? true : !!relevant);
+  // Markierung NUR anhand von "betriebs_relevant"
+  // Default = true, nur exakt false soll als "nicht betriebsl." gelten
+  const isRelevant = (q.betriebs_relevant === false) ? false : true;
+
   qmById.set(q.id, {
     kuerzel: q.quali_kuerzel,
     label: q.qualifikation,
     relevant: isRelevant,
   });
 });
+
 
 // „Heute gültig“: Zeitbedarf über von/bis; Normalbetrieb gilt immer
 const isWithin = (row) =>
