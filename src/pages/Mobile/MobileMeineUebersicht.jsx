@@ -9,7 +9,7 @@ const fmt = (n, digits = 2) =>
 const pct = (total, part) => (total > 0 ? (part / total) * 100 : 0);
 
 const Card = ({ title, children }) => (
-  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+  <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800 p-4 shadow-sm">
     <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2">{title}</h3>
     {children}
   </div>
@@ -141,7 +141,7 @@ export default function MobileMeineUebersicht() {
       {err && <div className="text-sm text-red-500">{err}</div>}
 
       {!loading && !err && (
-        <div className="space-y-4 bg-gray-300">
+        <div className="space-y-4 bg-gray-200 dark:bg-gray-900 ">
           {/* Stunden */}
           <Card title="Arbeitsstunden (Jahr)">
             <div className="flex items-end justify-between">
