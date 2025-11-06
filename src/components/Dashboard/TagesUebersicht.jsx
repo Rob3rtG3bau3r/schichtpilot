@@ -370,7 +370,6 @@ const qmById = new Map();
   });
 });
 
-
 // „Heute gültig“: Zeitbedarf über von/bis; Normalbetrieb gilt immer
 const isWithin = (row) =>
   row.normalbetrieb === true ||
@@ -399,7 +398,6 @@ const mapped = aktivSet.map(b => ({
   start_schicht: b.start_schicht || 'Früh',
   end_schicht: b.end_schicht || 'Nacht',
 }));
-
 
 // Anzeigeaufteilung: entweder „zeitlich“ ODER „Normalbetrieb“
 const showingZeitlich = mapped.some(e => !e.normalbetrieb);
