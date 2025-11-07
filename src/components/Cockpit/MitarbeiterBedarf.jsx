@@ -14,6 +14,52 @@ import { Info } from 'lucide-react';
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
 const FEATURE_ANALYSE = 'bedarf_analyse';
 
+// --- Schicht-Helpers (neu) ---
+const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
+const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
+
+const appliesToBarItem = (it, datumISO, schLabel) => {
+  if (it.von && datumISO < it.von) return false;
+  if (it.bis && datumISO > it.bis) return false;
+
+  const startLabel = it.start_schicht || 'Früh';
+  const endLabel   = it.end_schicht   || 'Nacht';
+  const sIdx   = SCH_INDEX[schLabel];
+  const start  = SCH_INDEX[startLabel];
+  const end    = SCH_INDEX[endLabel];
+  const amStart = it.von && datumISO === it.von;
+  const amEnde  = it.bis && datumISO === it.bis;
+
+  if (amStart && amEnde) {
+    if (sIdx < start || sIdx > end) return false;
+  } else if (amStart) {
+    if (sIdx < start) return false;
+  } else if (amEnde) {
+    if (sIdx > end) return false;
+  }
+  if (it.schichtart == null) return true;
+  return it.schichtart === schLabel;
+};
+
+const pickItemsForGroup = (items, datumISO, schLabel) => {
+  const candidates = (items || []).filter(it => appliesToBarItem(it, datumISO, schLabel));
+  const specific   = candidates.filter(it => it.schichtart === schLabel);
+  const fallback   = candidates.filter(it => it.schichtart == null);
+  return specific.length > 0 ? specific : fallback;
+};
+
+const groupByQualiSum = (items) => {
+  const map = new Map();
+  for (const it of items || []) {
+    const key = String(it.quali_id);
+    map.set(key, (map.get(key) || 0) + Number(it.anzahl || 0));
+  }
+  return map;
+};
+
+const iconFor = (n) => (n === 1 ? '👤' : '👥');
+
+
 const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
@@ -164,10 +210,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
     return out;
   };
-
-// --- Schicht-Helpers (neu) ---
-const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
-const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
 
 const schichtInnerhalbGrenzen = (b, datumISO, schLabel) => {
   // Grenzen gelten nur für zeitlich begrenzt
@@ -552,15 +594,17 @@ for (const datum of tage) {
         leiste[tag] = {
           gradient,
           eventName,
-          items: tagBedarfe.map((b) => ({
-            quali_id: b.quali_id,
-            anzahl: b.anzahl,
-            name: b.namebedarf,
-            von: b.von,
-            bis: b.bis,
-            start_schicht: b.start_schicht, // 'Früh' | 'Spät' | 'Nacht' | null
-            end_schicht: b.end_schicht      // dito
-          })),
+items: tagBedarfe.map((b) => ({
+  quali_id: b.quali_id,
+  anzahl: b.anzahl,
+  name: b.namebedarf,
+  von: b.von,
+  bis: b.bis,
+  start_schicht: b.start_schicht,
+  end_schicht: b.end_schicht,
+  schichtart: b.schichtart // <<< WICHTIG
+})),
+
         };
       }
     }
@@ -637,14 +681,54 @@ const buildBarHeader = (entry) => {
 };
 
   // Tooltip-Builder (Bar)
+// Block-Schlüssel: fasst Zeilen zusammen, die zum selben Zeitblock gehören
+
 const buildBarTooltip = (datum, entry) => {
   if (!entry) return '';
   const lines = [];
-  lines.push(`${dayjs(datum).format('DD.MM.YYYY')} – ${entry.eventName}`);
-  for (const it of entry.items || []) {
-    const bez = matrixMapState[it.quali_id]?.bezeichnung || 'Unbekannt';
-    const icon = it.anzahl === 1 ? '👤' : '👥';
-    lines.push(`${icon} ${bez}: ${it.anzahl} ${it.anzahl === 1 ? 'Person' : 'Personen'}`);
+  lines.push(`${dayjs(datum).format('DD.MM.YYYY')} – ${entry.eventName || 'Sonderbedarf'}`);
+
+  const gruppen = [
+    { key: 'Früh',  label: 'Früh'  },
+    { key: 'Spät',  label: 'Spät'  },
+    { key: 'Nacht', label: 'Nacht' },
+  ];
+
+  let anyGroup = false;
+
+  for (const g of gruppen) {
+    // Nur passende Items für diese Schicht wählen:
+    // - Wenn es spezifische gibt (schichtart === g.key) → NUR diese
+    // - sonst die NULL/alle-Schichten-Einträge
+    const chosen = pickItemsForGroup(entry.items, datum, g.key);
+    if (chosen.length === 0) continue;
+
+    // Je Quali zusammenfassen
+    const sums = groupByQualiSum(chosen);
+    if (sums.size === 0) continue;
+
+    anyGroup = true;
+    lines.push('');
+    lines.push(`${g.label}:`);
+
+    // Sortiere optional nach Matrix-Position (falls gesetzt), sonst alphabetisch
+    const rows = [];
+    for (const [qualiId, total] of sums.entries()) {
+      const pos = matrixMapState[qualiId]?.position ?? 9999;
+      const bez = matrixMapState[qualiId]?.bezeichnung
+        || matrixMapState[qualiId]?.kuerzel
+        || `ID:${qualiId}`;
+      rows.push({ pos, bez, total });
+    }
+    rows.sort((a, b) => a.pos - b.pos || a.bez.localeCompare(b.bez, 'de'));
+
+    for (const r of rows) {
+      lines.push(`- ${iconFor(r.total)} ${r.bez}: ${r.total} ${r.total === 1 ? 'Person' : 'Personen'}`);
+    }
+  }
+
+  if (!anyGroup) {
+    lines.push('', '– Kein Bedarf für diese Schicht an diesem Tag –');
   }
   return lines.join('\n');
 };
