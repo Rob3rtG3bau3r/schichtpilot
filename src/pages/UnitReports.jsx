@@ -181,6 +181,20 @@ const monthKOQuote = useMemo(() => {
   return denom > 0 ? (monthKO / denom) * 100 : null;
 }, [monthKO, monthRow]);
 
+const monthPlanQuote = useMemo(
+  () => (monthRow?.planerfuellung_quote ?? null),
+  [monthRow]
+);
+
+const monthlyChangeSeries = useMemo(() => {
+  return months.map(r => ({
+    label: MONTHS[r.monat - 1],
+    total: Number(r.planchg_total ?? 0),
+    off:   Number(r.planchg_off_rhythm ?? 0),
+    planQ: (r.planerfuellung_quote ?? null),
+  }));
+}, [months]);
+
   const ytdKrankQuote = useMemo(() => {
     if (!ytdRow || !Number(ytdRow?.ytd_ist)) return null;
     return (Number(ytdRow.krank_stunden_ytd ?? 0) / Number(ytdRow.ytd_ist)) * 100;
@@ -217,6 +231,16 @@ const monthlyDiff = useMemo(() => {
     diff: Number(r.ist || 0) - Number(r.soll || 0),
   }));
 }, [fullYearRows]);
+// Datenserie aufbereiten (z. B. neben monthlyChangeSeries)
+const monthlyShortNotice = useMemo(() => {
+  return months.map(r => ({
+    label: MONTHS[r.monat - 1],
+    le1:     Number(r.kurzfrist_1d   ?? 0), // ≤1
+    gt1_le3: Number(r.kurzfrist_3d   ?? 0), // >1..≤3
+    gt3_lt7: Number(r.kurzfrist_7d   ?? 0), // >3..<7
+    ge7:     Number(r.kurzfrist_gt7d ?? 0), // ≥7
+  }));
+}, [months]);
 
 // Startwert = Vorjahres-Übernahme (ytdRow.year_uebernahme)
 const cumBothIncl = useMemo(() => {
@@ -279,23 +303,30 @@ const monthTopKuerzel = useMemo(() => {
   // CSV (Year) – Werte aus db_report_ytd
   const exportCSVYear = () => {
     if (!atLeastOneReady || !ytdRow) return;
-    const header = [
-      'firma_id','unit_id','jahr','bis_monat',
-      'ytd_soll','ytd_ist','ytd_diff',
-      'year_soll','year_ist','year_diff',
-      'ytd_urlaub','year_urlaub','year_urlaub_soll',
-      'krank_stunden_ytd','kranktage_ytd','krank_%_ytd',
-      'dauer10_ytd','dauer11_ytd','dauer12_ytd'
-    ];
+const header = [
+  'firma_id','unit_id','jahr','bis_monat',
+  'ytd_soll','ytd_ist','ytd_diff',
+  'year_soll','year_ist','year_diff',
+  'ytd_urlaub','year_urlaub','year_urlaub_soll',
+  'krank_stunden_ytd','kranktage_ytd','krank_%_ytd',
+  'dauer10_ytd','dauer11_ytd','dauer12_ytd',
+  'planchg_total_ytd','planchg_off_rhythm_ytd','planerfuellung_ytd',
+  'kurzfrist_1d_ytd','kurzfrist_3d_ytd','kurzfrist_7d_ytd','kurzfrist_gt7d_ytd'
+];
+
     const csvHeader = header.join(';') + '\n';
-    const line = [
-      firmaIdState, unitIdState, year, (ytdRow.bis_monat ?? ''),
-      (ytdRow.ytd_soll ?? ''), (ytdRow.ytd_ist ?? 0), (ytdRow.ytd_diff ?? ''),
-      (ytdRow.year_soll ?? ''), (ytdRow.year_ist ?? 0), (ytdRow.year_diff ?? ''),
-      (ytdRow.ytd_urlaub ?? 0), (ytdRow.year_urlaub ?? 0), (ytdRow.year_urlaub_soll ?? ''),
-      (ytdRow.krank_stunden_ytd ?? 0), (ytdRow.kranktage_ytd ?? 0), (((ytdRow.krank_stunden_ytd ?? 0)/(ytdRow.ytd_ist||1))*100).toFixed(2),
-      (ytdRow.dauer10_ytd ?? 0), (ytdRow.dauer11_ytd ?? 0), (ytdRow.dauer12_ytd ?? 0),
+const line = [
+  firmaIdState, unitIdState, year, (ytdRow?.bis_monat ?? ''),
+  (ytdRow?.ytd_soll ?? ''), (ytdRow?.ytd_ist ?? 0), (ytdRow?.ytd_diff ?? ''),
+  (ytdRow?.year_soll ?? ''), (ytdRow?.year_ist ?? 0), (ytdRow?.year_diff ?? ''),
+  (ytdRow?.ytd_urlaub ?? 0), (ytdRow?.year_urlaub ?? 0), (ytdRow?.year_urlaub_soll ?? ''),
+  (ytdRow?.krank_stunden_ytd ?? 0), (ytdRow?.kranktage_ytd ?? 0),
+  (((ytdRow?.krank_stunden_ytd ?? 0)/(ytdRow?.ytd_ist || 1))*100).toFixed(2),
+  (ytdRow?.dauer10_ytd ?? 0), (ytdRow?.dauer11_ytd ?? 0), (ytdRow?.dauer12_ytd ?? 0),
+  (ytdRow?.planchg_total_ytd ?? 0), (ytdRow?.planchg_off_rhythm_ytd ?? 0), (ytdRow?.planerfuellung_ytd ?? ''),
+  (ytdRow?.kurzfrist_1d_ytd ?? 0), (ytdRow?.kurzfrist_3d_ytd ?? 0), (ytdRow?.kurzfrist_7d_ytd ?? 0), (ytdRow?.kurzfrist_gt7d_ytd ?? 0),
 ].join(';') + '\n';
+
     const blob = new Blob([csvHeader + line], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url;
     a.download = `unit_report_year_${year}.csv`; document.body.appendChild(a); a.click();
@@ -469,7 +500,32 @@ const YearTile = () => {
                 10h {monthRow.dauer10_count ?? 0} · 11h {monthRow.dauer11_count ?? 0} · 12h {monthRow.dauer12_count ?? 0}
               </div>
             </div>
+            {/* Planänderungen gesamt & aus dem Rhythmus */}
+<div className='rounded-xl border p-3'>
+  <div className='text-sm text-gray-400'>Planänderungen gesamt</div>
+  <div className='text-lg font-semibold'>{deNumber(monthRow?.planchg_total ?? 0, 0)}</div>
+</div>
+<div className='rounded-xl border p-3'>
+  <div className='text-sm text-gray-400'>Planänderungen (aus dem Rhythmus)</div>
+  <div className='text-lg font-semibold'>{deNumber(monthRow?.planchg_off_rhythm ?? 0, 0)}</div>
+</div>
+
+{/* Planerfüllungsquote */}
+<div className='rounded-xl border p-3'>
+  <div className='text-sm text-gray-400'>Planerfüllung</div>
+  <div className='text-lg font-semibold'>{dePercent(monthPlanQuote)}</div>
+</div>
+
+{/* Kurzfristigkeit (Counts) */}
+<div className='rounded-xl border p-3'>
+  <div className='text-sm text-gray-400'>Kurzfristigkeit ≤1 / 2–≤3 / 4–6 / ≥7 Tage</div>
+  <div className='text-lg font-semibold'>
+    {(monthRow?.kurzfrist_1d ?? 0)} / {(monthRow?.kurzfrist_3d ?? 0)} / {(monthRow?.kurzfrist_7d ?? 0)} / {(monthRow?.kurzfrist_gt7d ?? 0)}
+  </div>
+</div>
+
           </div>
+          
         )}
       </Card>
 
@@ -554,6 +610,28 @@ const YearTile = () => {
           </div>
         </div>
       </Card>
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Kurzfristigkeit (Monat)</div>
+      <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={[
+          { name: '≤1 Tag',  val: Number(monthRow?.kurzfrist_1d   ?? 0) },
+          { name: '≤3 Tage', val: Number(monthRow?.kurzfrist_3d   ?? 0) },
+          { name: '<7 Tage', val: Number(monthRow?.kurzfrist_7d   ?? 0) },
+          { name: '≥7 Tage', val: Number(monthRow?.kurzfrist_gt7d ?? 0) },
+        ]}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" /><YAxis /><Tooltip /><Legend />
+          <Bar dataKey="val" name="Änderungen" fill="#6366f1" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
 
       {/* Krank getrennt: K & KO (Stunden) im Monat */}
       <Card>
@@ -726,7 +804,24 @@ const YearTile = () => {
                 <div className='text-[11px] text-gray-500 mt-1'>
                   10h {ytdRow?.dauer10_ytd ?? 0} · 11h {ytdRow?.dauer11_ytd ?? 0} · 12h {ytdRow?.dauer12_ytd ?? 0}
                 </div>
+                
               </div>
+              {/* Planänderungen YTD */}
+<div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+  Planänderungen · bis Monat {ytdRow?.bis_monat ?? '–'}
+</div>
+<div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+  <div className='text-xs text-gray-500'>Gesamt (YTD)</div>
+  <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.planchg_total_ytd ?? 0, 0)}</div>
+</div>
+<div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+  <div className='text-xs text-gray-500'>Aus dem Rhythmus (YTD)</div>
+  <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.planchg_off_rhythm_ytd ?? 0, 0)}</div>
+</div>
+<div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+  <div className='text-xs text-gray-500'>Planerfüllung (YTD)</div>
+  <div className='text-base font-semibold leading-tight'>{dePercent(ytdRow?.planerfuellung_ytd)}</div>
+</div>
             </div>
           </div>
         )}
@@ -824,6 +919,75 @@ const YearTile = () => {
   </div>
 </Card>
 
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Planänderungen je Monat</div>
+      <Muted>Count</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={monthlyChangeSeries}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="label" /><YAxis /><Tooltip /><Legend />
+          <Bar dataKey="total" name="Gesamt" fill="#64748b" />
+          <Bar dataKey="off"   name="Aus dem Rhythmus" fill="#ef4444" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Kurzfristigkeit je Monat (exklusiv)</div>
+      <Muted>Count</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={monthlyShortNotice}
+          barCategoryGap="20%"
+          barGap={4}
+        >
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="label" />
+          <YAxis />
+          <Tooltip />
+          <Legend />
+
+          {/* Gestapelte Gruppe */}
+          <Bar dataKey="le1"     name="≤1 Tag"      stackId="stackA" fill="#ef4444" />
+          <Bar dataKey="gt1_le3" name=">1–≤3 Tage"  stackId="stackA" fill="#d6a022ff" />
+          <Bar dataKey="gt3_lt7" name=">3–<7 Tage"  stackId="stackA" fill="#fefe00ff" />
+
+          {/* Eigener Balken (nicht gestapelt) */}
+          <Bar dataKey="ge7"     name="≥7 Tage"                   fill="#10b981" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
+<Card>
+  <div className='px-3 pt-2 pb-3'>
+    <div className='flex items-center justify-between mb-2'>
+      <div className='font-medium'>Planerfüllungsquote je Monat</div>
+      <Muted>%</Muted>
+    </div>
+    <div className='h-56'>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={monthlyChangeSeries}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="label" />
+          <YAxis domain={[0, 100]} />
+          <Tooltip formatter={(v)=>[deNumber(v,2),'Planerfüllung %']} />
+          <Legend />
+          <Line type="monotone" dataKey="planQ" name="Planerfüllung (%)" dot={false} stroke="#16a34a" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</Card>
 
       {/* Kürzel je Monat */}
       <Card>

@@ -575,7 +575,7 @@ onClick={async () => {
         </span>
         <button
           onClick={handleSave}
-          disabled={saving || deletingId !== null}
+          disabled={saving}
           className={`px-4 py-1 rounded text-white ${saving ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
         >
           {saving ? 'Speichern…' : 'Speichern'}
