@@ -17,12 +17,12 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
   const [eintraege, setEintraege] = useState({ feiertage: [], termine: [] });
   const [qualiMap, setQualiMap] = useState({});
 
-  // Ausgewählte Tage (global per CustomEvent geteilt)
+  // Auswahl im Kalender
   const [selectedDates, setSelectedDates] = useState(new Set());
 
-  // Anzeige-Modus: Monat oder Woche
+  // Anzeige-Modus & Wochenanzahl
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week'
-  const [weekCount, setWeekCount] = useState(1);     // 1–4 Wochen
+  const [weekCount, setWeekCount] = useState(1);     // 1–4
   const [weeksInYear, setWeeksInYear] = useState(52);
   const [selectedWeek, setSelectedWeek] = useState(() => dayjs().isoWeek());
 
@@ -32,7 +32,27 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
-  // Auf globale Änderungen (Auswahl) hören
+  // aktuelle User-ID aus Supabase-Session
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) {
+        console.error('❌ Fehler beim Laden des aktuellen Users:', error.message || error);
+        return;
+      }
+      const uid = data?.user?.id || null;
+      if (!uid) {
+        console.warn('⚠️ Keine User-ID in Supabase-Session gefunden.');
+      }
+      setCurrentUserId(uid);
+    };
+
+    loadCurrentUser();
+  }, []);
+
+  // Globale Auswahl-Events
   useEffect(() => {
     const onSel = (e) => {
       setSelectedDates(new Set(e.detail?.selected || []));
@@ -41,54 +61,123 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     return () => window.removeEventListener('sp:selectedDates', onSel);
   }, []);
 
-  // Helper: Tage toggeln + global broadcasten
   const toggleSelectedDate = (iso) => {
     const next = new Set(selectedDates);
     if (next.has(iso)) next.delete(iso);
     else next.add(iso);
-
     setSelectedDates(next);
+
     window.dispatchEvent(
       new CustomEvent('sp:selectedDates', { detail: { selected: Array.from(next) } })
     );
   };
 
-  // Anzahl Wochen pro Jahr – MAX 52
+  // 🆕 User-Settings aus DB_UserSettings laden
+  useEffect(() => {
+    const loadUserPrefs = async () => {
+      if (!currentUserId) return;
+
+      const { data, error } = await supabase
+        .from('DB_UserSettings')
+        .select('cockpit_view_mode, cockpit_week_count')
+        .eq('user_id', currentUserId);
+
+      if (error) {
+        console.error('❌ Fehler beim Laden der Cockpit-Settings:', error.message || error);
+        return;
+      }
+
+      const row = data && data.length > 0 ? data[0] : null;
+
+      // Wenn noch kein Eintrag existiert → mit Defaults anlegen
+      if (!row) {
+        const { error: insertErr } = await supabase
+          .from('DB_UserSettings')
+          .insert({
+            user_id: currentUserId,
+            cockpit_view_mode: 'month',
+            cockpit_week_count: 1,
+          });
+
+        if (insertErr) {
+          console.error('❌ Fehler beim Anlegen der Cockpit-Settings:', insertErr.message || insertErr);
+        } else {
+          console.log('ℹ️ Cockpit-Settings neu angelegt (Defaults).');
+        }
+        return;
+      }
+
+      console.log('ℹ️ Cockpit-Settings geladen:', row);
+
+      if (row.cockpit_view_mode === 'month' || row.cockpit_view_mode === 'week') {
+        setViewMode(row.cockpit_view_mode);
+      }
+      if (
+        typeof row.cockpit_week_count === 'number' &&
+        row.cockpit_week_count >= 1 &&
+        row.cockpit_week_count <= 4
+      ) {
+        setWeekCount(row.cockpit_week_count);
+      }
+    };
+
+    loadUserPrefs();
+  }, [currentUserId]);
+
+  // 🆕 User-Settings in DB_UserSettings speichern
+  useEffect(() => {
+    const saveUserPrefs = async () => {
+      if (!currentUserId) return;
+
+      const { error } = await supabase
+        .from('DB_UserSettings')
+        .upsert({
+          user_id: currentUserId,
+          cockpit_view_mode: viewMode,
+          cockpit_week_count: weekCount,
+        }, { onConflict: 'user_id' });
+
+      if (error) {
+        console.error('❌ Fehler beim Speichern der Cockpit-Settings:', error.message || error);
+      } else {
+        console.log('✅ Cockpit-Settings gespeichert:', { viewMode, weekCount });
+      }
+    };
+
+    if (viewMode === 'month' || viewMode === 'week') {
+      saveUserPrefs();
+    }
+  }, [viewMode, weekCount, currentUserId]);
+
+  // Anzahl Wochen pro Jahr (max 52)
   useEffect(() => {
     const dec28 = dayjs(`${jahr}-12-28`);
     let isoWeeks = dec28.isoWeek(); // 52 oder 53
     if (!isoWeeks || isoWeeks < 1) isoWeeks = 52;
     if (isoWeeks > 52) isoWeeks = 52;
     setWeeksInYear(isoWeeks);
-    if (selectedWeek > isoWeeks) {
-      setSelectedWeek(isoWeeks);
-    }
-  }, [jahr]);
+    if (selectedWeek > isoWeeks) setSelectedWeek(isoWeeks);
+  }, [jahr, selectedWeek]);
 
-  // Sichtbare Tage + Einträge laden (Monat oder Wochenbereich)
+  // Sichtbare Tage + Einträge laden
   useEffect(() => {
     if (!firma || !unit) return;
 
     const heute = dayjs();
-
-    let startDate;
-    let endDate;
+    let startDate, endDate;
 
     if (viewMode === 'month') {
-      // kompletter Monat
       startDate = dayjs(new Date(jahr, monat, 1));
       endDate = dayjs(new Date(jahr, monat + 1, 0));
     } else {
-      // Wochenansicht: ISO-Woche(n) Montag–Sonntag
       const anyDayInWeek = dayjs().year(jahr).isoWeek(selectedWeek);
       const weekStart = anyDayInWeek.startOf('isoWeek'); // Montag
-      const weekEnd = weekStart.add(7 * weekCount - 1, 'day'); // 1–4 Wochen
-
+      const weekEnd = weekStart.add(7 * weekCount - 1, 'day');
       startDate = weekStart;
       endDate = weekEnd;
     }
 
-    // Tage-Array bauen (darf monatsübergreifend sein)
+    // Tage-Array bauen
     const neueTage = [];
     for (
       let d = startDate;
@@ -96,7 +185,6 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
       d = d.add(1, 'day')
     ) {
       const tagNummer = d.day(); // 0 = So, 6 = Sa
-
       neueTage.push({
         date: d.format('YYYY-MM-DD'),
         tag: d.date(),
@@ -106,14 +194,12 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
         isSamstag: tagNummer === 6,
       });
     }
-
     setTage(neueTage);
 
     const ladeEintraege = async () => {
       const start = startDate.format('YYYY-MM-DD');
       const ende = endDate.format('YYYY-MM-DD');
 
-      // 1. Bundesland aus Unit
       const { data: unitData, error: unitError } = await supabase
         .from('DB_Unit')
         .select('bundesland')
@@ -127,14 +213,12 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
       const bundesland = unitData?.bundesland;
 
-      // 2. Feiertage / Ferien im Zeitraum
       const { data: feiertage, error: feiertageError } = await supabase
         .from('DB_FeiertageundFerien')
         .select('name, von, bis, farbe')
         .eq('bundesland', bundesland)
         .or(`von.lte.${ende},bis.gte.${start}`);
 
-      // 3. Termine & Qualis im Zeitraum
       const [
         { data: termine, error: termineError },
         { data: qualis, error: qualisError },
@@ -174,26 +258,22 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     ladeEintraege();
   }, [jahr, monat, viewMode, selectedWeek, weekCount, firma, unit]);
 
-  // 🔔 Sichtbaren Datumsbereich als Event an KampfListe + MitarbeiterBedarf schicken
+  // sichtbaren Datumsbereich an andere Komponenten schicken
   useEffect(() => {
     if (!tage || tage.length === 0) return;
-
     const start = tage[0].date;
     const end = tage[tage.length - 1].date;
-
     window.dispatchEvent(
-      new CustomEvent('sp:visibleRange', {
-        detail: { start, end },
-      })
+      new CustomEvent('sp:visibleRange', { detail: { start, end } })
     );
   }, [tage]);
 
-  // 🔍 Set für alle Wochen, die bei weekCount angezeigt werden (mit Wrap)
+  // Wochen, die bei weekCount mit angezeigt werden (transparentes Blau)
   const visibleWeekSet = (() => {
     if (viewMode !== 'week' || weekCount <= 1 || weeksInYear <= 0) return new Set();
     const s = new Set();
     for (let i = 0; i < weekCount; i++) {
-      const w = ((selectedWeek - 1 + i) % weeksInYear) + 1; // Wrap 52→1
+      const w = ((selectedWeek - 1 + i) % weeksInYear) + 1;
       s.add(w);
     }
     return s;
@@ -201,32 +281,30 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
   return (
     <div className="bg-gray-200 dark:bg-gray-800 pt-2 px-4 pb-1 rounded-xl shadow-xl w-full border border-gray-300 dark:border-gray-700">
-      {/* Kopfzeile: Jahr, Wochenanzahl (bei Woche), Modus, Monate / Wochen */}
+      {/* Kopfzeile */}
       <div className="flex items-center justify-left mb-2 flex-wrap gap-2">
-        {/* Jahr-Auswahl */}
+        {/* Jahr */}
         {(() => {
           const aktJahr = new Date().getFullYear();
           return (
             <select
               value={jahr}
               onChange={(e) => setJahr(parseInt(e.target.value, 10))}
-              className="bg-gray-200 dark:bg-gray-700 text-black dark:text-white px-3 rounded-xl"
+              className="bg-gray-200 dark:bg-gray-700 text-black dark:text-white px-3 py-1 rounded-xl"
             >
               {[aktJahr - 1, aktJahr, aktJahr + 1].map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
+                <option key={y} value={y}>{y}</option>
               ))}
             </select>
           );
         })()}
 
-        {/* Wochenanzahl nur in Wochenansicht */}
+        {/* Wochenanzahl */}
         {viewMode === 'week' && (
           <select
             value={weekCount}
             onChange={(e) => setWeekCount(parseInt(e.target.value, 10) || 1)}
-            className="bg-gray-200 dark:bg-gray-700 text-black dark:text-white px-3 rounded-xl"
+            className="bg-gray-200 dark:bg-gray-700 text-sm text-black dark:text-white px-3  rounded-xl"
           >
             {[1, 2, 3, 4].map((n) => (
               <option key={n} value={n}>
@@ -236,12 +314,12 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
           </select>
         )}
 
-        {/* Umschalter Monat / Woche */}
+        {/* Monat / Woche Toggle */}
         <div className="flex gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setViewMode('month')}
-            className={`px-3 rounded-xl text-sm transition-all duration-150 ${
+            className={`px-3  rounded-xl text-sm transition-all duration-150 ${
               viewMode === 'month'
                 ? 'bg-blue-600 text-white dark:bg-blue-500'
                 : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
@@ -262,14 +340,14 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
           </button>
         </div>
 
-        {/* Auswahl: Monate ODER Wochen */}
+        {/* Monate oder KW-Buttons */}
         {viewMode === 'month' ? (
           <div className="flex gap-2 flex-wrap">
             {monate.map((name, index) => (
               <button
                 key={index}
                 onClick={() => setMonat(index)}
-                className={`px-3 rounded-xl text-sm transition-all duration-150 ${
+                className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 ${
                   index === monat
                     ? 'bg-blue-600 text-white dark:bg-blue-500'
                     : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
@@ -280,17 +358,16 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
             ))}
           </div>
         ) : (
-          <div className="flex gap-1 flex-wrap overflow-x-auto max-w-full">
+          <div className="flex gap-2 flex-wrap overflow-x-auto max-w-full">
             {Array.from({ length: weeksInYear }, (_, i) => i + 1).map((kw) => {
               const isActive = kw === selectedWeek;
               const isCurrentWeek =
                 jahr === aktuelleIsoWeekYear && kw === aktuelleIsoWeek;
-
               const isInMultiRange =
                 weekCount > 1 && visibleWeekSet.has(kw) && !isActive;
 
               let baseClasses =
-                'px-2  rounded-xl text-sm transition-all duration-150 border ';
+                'px-2 py-1 rounded-xl text-xs transition-all duration-150 border ';
 
               if (isActive) {
                 baseClasses +=
@@ -324,19 +401,18 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
       {/* Kalenderspalten */}
       <div className="flex overflow-x-visible text-center text-sm">
-        {/* Platz links für Kopfzeilen in KampfListe/MitarbeiterBedarf */}
         <div className="w-[160px] min-w-[160px] flex-shrink-0"></div>
 
         <div className="flex gap-[2px] min-w-fit">
           {tage.map((t, index) => {
             const iso = t.date;
             const isSelected = selectedDates.has(iso);
-            const hoverLabel = dayjs(iso).format('dddd, DD.MM.YYYY'); // <- NEU
+            const hoverLabel = dayjs(iso).format('dddd, DD.MM.YYYY');
 
             return (
               <div
                 key={index}
-                title={hoverLabel}         // <- NEU: Browser-Tooltip mit vollem Datum
+                title={hoverLabel}
                 className={`relative flex flex-col items-center justify-center h-[42px] w-[48px] min-w-[48px] rounded
                 ${t.isSonntag ? 'bg-red-600 text-white' : ''}
                 ${t.isSamstag ? 'bg-orange-500 text-white' : ''}
@@ -350,71 +426,6 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
               `}
                 onClick={() => toggleSelectedDate(iso)}
               >
-                {/* Feiertage/Ferien-Balken */}
-                {eintraege?.feiertage
-                  ?.filter((e) => {
-                    const tagDate = t.date;
-                    const von = dayjs(e.von).format('YYYY-MM-DD');
-                    const bis = dayjs(e.bis).format('YYYY-MM-DD');
-                    return tagDate >= von && tagDate <= bis;
-                  })
-                  .map((e, idx) => (
-                    <div
-                      key={'f-' + idx}
-                      className="w-[80%] h-[5px] rounded-t bg-opacity-80"
-                      style={{ backgroundColor: e.farbe }}
-                      title={e.name}
-                    />
-                  ))}
-
-                {/* Termine als kleines Dreieck unten links */}
-                {eintraege?.termine
-                  ?.filter(
-                    (e) => dayjs(e.datum).format('YYYY-MM-DD') === t.date
-                  )
-                  .map((e, idx) => {
-                    const tooltip =
-                      `📅 ${dayjs(e.datum).format('DD.MM.YYYY')}\n📝 ${e.bezeichnung}` +
-                      (e.quali_ids?.length
-                        ? `\n- Qualifikationen: ${e.quali_ids
-                            .map((id) => qualiMap[id] || id)
-                            .join(', ')}`
-                        : '') +
-                      (e.team?.length
-                        ? `\n- Teams: ${e.team.join(', ')}`
-                        : '');
-
-                    return (
-                      <div
-                        key={'t-' + idx}
-                        className="absolute bottom-0 left-0"
-                      >
-                        {/* weißes Hintergrund-Dreieck */}
-                        <div
-                          className="absolute bottom-0 left-0 w-0 h-0 pointer-events-none"
-                          style={{
-                            borderLeft: '14px solid transparent',
-                            borderTop: '14px solid #fff',
-                            transform: 'rotate(180deg)',
-                            zIndex: 5,
-                          }}
-                          aria-hidden
-                        />
-                        {/* farbiges Dreieck */}
-                        <div
-                          className="absolute bottom-0 left-0 w-0 h-0"
-                          style={{
-                            borderLeft: '12px solid transparent',
-                            borderTop: `12px solid ${e.farbe}`,
-                            transform: 'rotate(180deg)',
-                            zIndex: 10,
-                          }}
-                          title={tooltip}
-                        />
-                      </div>
-                    );
-                  })}
-
                 <span className="text-[12px] leading-none">
                   {t.wochentag}
                 </span>
