@@ -8,22 +8,6 @@ const Sollplan = ({ jahr, monat }) => {
   const [eintraege, setEintraege] = useState([]);
   const [schichtarten, setSchichtarten] = useState([]);
   const [schichtgruppen, setSchichtgruppen] = useState([]);
-    // sichtbare Tage (Monat/Woche) aus der Kalender-Struktur
-  const [visibleDays, setVisibleDays] = useState(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      const arr = e.detail?.tage;
-      if (Array.isArray(arr)) {
-        setVisibleDays(new Set(arr));    // z.B. {1,2,3,4,5,6,7}
-      } else {
-        setVisibleDays(null);            // Fallback: alle Tage anzeigen
-      }
-    };
-
-    window.addEventListener('sp:visibleDays', handler);
-    return () => window.removeEventListener('sp:visibleDays', handler);
-  }, []);
 
   // Lade Schichtgruppen
   useEffect(() => {
@@ -114,11 +98,9 @@ const Sollplan = ({ jahr, monat }) => {
               </div>
 
               <div className="flex gap-[2px] overflow-x-visible min-w-fit">
-                  {Array.from({ length: tageImMonat }, (_, i) => i + 1)
-                  .filter((tag) => !visibleDays || visibleDays.has(tag))
-                  .map((tag) => {
+                {Array.from({ length: tageImMonat }, (_, i) => {
+                  const tag = i + 1;
                   const eintrag = tageMap[tag];
-
 
                   return (
                     <div

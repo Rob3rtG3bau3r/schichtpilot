@@ -16,6 +16,7 @@ dayjs.locale('de');
 
 const currentUserId = localStorage.getItem('user_id');
 
+
 // --- Helper: K/KO maskieren ---
 const maskKuerzelForEmployer = (kuerzel, cellUserId, role, me) => {
   if (role === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO') && String(cellUserId) !== String(me)) {
@@ -55,7 +56,7 @@ const KampfListe = ({
   const istNurLesend = rolle === 'Employee';
 
   const [eintraege, setEintraege] = useState([]);
-  const [tage, setTage] = useState([]); // [{ date, tag, wochentag }]
+  const [tage, setTage] = useState([]);
   const [popupEintrag, setPopupEintrag] = useState(null);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
 
@@ -65,20 +66,6 @@ const KampfListe = ({
     const onSel = (e) => setSelectedDates(new Set(e.detail?.selected || []));
     window.addEventListener('sp:selectedDates', onSel);
     return () => window.removeEventListener('sp:selectedDates', onSel);
-  }, []);
-
-  // 🔄 Sichtbarer Datumsbereich aus dem Kalender (für Wochen / Monate)
-  const [rangeStart, setRangeStart] = useState(null);
-  const [rangeEnd, setRangeEnd] = useState(null);
-
-  useEffect(() => {
-    const onRange = (e) => {
-      const { start, end } = e.detail || {};
-      setRangeStart(start || null);
-      setRangeEnd(end || null);
-    };
-    window.addEventListener('sp:visibleRange', onRange);
-    return () => window.removeEventListener('sp:visibleRange', onRange);
   }, []);
 
   const [qualiModalOffen, setQualiModalOffen] = useState(false);
@@ -118,7 +105,7 @@ const KampfListe = ({
     cellHideTimerRef.current = setTimeout(() => setHoveredCellKey(null), 120);
   };
 
-  // ---- Datum-Strings & Labels (Monatsbasis – bleiben für Tooltips) ----
+  // ---- Datum-Strings & Labels ----
   const prefix = `${jahr}-${String(monat + 1).padStart(2, '0')}`;
 
   const dateStrByTag = React.useMemo(() => {
@@ -139,96 +126,72 @@ const KampfListe = ({
     return arr;
   }, [jahr, monat, dateStrByTag]);
 
-  // 🔁 Spalten/Tage: entweder sichtbarer Bereich (KW) oder kompletter Monat
   useEffect(() => {
-    if (rangeStart && rangeEnd) {
-      const start = dayjs(rangeStart);
-      const end = dayjs(rangeEnd);
-      const neueTage = [];
-
-      for (
-        let d = start;
-        d.isSame(end, 'day') || d.isBefore(end, 'day');
-        d = d.add(1, 'day')
-      ) {
-        const datum = d.toDate();
-        neueTage.push({
-          date: d.format('YYYY-MM-DD'),
-          tag: d.date(),
-          wochentag: datum.toLocaleDateString('de-DE', { weekday: 'short' }),
-        });
-      }
-
-      setTage(neueTage);
-      return;
-    }
-
-    // Fallback: kompletter Monat wie bisher
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
     const neueTage = [];
     for (let tag = 1; tag <= tageImMonat; tag++) {
       const datum = new Date(jahr, monat, tag);
-      neueTage.push({
-        date: dayjs(datum).format('YYYY-MM-DD'),
-        tag,
-        wochentag: datum.toLocaleDateString('de-DE', { weekday: 'short' }),
-      });
+      const wochentag = datum.toLocaleDateString('de-DE', { weekday: 'short' });
+      neueTage.push({ tag, wochentag });
     }
     setTage(neueTage);
-  }, [jahr, monat, rangeStart, rangeEnd]);
+  }, [jahr, monat]);
 
-  // --- Quali-Counts laden (gültig am cutoff) ---
-  const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
-    if (!userIds?.length) return {};
-    try {
-      const ids = userIds.map(String);
+// --- Quali-Counts laden (gültig am cutoff) ---
+const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
+  if (!userIds?.length) return {};
+  try {
+    const ids = userIds.map(String);
 
-      const { data, error } = await supabase
-        .from('DB_Qualifikation')
-        .select(`
-          user_id,
-          quali,
-          quali_start,
-          quali_endet,
-          matrix:DB_Qualifikationsmatrix!inner(
-            id,
-            quali_kuerzel,
-            betriebs_relevant,
-            aktiv,
-            firma_id,
-            unit_id
-          )
-        `)
-        .in('user_id', ids)
-        .eq('matrix.firma_id', firmaId)
-        .eq('matrix.unit_id', unitId)
-        .eq('matrix.betriebs_relevant', true)
-        .eq('matrix.aktiv', true);
+    // 1) Alle Quali-Zuweisungen (mit Start/Ende) + Matrix joinen
+    const { data, error } = await supabase
+      .from('DB_Qualifikation')
+      .select(`
+        user_id,
+        quali,
+        quali_start,
+        quali_endet,
+        matrix:DB_Qualifikationsmatrix!inner(
+          id,
+          quali_kuerzel,
+          betriebs_relevant,
+          aktiv,
+          firma_id,
+          unit_id
+        )
+      `)
+      .in('user_id', ids)
+      .eq('matrix.firma_id', firmaId)
+      .eq('matrix.unit_id', unitId)
+      .eq('matrix.betriebs_relevant', true)
+      .eq('matrix.aktiv', true);
 
-      if (error) {
-        console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
-        return {};
-      }
-
-      const cutoff = dayjs(cutoffIso);
-      const isValidOn = (row) => {
-        const startOk = !row.quali_start || dayjs(row.quali_start).isSameOrBefore(cutoff, 'day');
-        const endOk = !row.quali_endet || dayjs(row.quali_endet).isSameOrAfter(cutoff, 'day');
-        return startOk && endOk;
-      };
-
-      const map = {};
-      for (const row of data || []) {
-        if (!isValidOn(row)) continue;
-        const uid = String(row.user_id);
-        map[uid] = (map[uid] || 0) + 1;
-      }
-      return map;
-    } catch (e) {
-      console.error('❌ Fehler beim Laden der Quali-Counts:', e);
+    if (error) {
+      console.error('❌ Quali-Join fehlgeschlagen:', error.message || error);
       return {};
     }
-  };
+
+    // 2) Clientseitig auf "am cutoff gültig" filtern:
+    //    (start leer ODER start <= cutoff) UND (ende leer ODER ende >= cutoff)
+    const cutoff = dayjs(cutoffIso);
+    const isValidOn = (row) => {
+      const startOk = !row.quali_start || dayjs(row.quali_start).isSameOrBefore(cutoff, 'day');
+      const endOk   = !row.quali_endet || dayjs(row.quali_endet).isSameOrAfter(cutoff, 'day');
+      return startOk && endOk;
+    };
+
+    const map = {};
+    for (const row of data || []) {
+      if (!isValidOn(row)) continue;
+      const uid = String(row.user_id);
+      map[uid] = (map[uid] || 0) + 1;
+    }
+    return map;
+  } catch (e) {
+    console.error('❌ Fehler beim Laden der Quali-Counts:', e);
+    return {};
+  }
+};
 
   // --- Prüfen, ob User an date (YYYY-MM-DD) ausgegraut ist ---
   const isGrey = (uid, dateISO) => {
@@ -249,70 +212,45 @@ const KampfListe = ({
       if (!firma || !unit) return;
 
       const daysInMonth = new Date(jahr, monat + 1, 0).getDate();
-      const monthStartDefault = `${prefix}-01`;
-      const monthEndDefault = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
+      const monthStart = `${prefix}-01`;
+      const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
-      // Bereich für Ausgrauen/Quali etc.
-      const monthStart = rangeStart || monthStartDefault;
-      const monthEnd = rangeEnd || monthEndDefault;
+      // ---------- v_tagesplan in 4 Datums-Batches laden ----------
+      const q1 = Math.floor(daysInMonth / 4);
+      const q2 = Math.floor(daysInMonth / 2);
+      const q3 = Math.floor((3 * daysInMonth) / 4);
 
-      // ---- v_tagesplan laden: je nach Modus ----
-      let viewRows = [];
-      const selectCols =
-        'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
-        'hat_aenderung, kommentar, ist_created_at, ist_created_by';
+      const dayToDate = (d) => `${prefix}-${String(d).padStart(2, '0')}`;
 
-      if (rangeStart && rangeEnd) {
-        // 🔥 Wochen-/Bereichsansicht → direkt den Bereich nehmen (monatsübergreifend)
+      const ranges = [
+        [1, q1],
+        [q1 + 1, q2],
+        [q2 + 1, q3],
+        [q3 + 1, daysInMonth],
+      ].filter(([a, b]) => a <= b); // Sicherheit
+
+      const fetchViewRange = async (startDate, endDate) => {
         const { data, error } = await supabase
           .from('v_tagesplan')
-          .select(selectCols)
+          .select(
+            'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
+            'hat_aenderung, kommentar, ist_created_at, ist_created_by'
+          )
           .eq('firma_id', firma)
           .eq('unit_id', unit)
-          .gte('datum', monthStart)
-          .lte('datum', monthEnd);
-
+          .gte('datum', startDate)
+          .lte('datum', endDate);
         if (error) {
-          console.error('❌ Fehler v_tagesplan (Range):', error.message || error);
-          viewRows = [];
-        } else {
-          viewRows = data || [];
+          console.error('❌ Fehler v_tagesplan:', error.message || error);
+          return [];
         }
-      } else {
-        // 🧱 Fallback: Monatsansicht wie bisher in 4 Chunks
-        const q1 = Math.floor(daysInMonth / 4);
-        const q2 = Math.floor(daysInMonth / 2);
-        const q3 = Math.floor((3 * daysInMonth) / 4);
+        return data || [];
+      };
 
-        const dayToDate = (d) => `${prefix}-${String(d).padStart(2, '0')}`;
-
-        const ranges = [
-          [1, q1],
-          [q1 + 1, q2],
-          [q2 + 1, q3],
-          [q3 + 1, daysInMonth],
-        ].filter(([a, b]) => a <= b);
-
-        const fetchViewRange = async (startDate, endDate) => {
-          const { data, error } = await supabase
-            .from('v_tagesplan')
-            .select(selectCols)
-            .eq('firma_id', firma)
-            .eq('unit_id', unit)
-            .gte('datum', startDate)
-            .lte('datum', endDate);
-          if (error) {
-            console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
-            return [];
-          }
-          return data || [];
-        };
-
-        const viewChunks = await Promise.all(
-          ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
-        );
-        viewRows = viewChunks.flat();
-      }
+      const viewChunks = await Promise.all(
+        ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
+      );
+      const viewRows = viewChunks.flat();
 
       // ---- Schichtarten (Farben/Kürzel) laden ----
       const schichtIds = Array.from(
@@ -334,44 +272,34 @@ const KampfListe = ({
       }
 
       // ---- View → kampfData-Form ----
-      const kampfData = (viewRows || [])
-        .filter((r) => {
-          if (!monthStart || !monthEnd) return true;
-          const d = r.datum;
-          return d >= monthStart && d <= monthEnd;
-        })
-        .map(r => ({
-          id: null,
-          datum: r.datum,
-          created_by: r.ist_created_by || null,
-          created_at: r.ist_created_at || null,
-          startzeit_ist: r.ist_startzeit || '',
-          endzeit_ist: r.ist_endzeit || '',
-          user: r.user_id,
-          kommentar: r.kommentar || null,
-          aenderung: !!r.hat_aenderung,
-          ist_schicht: (() => {
-            const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
-            return s
-              ? { id: s.id, kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
-              : { id: null, kuerzel: '-', farbe_bg: '', farbe_text: '' };
-          })(),
-        }));
+      const kampfData = (viewRows || []).map(r => ({
+        id: null,
+        datum: r.datum,
+        created_by: r.ist_created_by || null,
+        created_at: r.ist_created_at || null,
+        startzeit_ist: r.ist_startzeit || '',
+        endzeit_ist: r.ist_endzeit || '',
+        user: r.user_id,
+        kommentar: r.kommentar || null,
+        aenderung: !!r.hat_aenderung,
+        ist_schicht: (() => {
+          const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
+          return s
+            ? { id: s.id, kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
+            : { id: null, kuerzel: '-', farbe_bg: '', farbe_text: '' };
+        })(),
+      }));
 
       const userIds = kampfData.map((e) => e.user).filter(Boolean);
       const createdByIds = kampfData.map((e) => e.created_by).filter(Boolean);
       const alleUserIds = [...new Set([...userIds, ...createdByIds])].map(String);
       const idsSet = new Set(alleUserIds);
-      if (alleUserIds.length === 0) {
-        setEintraege([]);
-        setGruppenZähler({});
-        return;
-      }
+      if (alleUserIds.length === 0) return;
 
       // ---- Userinfos ----
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle')
+        .select('user_id, vorname, nachname, rolle') 
         .in('user_id', alleUserIds);
       if (userError) {
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
@@ -379,15 +307,15 @@ const KampfListe = ({
       }
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
 
-      // ---- Ausgrauen-Fenster laden (alle, die mit dem Zeitraum überlappen) ----
+      // ---- Ausgrauen-Fenster laden (alle, die mit dem Monat überlappen) ----
       const { data: ausRows, error: ausErr } = await supabase
         .from('DB_Ausgrauen')
         .select('user_id, von, bis')
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .in('user_id', alleUserIds)
-        .lte('von', monthEnd)
-        .or(`bis.is.null, bis.gte.${monthStart}`);
+        .lte('von', monthEnd) // von <= monthEnd
+        .or(`bis.is.null, bis.gte.${monthStart}`); // (bis null) oder bis >= monthStart
 
       if (ausErr) {
         console.error('❌ Fehler DB_Ausgrauen:', ausErr.message || ausErr);
@@ -401,13 +329,14 @@ const KampfListe = ({
         arr.push({ von: r.von, bis: r.bis || null });
         mapAus.set(uid, arr);
       }
+      // sort ranges for tiny perf
       for (const [uid, arr] of mapAus) {
-        arr.sort((a, b) => dayjs(a.von).diff(dayjs(b.von)));
+        arr.sort((a,b)=> dayjs(a.von).diff(dayjs(b.von)));
       }
       setAusgrauenByUser(mapAus);
 
       // ---- Quali-Counts ----
-      const cutoffIso = dayjs(monthEnd).endOf('day').toISOString();
+      const cutoffIso = dayjs(new Date(jahr, monat + 1, 0)).endOf('day').toISOString();
       const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
       setQualiCountMap(qualiMap);
 
@@ -493,10 +422,10 @@ const KampfListe = ({
         return best;
       };
 
-      // ---- Gruppieren: Key = datumIso ----
+      // ---- Gruppieren wie zuvor ----
       const gruppiert = {};
       for (const k of kampfData) {
-        const datumIso = k.datum;
+        const tag = dayjs(k.datum).date();
         const userIdStr = String(k.user);
         const creatorId = k.created_by ? String(k.created_by) : null;
 
@@ -505,7 +434,7 @@ const KampfListe = ({
         if (!userInfo) continue;
 
         const assnToday = getAssnForDate(userIdStr, heutigesDatum);
-        const assnAtCell = assnToday || getAssnForDate(userIdStr, datumIso);
+        const assnAtCell = assnToday || getAssnForDate(userIdStr, k.datum);
         const rowSchichtgruppe = assnToday?.schichtgruppe || assnAtCell?.schichtgruppe || null;
         const rowPosition = assnToday?.position_ingruppe ?? assnAtCell?.position_ingruppe ?? 999;
 
@@ -519,11 +448,11 @@ const KampfListe = ({
             vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
             tage: {},
             qualiCount: qualiMap[userIdStr] || 0,
-            greyToday,
+            greyToday, // NEU: für Namensspalte & Gruppenzähler
           };
         }
 
-        gruppiert[userIdStr].tage[datumIso] = {
+        gruppiert[userIdStr].tage[tag] = {
           kuerzel: k.ist_schicht?.kuerzel || '-',
           bg: k.ist_schicht?.farbe_bg || '',
           text: k.ist_schicht?.farbe_text || '',
@@ -540,10 +469,10 @@ const KampfListe = ({
         };
       }
 
-      // ---- Gruppenzähler ----
+      // ---- Gruppenzähler: nur Users zählen, die HEUTE nicht ausgegraut sind ----
       const zaehler = {};
       for (const [, e] of Object.entries(gruppiert)) {
-        if (e.greyToday) continue;
+        if (e.greyToday) continue; // heute ausgegraut -> nicht mitzählen
         const gruppe = e.schichtgruppe || 'Unbekannt';
         zaehler[gruppe] = (zaehler[gruppe] || 0) + 1;
       }
@@ -567,7 +496,7 @@ const KampfListe = ({
 
     ladeKampfliste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, dateStrByTag, rangeStart, rangeEnd, setGruppenZähler]);
+  }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, dateStrByTag, setGruppenZähler]);
 
   return (
     <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
@@ -686,15 +615,15 @@ const KampfListe = ({
                   style={{ overflow: 'visible' }}
                 >
                   {tage.map((t) => {
-                    const zellenDatum = t.date;
-                    const eintragTag = e.tage[zellenDatum];
+                    const eintragTag = e.tage[t.tag];
+                    const zellenDatum = dateStrByTag[t.tag];
                     const isSelected = selectedDates.has(zellenDatum);
                     const istHeute = zellenDatum === heutigesDatum;
                     const zelleGrey = isGrey(userId, zellenDatum);
 
                     return (
                       <div
-                        key={zellenDatum}
+                        key={t.tag}
                         className={`relative group w-[48px] min-w-[48px] h-[18px] text-center border-b flex items-center justify-center rounded cursor-pointer
                           ${istHeute ? 'ring-2 ring-yellow-400' : ''}
                           ${isSelected ? 'ring-1 ring-orange-400 ring-offset-[1px] ring-offset-transparent' : ''}
@@ -795,7 +724,7 @@ const KampfListe = ({
                             hoveredCellKey === key &&
                             (eintragTag?.beginn || eintragTag?.ende || eintragTag?.kommentar);
                           if (!show) return null;
-                          const datumLabel = dayjs(zellenDatum).format('dddd DD.MM.YYYY');
+                          const datumLabel = dateLabelByTag[t.tag];
                           return (
                             <div
                               className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"
@@ -863,4 +792,3 @@ const KampfListe = ({
 };
 
 export default KampfListe;
-

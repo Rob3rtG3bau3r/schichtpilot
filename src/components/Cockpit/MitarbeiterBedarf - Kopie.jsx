@@ -75,22 +75,8 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     return () => window.removeEventListener('sp:selectedDates', onSel);
   }, []);
 
-  // 🔄 Sichtbarer Datumsbereich aus dem Kalender (Monat oder Wochen)
-  const [rangeStart, setRangeStart] = useState(null);
-  const [rangeEnd, setRangeEnd] = useState(null);
-
-  useEffect(() => {
-    const onRange = (e) => {
-      const { start, end } = e.detail || {};
-      setRangeStart(start || null);
-      setRangeEnd(end || null);
-    };
-    window.addEventListener('sp:visibleRange', onRange);
-    return () => window.removeEventListener('sp:visibleRange', onRange);
-  }, []);
 
   // Tooltip-Datenquellen (für sprechende Namen/Bezeichnungen)
-
   const [userNameMapState, setUserNameMapState] = useState({});
   const [matrixMapState, setMatrixMapState] = useState({});
 
@@ -177,33 +163,13 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
   // Tage des Monats
   useEffect(() => {
-    // Wenn der Kalender einen sichtbaren Bereich liefert (z. B. 2–4 Wochen),
-    // verwenden wir diesen – auch monatsübergreifend.
-    if (rangeStart && rangeEnd) {
-      const start = dayjs(rangeStart);
-      const end = dayjs(rangeEnd);
-      const arr = [];
-
-      for (
-        let d = start;
-        d.isSame(end, 'day') || d.isBefore(end, 'day');
-        d = d.add(1, 'day')
-      ) {
-        arr.push(d.format('YYYY-MM-DD'));
-      }
-
-      setTage(arr);
-      return;
-    }
-
-    // Fallback: kompletter Monat wie bisher
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
     const arr = [];
     for (let d = 1; d <= tageImMonat; d++) {
       arr.push(dayjs(new Date(jahr, monat, d)).format('YYYY-MM-DD'));
     }
     setTage(arr);
-  }, [jahr, monat, rangeStart, rangeEnd]);
+  }, [jahr, monat]);
 
   // Feature-Flags
   useEffect(() => {
