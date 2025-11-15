@@ -49,6 +49,18 @@ const TriPill = ({ label, state, onClick, title }) => {
   );
 };
 
+const SubSectionTitle = ({ children }) => (
+  <div className="mt-3 mb-1">
+    <div className="flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-900/60 px-3 py-1.5">
+      <div aria-hidden className="h-4 w-1.5 rounded-full bg-indigo-500/80" />
+      <h3 className="text-sm font-semibold tracking-wide text-gray-100 uppercase">
+        {children}
+      </h3>
+    </div>
+  </div>
+);
+
+
 export default function KundenTab() {
   // Shared refs
   const [plaene, setPlaene] = useState([]);
@@ -74,9 +86,9 @@ export default function KundenTab() {
     setFirmenLoading(true);
     try {
       const { data } = await supabase
-        .from('DB_Kunden')
-        .select('id,firmenname,created_at,aktiv,inaktiv_at,plan,plan_valid_until')
-        .order('firmenname', { ascending: true });
+      .from('DB_Kunden')
+      .select('id,firmenname,created_at,aktiv,inaktiv_at,plan,plan_valid_until,strasse,plz,stadt,telefon,telefon2')
+      .order('firmenname', { ascending: true });
 
       const today = startOfToday();
       const withCounts = await Promise.all((data||[]).map(async f=>{
@@ -121,15 +133,22 @@ export default function KundenTab() {
   // Firma Details + Units
   const [selFirma, setSelFirma] = useState(null);
   const [firmaEdit, setFirmaEdit] = useState(null);
-  useEffect(()=> {
-    if (!selFirma) { setFirmaEdit(null); return; }
-    setFirmaEdit({
-      aktiv: !!selFirma.aktiv,
-      inaktiv_at: selFirma.inaktiv_at || null,
-      plan: selFirma.plan || '',
-      plan_valid_until: selFirma.plan_valid_until || null,
-    });
-  }, [selFirma]);
+useEffect(()=> {
+  if (!selFirma) { setFirmaEdit(null); return; }
+  setFirmaEdit({
+    firmenname: selFirma.firmenname || '',
+    aktiv: !!selFirma.aktiv,
+    inaktiv_at: selFirma.inaktiv_at || null,
+    plan: selFirma.plan || '',
+    plan_valid_until: selFirma.plan_valid_until || null,
+    strasse: selFirma.strasse || '',
+    plz: selFirma.plz != null ? String(selFirma.plz) : '',
+    stadt: selFirma.stadt || '',
+    telefon: selFirma.telefon || '',
+    telefon2: selFirma.telefon2 || '',
+  });
+}, [selFirma]);
+
 
   const [orgAdmins, setOrgAdmins] = useState([]);
   const [units, setUnits] = useState([]);
@@ -138,17 +157,31 @@ export default function KundenTab() {
   const loadFirmaDetails = async (firma) => {
     const { data: admins } = await supabase
       .from('DB_User')
-      .select('vorname,nachname,email,rolle')
+      .select('user_id, vorname, nachname, email, rolle, can_see_company_page')
       .eq('firma_id', firma.id)
       .in('rolle', ['Org_Admin','Admin_Dev']);
     setOrgAdmins(admins||[]);
 
     setUnitsLoading(true);
     const { data: urows } = await supabase
-      .from('DB_Unit')
-      .select('id,unitname,created_at,anzahl_schichten,bundesland,unit_aktiv,unit_inaktiv_at,enabled_features,disabled_features')
-      .eq('firma', firma.id)
-      .order('unitname', { ascending: true });
+  .from('DB_Unit')
+  .select(`
+    id,
+    unitname,
+    created_at,
+    anzahl_schichten,
+    bundesland,
+    unit_aktiv,
+    unit_inaktiv_at,
+    enabled_features,
+    disabled_features,
+    preis_monat_basis,
+    rabatt_unit_prozent,
+    rabatt_unit_fix,
+    abrechnung_notiz
+  `)
+  .eq('firma', firma.id)
+  .order('unitname', { ascending: true });
 
     const unitsWithCounts = await Promise.all((urows||[]).map(async u=>{
       const { count } = await supabase
@@ -165,19 +198,52 @@ export default function KundenTab() {
   const saveFirma = async () => {
     if (!selFirma || !firmaEdit) return;
     const payload = {
-      aktiv: firmaEdit.aktiv,
-      inaktiv_at: firmaEdit.inaktiv_at || null,
-      plan: firmaEdit.plan || null,
-      plan_valid_until: firmaEdit.plan_valid_until || null,
-    };
+  firmenname: firmaEdit.firmenname?.trim() || selFirma.firmenname,
+  aktiv: firmaEdit.aktiv,
+  inaktiv_at: firmaEdit.inaktiv_at || null,
+  plan: firmaEdit.plan || null,
+  plan_valid_until: firmaEdit.plan_valid_until || null,
+  strasse: firmaEdit.strasse || null,
+  plz:
+    firmaEdit.plz === '' || firmaEdit.plz == null
+      ? null
+      : Number(firmaEdit.plz),
+  stadt: firmaEdit.stadt || null,
+  telefon: firmaEdit.telefon || null,
+  telefon2: firmaEdit.telefon2 || null,
+};
+
     await supabase.from('DB_Kunden').update(payload).eq('id', selFirma.id);
     await loadFirmen();
     const refreshed = (await supabase
       .from('DB_Kunden')
-      .select('id,firmenname,created_at,aktiv,inaktiv_at,plan,plan_valid_until')
+      .select('id,firmenname,created_at,aktiv,inaktiv_at,plan,plan_valid_until,strasse,plz,stadt,telefon,telefon2')
       .eq('id', selFirma.id).maybeSingle()).data;
     setSelFirma({ ...refreshed, user_count: selFirma.user_count });
   };
+
+const toggleCompanyPageAccess = async (userId, current, adminRow) => {
+  if (!userId) {
+    console.error('Kein user_id für Admin:', adminRow);
+    alert('Für diesen Admin ist in DB_User kein user_id (UUID) hinterlegt. Bitte in Supabase nachtragen.');
+    return;
+  }
+
+  const next = !current;
+
+  const { error } = await supabase
+    .from('DB_User')
+    .update({ can_see_company_page: next })
+    .eq('user_id', userId);
+
+  if (error) {
+    console.error('can_see_company_page update:', error);
+    alert('Konnte Recht nicht speichern: ' + error.message);
+    return;
+  }
+
+  await loadFirmaDetails(selFirma);
+};
 
   // Units – Filter/Sort
   const [unitQuery, setUnitQuery] = useState('');
@@ -214,15 +280,19 @@ export default function KundenTab() {
   // Unit Editor
   const [selUnit, setSelUnit] = useState(null);
   const [unitEdit, setUnitEdit] = useState(null);
-  useEffect(()=> {
-    if (!selUnit) { setUnitEdit(null); return; }
-    setUnitEdit({
-      unit_aktiv: !!selUnit.unit_aktiv,
-      unit_inaktiv_at: selUnit.unit_inaktiv_at || null,
-      enabled_features: Array.isArray(selUnit.enabled_features)?[...selUnit.enabled_features]:[],
-      disabled_features: Array.isArray(selUnit.disabled_features)?[...selUnit.disabled_features]:[],
-    });
-  }, [selUnit]);
+useEffect(()=> {
+  if (!selUnit) { setUnitEdit(null); return; }
+  setUnitEdit({
+    unit_aktiv: !!selUnit.unit_aktiv,
+    unit_inaktiv_at: selUnit.unit_inaktiv_at || null,
+    enabled_features: Array.isArray(selUnit.enabled_features) ? [...selUnit.enabled_features] : [],
+    disabled_features: Array.isArray(selUnit.disabled_features) ? [...selUnit.disabled_features] : [],
+    preis_monat_basis: selUnit.preis_monat_basis ?? '',
+    rabatt_unit_prozent: selUnit.rabatt_unit_prozent ?? '',
+    rabatt_unit_fix: selUnit.rabatt_unit_fix ?? '',
+    abrechnung_notiz: selUnit.abrechnung_notiz || '',
+  });
+}, [selUnit]);
 
   const featureStateOf = (key) => {
     if (!unitEdit) return 'inherit';
@@ -249,22 +319,45 @@ export default function KundenTab() {
       disabled_features: Array.from(disabled),
     });
   };
-  const saveUnit = async () => {
-    if (!selUnit || !unitEdit) return;
-    const payload = {
-      unit_aktiv: unitEdit.unit_aktiv,
-      unit_inaktiv_at: unitEdit.unit_inaktiv_at || null,
-      enabled_features: unitEdit.enabled_features,
-      disabled_features: unitEdit.disabled_features,
-    };
-    await supabase.from('DB_Unit').update(payload).eq('id', selUnit.id);
-    await loadFirmaDetails(selFirma);
-    const updated = (await supabase
-      .from('DB_Unit')
-      .select('id,unitname,created_at,anzahl_schichten,bundesland,unit_aktiv,unit_inaktiv_at,enabled_features,disabled_features')
-      .eq('id', selUnit.id).maybeSingle()).data;
-    setSelUnit(updated);
+const saveUnit = async () => {
+  if (!selUnit || !unitEdit) return;
+
+  const toNumOrNull = (v) =>
+    v === '' || v === null || v === undefined ? null : Number(v);
+
+  const payload = {
+    unit_aktiv: unitEdit.unit_aktiv,
+    unit_inaktiv_at: unitEdit.unit_inaktiv_at || null,
+    enabled_features: unitEdit.enabled_features,
+    disabled_features: unitEdit.disabled_features,
+    preis_monat_basis: toNumOrNull(unitEdit.preis_monat_basis),
+    rabatt_unit_prozent: toNumOrNull(unitEdit.rabatt_unit_prozent),
+    rabatt_unit_fix: toNumOrNull(unitEdit.rabatt_unit_fix),
+    abrechnung_notiz: unitEdit.abrechnung_notiz || null,
   };
+
+  await supabase.from('DB_Unit').update(payload).eq('id', selUnit.id);
+  await loadFirmaDetails(selFirma);
+  const updated = (await supabase
+    .from('DB_Unit')
+    .select(`
+      id,
+      unitname,
+      created_at,
+      anzahl_schichten,
+      bundesland,
+      unit_aktiv,
+      unit_inaktiv_at,
+      enabled_features,
+      disabled_features,
+      preis_monat_basis,
+      rabatt_unit_prozent,
+      rabatt_unit_fix,
+      abrechnung_notiz
+    `)
+    .eq('id', selUnit.id).maybeSingle()).data;
+  setSelUnit(updated);
+};
 
   return (
     <div>
@@ -338,83 +431,194 @@ export default function KundenTab() {
         )}
       </Panel>
 
-      {selFirma && (
+      {selFirma && firmaEdit && (
         <div className="grid grid-cols-12 gap-3">
           {/* Stammdaten */}
           <div className="col-span-12 lg:col-span-5">
             <Panel title={`Stammdaten: ${selFirma.firmenname}`}>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><span className="opacity-70">ID:</span> {selFirma.id}</div>
-                <div><span className="opacity-70">Erstellt:</span> {fmtDate(selFirma.created_at)}</div>
+  {/* BASIS */}
+  <SubSectionTitle>Basisdaten</SubSectionTitle>
+  <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+    <div>
+      <div className="text-xs opacity-70">ID</div>
+      <div>{selFirma.id}</div>
+    </div>
+    <div>
+      <div className="text-xs opacity-70">Erstellt</div>
+      <div>{fmtDate(selFirma.created_at)}</div>
+    </div>
+  </div>
 
-                <div className="col-span-2">
-                  <label className="flex items-center gap-2 mt-1">
-                    <input type="checkbox" checked={!!firmaEdit?.aktiv} onChange={e=>setFirmaEdit(s=>({...s,aktiv:e.target.checked}))}/>
-                    <span>Firma aktiv</span>
-                    <span className="opacity-70 text-xs">(„inaktiv_at“ kann in die Zukunft gesetzt werden)</span>
-                  </label>
+  {/* FIRMENDATEN (Name) */}
+  <SubSectionTitle>Firmendaten</SubSectionTitle>
+  <div className="grid grid-cols-1 gap-2 text-sm mt-2">
+    <div>
+      <div className="text-xs opacity-70">Firmenname</div>
+      <input
+        type="text"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.firmenname}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, firmenname: e.target.value })}
+      />
+    </div>
+  </div>
+
+  {/* ADRESSE & KONTAKT */}
+  <SubSectionTitle>Adresse & Kontakt</SubSectionTitle>
+  <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+    <div className="col-span-2">
+      <div className="text-xs opacity-70">Straße</div>
+      <input
+        type="text"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.strasse}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, strasse: e.target.value })}
+      />
+    </div>
+    <div>
+      <div className="text-xs opacity-70">PLZ</div>
+      <input
+        type="text"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.plz}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, plz: e.target.value })}
+      />
+    </div>
+    <div>
+      <div className="text-xs opacity-70">Stadt</div>
+      <input
+        type="text"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.stadt}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, stadt: e.target.value })}
+      />
+    </div>
+    <div>
+      <div className="text-xs opacity-70">Telefon 1</div>
+      <input
+        type="text"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.telefon}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, telefon: e.target.value })}
+      />
+    </div>
+    <div>
+      <div className="text-xs opacity-70">Telefon 2</div>
+      <input
+        type="text"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.telefon2}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, telefon2: e.target.value })}
+      />
+    </div>
+  </div>
+
+  {/* FIRMA-STATUS */}
+  <SubSectionTitle>Firma-Status</SubSectionTitle>
+  <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+    <div className="col-span-2 flex items-center gap-2">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={!!firmaEdit.aktiv}
+          onChange={e=>setFirmaEdit({ ...firmaEdit, aktiv: e.target.checked })}
+        />
+        <span>Firma aktiv</span>
+      </label>
+      {!firmaEdit.aktiv && (
+        <Badge tone="bad">inaktiv</Badge>
+      )}
+    </div>
+    <div>
+      <div className="text-xs opacity-70">Inaktiv ab</div>
+      <input
+        type="date"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.inaktiv_at || ''}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, inaktiv_at: e.target.value || null })}
+      />
+    </div>
+  </div>
+
+  {/* PLAN / VERTRAG */}
+  <SubSectionTitle>Plan / Vertrag</SubSectionTitle>
+  <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+    <div>
+      <div className="text-xs opacity-70">Plan</div>
+      <select
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.plan || ''}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, plan: e.target.value || null })}
+      >
+        <option value="">— kein Plan —</option>
+        {plaene.map(p=>(
+          <option key={p} value={p}>{p}</option>
+        ))}
+      </select>
+    </div>
+    <div>
+      <div className="text-xs opacity-70">Plan gültig bis</div>
+      <input
+        type="date"
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+        value={firmaEdit.plan_valid_until || ''}
+        onChange={e=>setFirmaEdit({ ...firmaEdit, plan_valid_until: e.target.value || null })}
+      />
+    </div>
+    <div className="col-span-2 flex justify-end mt-2">
+      <button
+        className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700"
+        onClick={saveFirma}
+      >
+        Firma speichern
+      </button>
+    </div>
+  </div>
+
+  {/* ADMINS & RECHTE – bleibt wie gehabt */}
+              <SubSectionTitle>Admins & Unternehmensrechte</SubSectionTitle>
+              <div className="mt-2">
+                <div className="text-xs opacity-70 mb-1">
+                  Hier kannst du Admins das Recht geben, die Unternehmensseite zu sehen.
                 </div>
-
-                <div>
-                  <label className="block text-xs opacity-70 mb-1">inaktiv_ab (Datum/Zeit)</label>
-                  <input
-                    type="datetime-local"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1"
-                    value={firmaEdit?.inaktiv_at ? dayjs(firmaEdit.inaktiv_at).format('YYYY-MM-DDTHH:mm') : ''}
-                    onChange={(e)=>setFirmaEdit(s=>({...s,inaktiv_at:e.target.value?new Date(e.target.value).toISOString():null}))}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs opacity-70 mb-1">Plan</label>
-                  <select
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1"
-                    value={firmaEdit?.plan || ''}
-                    onChange={(e)=>setFirmaEdit(s=>({...s,plan:e.target.value||null}))}
-                  >
-                    <option value="">—</option>
-                    {plaene.map(p=><option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs opacity-70 mb-1">Plan gültig bis</label>
-                  <input
-                    type="date"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1"
-                    value={firmaEdit?.plan_valid_until ? dayjs(firmaEdit.plan_valid_until).format('YYYY-MM-DD') : ''}
-                    onChange={(e)=>setFirmaEdit(s=>({...s,plan_valid_until:e.target.value||null}))}
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <button className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700" onClick={saveFirma}>Firma speichern</button>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <div className="text-sm font-semibold mb-1">Org-Admins</div>
                 <ul className="text-sm space-y-1">
                   {orgAdmins.map((a,i)=>(
-                    <li key={i} className="flex items-center gap-2">
-                      <Badge>{a.rolle||'—'}</Badge>
-                      <span>{a.vorname} {a.nachname}</span>
-                      <span className="opacity-70">• {a.email}</span>
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Badge>{a.rolle || '—'}</Badge>
+                        <span>{a.vorname} {a.nachname}</span>
+                        <span className="opacity-70">• {a.email}</span>
+                      </div>
+                      <label className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={!!a.can_see_company_page}
+                          onChange={() => toggleCompanyPageAccess(a.user_id, !!a.can_see_company_page, a)}
+                        />
+                        <span>Unternehmensseite</span>
+                      </label>
                     </li>
                   ))}
-                  {orgAdmins.length===0 && <li className="text-gray-400">keine Admins gefunden</li>}
+                  {orgAdmins.length===0 && (
+                    <li className="text-gray-400">keine Admins gefunden</li>
+                  )}
                 </ul>
               </div>
             </Panel>
+
           </div>
 
-          {/* Units + Editor */}
+                    {/* Units + Editor */}
           <div className="col-span-12 lg:col-span-7">
             <Panel
               title={`Units von ${selFirma.firmenname}`}
               right={<Badge tone="default">{units.length} Units</Badge>}
             >
-              <div className="flex flex-wrap gap-2 items-center mb-2 text-sm">
+
+              {/* SECTION: Unit-Liste / Übersicht */}
+              <SubSectionTitle>Unit-Übersicht</SubSectionTitle>
+
+              <div className="flex flex-wrap gap-2 items-center mb-2 mt-2 text-sm">
                 <input
                   type="text"
                   placeholder="Filter Name…"
@@ -468,68 +672,226 @@ export default function KundenTab() {
                           <td className="py-1 pr-3">{u.unit_aktiv ? <Badge tone="good">aktiv</Badge> : <Badge tone="bad">inaktiv</Badge>}</td>
                           <td className="py-1 pr-3">{u.user_count}</td>
                           <td className="py-1 pr-3">
-                            <button className="text-xs px-2 py-1 rounded border border-gray-600 hover:bg-gray-700" onClick={()=>setSelUnit(u)}>Öffnen</button>
+                            <button
+                              className="text-xs px-2 py-1 rounded border border-gray-600 hover:bg-gray-700"
+                              onClick={()=>setSelUnit(u)}
+                            >
+                              Öffnen
+                            </button>
                           </td>
                         </tr>
                       ))}
-                      {unitsView.length===0 && <tr><td className="py-2 text-gray-400" colSpan={8}>Keine Units nach Filter.</td></tr>}
+                      {unitsView.length===0 && (
+                        <tr>
+                          <td className="py-2 text-gray-400" colSpan={8}>Keine Units nach Filter.</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
               )}
 
-              {selUnit && unitEdit && (
-                <div className="mt-3 grid grid-cols-12 gap-3 text-sm border-t border-gray-700 pt-3">
-                  <div className="col-span-12 md:col-span-4">
-                    <div className="font-semibold mb-1">Unit-Status</div>
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" checked={unitEdit.unit_aktiv} onChange={e=>setUnitEdit(s=>({...s,unit_aktiv:e.target.checked}))}/>
-                      <span>Unit aktiv</span>
-                    </label>
-                    <div className="mt-2">
-                      <label className="block text-xs opacity-70 mb-1">inaktiv_ab (Datum/Zeit)</label>
-                      <input
-                        type="datetime-local"
-                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1"
-                        value={unitEdit.unit_inaktiv_at?dayjs(unitEdit.unit_inaktiv_at).format('YYYY-MM-DDTHH:mm'):''}
-                        onChange={(e)=>setUnitEdit(s=>({...s,unit_inaktiv_at:e.target.value?new Date(e.target.value).toISOString():null}))}
-                      />
-                    </div>
-                    <button className="mt-3 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700" onClick={saveUnit}>Unit speichern</button>
-                  </div>
+              {/* SECTION: Unit-Details / Editor */}
+             {selUnit && unitEdit && (
+  <div className="mt-3 text-sm border-t border-gray-700 pt-3 space-y-4">
+    {/* --- SECTION: Unit-Status --- */}
+    <div>
+      <SubSectionTitle>Unit-Status</SubSectionTitle>
+      <div className="grid grid-cols-12 gap-3 mt-2">
+        <div className="col-span-12 md:col-span-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={unitEdit.unit_aktiv}
+              onChange={e =>
+                setUnitEdit(s => ({ ...s, unit_aktiv: e.target.checked }))
+              }
+            />
+            <span>Unit aktiv</span>
+          </label>
 
-                  <div className="col-span-12 md:col-span-8">
-                    <div className="font-semibold mb-2">Features (Allow / Block / Inherit)</div>
-                    <div className="flex flex-wrap gap-2">
-                      {features.map(f=>{
-                        const state = featureStateOf(f.key);
-                        const title = state==='allow' ? 'Explizit freigeschaltet' : state==='block' ? 'Explizit gesperrt' : 'Vom Plan erben';
-                        return <TriPill key={f.key} label={f.key} state={state} onClick={()=>cycleFeature(f.key)} title={title} />;
-                      })}
-                      {features.length===0 && <span className="text-gray-400">Keine aktiven Features gefunden.</span>}
-                    </div>
+          <div className="mt-2">
+            <label className="block text-xs opacity-70 mb-1">
+              inaktiv_ab (Datum/Zeit)
+            </label>
+            <input
+              type="datetime-local"
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1"
+              value={
+                unitEdit.unit_inaktiv_at
+                  ? dayjs(unitEdit.unit_inaktiv_at).format('YYYY-MM-DDTHH:mm')
+                  : ''
+              }
+              onChange={e =>
+                setUnitEdit(s => ({
+                  ...s,
+                  unit_inaktiv_at: e.target.value
+                    ? new Date(e.target.value).toISOString()
+                    : null,
+                }))
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="text-xs uppercase opacity-70 mb-1">enabled_features</div>
-                        <div className="flex flex-wrap gap-1">
-                          {(unitEdit.enabled_features||[]).map(k=><Badge key={`e-${k}`} tone="good">{k}</Badge>)}
-                          {(unitEdit.enabled_features||[]).length===0 && <span className="text-gray-400">—</span>}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase opacity-70 mb-1">disabled_features</div>
-                        <div className="flex flex-wrap gap-1">
-                          {(unitEdit.disabled_features||[]).map(k=><Badge key={`d-${k}`} tone="bad">{k}</Badge>)}
-                          {(unitEdit.disabled_features||[]).length===0 && <span className="text-gray-400">—</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+    {/* --- SECTION: Features --- */}
+    <div>
+      <SubSectionTitle>Features (Allow / Block / Inherit)</SubSectionTitle>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        {features.map(f => {
+          const state = featureStateOf(f.key);
+          const title =
+            state === 'allow'
+              ? 'Explizit freigeschaltet'
+              : state === 'block'
+              ? 'Explizit gesperrt'
+              : 'Vom Plan erben';
+          return (
+            <TriPill
+              key={f.key}
+              label={f.key}
+              state={state}
+              onClick={() => cycleFeature(f.key)}
+              title={title}
+            />
+          );
+        })}
+        {features.length === 0 && (
+          <span className="text-gray-400">Keine aktiven Features gefunden.</span>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs uppercase opacity-70 mb-1">enabled_features</div>
+          <div className="flex flex-wrap gap-1">
+            {(unitEdit.enabled_features || []).map(k => (
+              <Badge key={`e-${k}`} tone="good">
+                {k}
+              </Badge>
+            ))}
+            {(unitEdit.enabled_features || []).length === 0 && (
+              <span className="text-gray-400">—</span>
+            )}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs uppercase opacity-70 mb-1">disabled_features</div>
+          <div className="flex flex-wrap gap-1">
+            {(unitEdit.disabled_features || []).map(k => (
+              <Badge key={`d-${k}`} tone="bad">
+                {k}
+              </Badge>
+            ))}
+            {(unitEdit.disabled_features || []).length === 0 && (
+              <span className="text-gray-400">—</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* --- SECTION: Abrechnung / Preise --- */}
+    <div>
+      <SubSectionTitle>Abrechnung / Preise</SubSectionTitle>
+
+      <div className="mt-2 grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs opacity-70 mb-1">Monatspreis (Basis) in €</div>
+          <input
+            type="number"
+            step="0.01"
+            className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700"
+            value={unitEdit.preis_monat_basis}
+            onChange={e =>
+              setUnitEdit(s => ({
+                ...s,
+                preis_monat_basis: e.target.value,
+              }))
+            }
+          />
+        </div>
+        <div>
+          <div className="text-xs opacity-70 mb-1">Rabatt Unit (%)</div>
+          <input
+            type="number"
+            step="0.1"
+            className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700"
+            value={unitEdit.rabatt_unit_prozent}
+            onChange={e =>
+              setUnitEdit(s => ({
+                ...s,
+                rabatt_unit_prozent: e.target.value,
+              }))
+            }
+          />
+        </div>
+        <div>
+          <div className="text-xs opacity-70 mb-1">Rabatt Unit (fix in €)</div>
+          <input
+            type="number"
+            step="0.01"
+            className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700"
+            value={unitEdit.rabatt_unit_fix}
+            onChange={e =>
+              setUnitEdit(s => ({
+                ...s,
+                rabatt_unit_fix: e.target.value,
+              }))
+            }
+          />
+        </div>
+        <div>
+          <div className="text-xs opacity-70 mb-1">Abrechnungs-Notiz</div>
+          <textarea
+            rows={3}
+            className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700"
+            value={unitEdit.abrechnung_notiz}
+            onChange={e =>
+              setUnitEdit(s => ({
+                ...s,
+                abrechnung_notiz: e.target.value,
+              }))
+            }
+          />
+        </div>
+      </div>
+
+      {(() => {
+        const basis = Number(unitEdit.preis_monat_basis || 0);
+        const rabattProzent = Number(unitEdit.rabatt_unit_prozent || 0);
+        const rabattFix = Number(unitEdit.rabatt_unit_fix || 0);
+        const nachProzent = basis - (basis * rabattProzent) / 100;
+        const eff = Math.max(0, nachProzent - rabattFix);
+
+        if (!basis && !rabattProzent && !rabattFix) return null;
+
+        return (
+          <div className="mt-2 text-xs text-gray-300">
+            Effektiver Monatspreis:{' '}
+            <span className="font-semibold">{eff.toFixed(2)} €</span>
+          </div>
+        );
+      })()}
+
+      <div className="mt-3 flex justify-end">
+        <button
+          className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-xs"
+          onClick={saveUnit}
+        >
+          Unit speichern
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
             </Panel>
           </div>
+
         </div>
       )}
     </div>

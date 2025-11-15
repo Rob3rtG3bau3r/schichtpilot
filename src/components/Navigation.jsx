@@ -11,7 +11,9 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   const [adminOpen, setAdminOpen] = useState(false);
   const [plannungOpen, setPlannungOpen] = useState(false);
 
-  const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen(); // ✨ firma & unit hinzu
+  const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
+  const [canSeeCompanyPage, setCanSeeCompanyPage] = useState(false);
+
   const verwaltungTimeout = useRef(null);
   const reportTimeout = useRef(null);
   const adminTimeout = useRef(null);
@@ -27,7 +29,6 @@ const Navigation = ({ darkMode, setDarkMode }) => {
       setCanSeeTopReport(false);
       return;
     }
-    // leichte, schnelle Abfrage: rufe top_report mit Mini-Zeitraum auf und lese "enabled"
     const today = new Date().toISOString().slice(0, 10);
     (async () => {
       try {
@@ -49,7 +50,33 @@ const Navigation = ({ darkMode, setDarkMode }) => {
       }
     })();
   }, [rolle, unit]);
-  // -------------------------------------------------------------------
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setCanSeeCompanyPage(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('DB_User')
+          .select('can_see_company_page')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (error || !data) {
+          setCanSeeCompanyPage(false);
+        } else {
+          setCanSeeCompanyPage(!!data.can_see_company_page);
+        }
+      } catch (e) {
+        console.error('can_see_company_page check error:', e);
+        setCanSeeCompanyPage(false);
+      }
+    })();
+  }, []);
 
   const openVerwaltung = () => { clearTimeout(verwaltungTimeout.current); setVerwaltungOpen(true); };
   const closeVerwaltung = () => { verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay); };
@@ -84,10 +111,11 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/top-report': 'Top bericht',
   };
 
-  const aktuellerTitel = pfadZuTitel[location.pathname] || '';
+    const aktuellerTitel = pfadZuTitel[location.pathname] || '';
 
   return (
     <nav className="relative flex items-center justify-between text-sm font-semibold text-white dark:text-white px-2">
+      {/* LINKE SEITE: Navigation-Links */}
       <div className="flex gap-8 items-center">
         {/* Übersicht: Alle außer Org_Admin */}
         {rolle !== 'Org_Admin' && (
@@ -135,7 +163,6 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             {reportOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
                 <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit bericht</Link>
-                {/* ✨ Nur anzeigen, wenn Feature wirklich aktiv */}
                 {canSeeTopReport && (
                   <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">Top bericht</Link>
                 )}
@@ -159,25 +186,25 @@ const Navigation = ({ darkMode, setDarkMode }) => {
           </div>
         )}
 
-        {/* Kundenverwaltung: Nur Org_Admin & SuperAdmin */}
-        {['SuperAdmin', 'Org_Admin'].includes(rolle) && (
+        {/* Kundenverwaltung: Org_Admin, SuperAdmin oder User mit Flag */}
+        {( ['SuperAdmin', 'Org_Admin'].includes(rolle) || canSeeCompanyPage ) && (
           <Link to="/kundenverwaltung" className="hover:underline">Unternehmen</Link>
         )}
       </div>
 
-      {/* Titel-Zeile in der Mitte */}
+      {/* MITTE: Titel-Zeile */}
       <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-bold pointer-events-none whitespace-nowrap">
         {aktuellerTitel}
       </div>
 
-      {/* Darkmode-Switch */}
+      {/* RECHTS: Darkmode-Switch */}
       <div>
         <button
           onClick={toggleDarkMode}
           className="flex items-center gap-1 bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
           title="Dark / Light Mode"
         >
-        {darkMode ? <Moon size={18} /> : <Sun size={18} />}
+          {darkMode ? <Moon size={18} /> : <Sun size={18} />}
           <span>{darkMode ? 'Dark' : 'Light'}</span>
         </button>
       </div>
