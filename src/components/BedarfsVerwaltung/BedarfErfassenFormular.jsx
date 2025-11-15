@@ -1,3 +1,4 @@
+// BedarfErfassenFormular.jsx
 import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
@@ -7,15 +8,8 @@ import { Info } from 'lucide-react';
 const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, onRefresh, vorbelegt }) => {
   const { sichtFirma: firma, sichtUnit: unit, userId } = useRollen();
 
- // Zeitlich begrenzt als Default sinnvoll vorbelegen
- useEffect(() => {
-   if (!vorbelegt) {
-     setNormalbetrieb(false);
-     setVon(heute);
-     setBis(dayjs(heute).add(1, 'day').format('YYYY-MM-DD'));
-   }
-   // eslint-disable-next-line react-hooks/exhaustive-deps
- }, []);
+  // 🔧 FIX: heute nach oben gezogen, damit es im useEffect verfügbar ist
+  const heute = dayjs().format('YYYY-MM-DD');
 
   // --- Gemeinsame States ---
   const [feedback, setFeedback] = useState('');
@@ -24,15 +18,19 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
   // --- Normalbetrieb / Zeitlich begrenzt Umschalter ---
   const [normalbetrieb, setNormalbetrieb] = useState(false);
 
+  // --- NEU: Betriebsmodus für Normalbetrieb ---
+  // '24_7' oder 'wochenbetrieb'
+  const [betriebsmodus, setBetriebsmodus] = useState('24_7');      // NEU
+  const [wochenTage, setWochenTage] = useState('MO_FR');           // NEU
+
   // --- Farbe & Name (nur zeitlich begrenzt genutzt) ---
   const [farbe, setFarbe] = useState(vorbelegt?.farbe || '#3b82f6');
   const [namebedarf, setNamebedarf] = useState(vorbelegt?.namebedarf || '');
 
   // --- Zeitraum (nur zeitlich begrenzt) ---
-  const heute = dayjs().format('YYYY-MM-DD');
   const [von, setVon] = useState(vorbelegt?.von || '');
   const [bis, setBis] = useState(vorbelegt?.bis || '');
-  const minBis = von ? dayjs(von).add(1, 'day').format('YYYY-MM-DD') : heute;
+  const minBis = von ? dayjs(von).format('YYYY-MM-DD') : heute;
 
   // --- Schicht-Grenzen (nur zeitlich begrenzt) ---
   const [startSchicht, setStartSchicht] = useState('Früh');
@@ -52,6 +50,16 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
   const [zbSpaet, setZbSpaet] = useState(0);
   const [zbNacht, setZbNacht] = useState(0);
 
+  // Zeitlich begrenzt als Default sinnvoll vorbelegen
+  useEffect(() => {
+    if (!vorbelegt) {
+      setNormalbetrieb(false);
+      setVon(heute);
+      setBis(dayjs(heute).add(1, 'day').format('YYYY-MM-DD'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (vorbelegt) {
       setNormalbetrieb(false);
@@ -62,34 +70,42 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
     }
   }, [vorbelegt]);
 
-  const handleChangeVon = (value) => {
-    setVon(value);
-    const next = dayjs(value).add(1, 'day').format('YYYY-MM-DD');
-    setBis((prev) => (!prev || dayjs(prev).isBefore(next) ? next : prev));
-  };
-
-  const order = (s) => (s === 'Früh' ? 1 : s === 'Spät' ? 2 : 3);
+const handleChangeVon = (value) => {
+  setVon(value);
+  const next = dayjs(value).format('YYYY-MM-DD'); // gleiches Datum möglich
+  setBis((prev) => (!prev || dayjs(prev).isBefore(next) ? next : prev));
+};
 
   const validate = () => {
     if (!ausgewaehlteQualiId) return 'Bitte zuerst eine Qualifikation links auswählen.';
+
     if (normalbetrieb) {
+      // Optional: hier könnten wir später prüfen, ob wochenTage gesetzt ist
       if (nbModus === 'alle') {
         if (!anzahlAlle || anzahlAlle < 1) return 'Bitte eine Anzahl ≥ 1 eingeben.';
       } else {
-        if ((anzahlFrueh || 0) <= 0 && (anzahlSpaet || 0) <= 0 && (anzahlNacht || 0) <= 0) {
+        if (
+          (anzahlFrueh || 0) <= 0 &&
+          (anzahlSpaet || 0) <= 0 &&
+          (anzahlNacht || 0) <= 0
+        ) {
           return 'Bitte mindestens eine Schicht mit Anzahl > 0 angeben.';
         }
       }
     } else {
-      if (!von || !bis) return 'Bitte Zeitraum (Von/Bis) angeben.';
-      if (dayjs(bis).isBefore(dayjs(von).add(1, 'day'))) {
-        return '„Bis“ muss mindestens einen Tag nach „Von“ liegen.';
-      }
+if (!von || !bis) return 'Bitte Zeitraum (Von/Bis) angeben.';
+if (dayjs(bis).isBefore(dayjs(von), 'day')) {
+  return '„Bis“ darf nicht vor „Von“ liegen.';
+}
       if (!namebedarf?.trim()) return 'Bitte eine Bezeichnung für den Zeitraum eingeben.';
       if (zbModus === 'alle') {
         if (!zbAlle || zbAlle < 1) return 'Bitte eine Anzahl ≥ 1 eingeben.';
       } else {
-        if ((zbFrueh || 0) <= 0 && (zbSpaet || 0) <= 0 && (zbNacht || 0) <= 0) {
+        if (
+          (zbFrueh || 0) <= 0 &&
+          (zbSpaet || 0) <= 0 &&
+          (zbNacht || 0) <= 0
+        ) {
           return 'Bitte mindestens eine Schicht mit Anzahl > 0 angeben.';
         }
       }
@@ -113,27 +129,40 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
 
     if (normalbetrieb) {
       // --- NORMALBETRIEB ---
+
+      // NEU: vorbereiten, was wir in die DB schreiben
+      const nbCommon = {
+        ...baseCommon,
+        normalbetrieb: true,
+        betriebsmodus,                                        // NEU
+        wochen_tage: betriebsmodus === 'wochenbetrieb' ? wochenTage : null, // NEU
+        von: null,
+        bis: null,
+        namebedarf: null,
+        farbe: null,
+      };
+
       if (nbModus === 'alle') {
         rows.push({
-          ...baseCommon,
-          normalbetrieb: true,
+          ...nbCommon,
           anzahl: Number(anzahlAlle),
           schichtart: null,
-          von: null,
-          bis: null,
-          namebedarf: null,
-          farbe: null,
         });
       } else {
-        if ((anzahlFrueh || 0) > 0) rows.push({ ...baseCommon, normalbetrieb: true, anzahl: Number(anzahlFrueh), schichtart: 'Früh',  von: null, bis: null, namebedarf: null, farbe: null });
-        if ((anzahlSpaet || 0) > 0) rows.push({ ...baseCommon, normalbetrieb: true, anzahl: Number(anzahlSpaet), schichtart: 'Spät',  von: null, bis: null, namebedarf: null, farbe: null });
-        if ((anzahlNacht || 0) > 0) rows.push({ ...baseCommon, normalbetrieb: true, anzahl: Number(anzahlNacht), schichtart: 'Nacht', von: null, bis: null, namebedarf: null, farbe: null });
+        if ((anzahlFrueh || 0) > 0)
+          rows.push({ ...nbCommon, anzahl: Number(anzahlFrueh), schichtart: 'Früh' });
+        if ((anzahlSpaet || 0) > 0)
+          rows.push({ ...nbCommon, anzahl: Number(anzahlSpaet), schichtart: 'Spät' });
+        if ((anzahlNacht || 0) > 0)
+          rows.push({ ...nbCommon, anzahl: Number(anzahlNacht), schichtart: 'Nacht' });
       }
     } else {
       // --- ZEITLICH BEGRENZT ---
       const zbCommon = {
         ...baseCommon,
         normalbetrieb: false,
+        betriebsmodus: null,   // NEU: zeitlich begrenzt hat keinen Modus
+        wochen_tage: null,     // NEU
         von,
         bis,
         namebedarf: namebedarf.trim(),
@@ -145,9 +174,12 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
       if (zbModus === 'alle') {
         rows.push({ ...zbCommon, anzahl: Number(zbAlle), schichtart: null });
       } else {
-        if ((zbFrueh || 0) > 0) rows.push({ ...zbCommon, anzahl: Number(zbFrueh), schichtart: 'Früh' });
-        if ((zbSpaet || 0) > 0) rows.push({ ...zbCommon, anzahl: Number(zbSpaet), schichtart: 'Spät' });
-        if ((zbNacht || 0) > 0) rows.push({ ...zbCommon, anzahl: Number(zbNacht), schichtart: 'Nacht' });
+        if ((zbFrueh || 0) > 0)
+          rows.push({ ...zbCommon, anzahl: Number(zbFrueh), schichtart: 'Früh' });
+        if ((zbSpaet || 0) > 0)
+          rows.push({ ...zbCommon, anzahl: Number(zbSpaet), schichtart: 'Spät' });
+        if ((zbNacht || 0) > 0)
+          rows.push({ ...zbCommon, anzahl: Number(zbNacht), schichtart: 'Nacht' });
       }
     }
 
@@ -213,6 +245,50 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
       {/* NORMALBETRIEB */}
       {normalbetrieb && (
         <>
+          {/* NEU: Betriebsmodus (24/7 vs. Wochenbetrieb) */}
+          <div className="mb-3">
+            <label className="block text-sm font-medium mb-1">Modus Normalbetrieb</label>
+            <div className="flex gap-2 mb-2">
+              <button
+                className={`px-3 py-1 rounded ${betriebsmodus === '24_7' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                onClick={() => setBetriebsmodus('24_7')}
+              >
+                24/7-Betrieb
+              </button>
+              <button
+                className={`px-3 py-1 rounded ${betriebsmodus === 'wochenbetrieb' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                onClick={() => setBetriebsmodus('wochenbetrieb')}
+              >
+                Wochenbetrieb
+              </button>
+            </div>
+
+{betriebsmodus === 'wochenbetrieb' && (
+  <div className="mt-1">
+    <label className="block text-sm font-medium mb-1">Wochenmuster</label>
+    <select
+      className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+      value={wochenTage}
+      onChange={(e) => setWochenTage(e.target.value)}
+    >
+      <option value="MO_FR">Mo–Fr (Früh/Spät/Nacht)</option>
+      <option value="MO_SA_ALL">Mo–Sa (Früh/Spät/Nacht)</option>
+      <option value="MO_FR_SA_F">
+        Mo–Fr (Früh/Spät/Nacht) + Sa nur Früh
+      </option>
+      <option value="MO_FR_SA_FS">
+        Mo–Fr (Früh/Spät/Nacht) + Sa Früh &amp; Spät
+      </option>
+      <option value="SO_FR_ALL">So Nacht – Fr Spät</option>
+    </select>
+    <p className="text-xs text-gray-500 mt-1">
+      Dieses Muster steuert später, an welchen Wochentagen der Normalbedarf im MitarbeiterBedarf berücksichtigt wird.
+    </p>
+  </div>
+)}
+
+          </div>
+
           <div className="mb-3">
             <div className="flex gap-2">
               <button
@@ -314,7 +390,7 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
                 min={heute}
                 onChange={(e) => handleChangeVon(e.target.value)}
               />
-              <p className="text-xs text-gray-500 mt-1">„Bis“ wird automatisch ≥ „Von+1“ gesetzt.</p>
+              <p className="text-xs text-gray-500 mt-1">„Bis“ wird automatisch ≥ „Von“ gesetzt.</p>
             </div>
             <div className="flex-1">
               <label className="block text-sm font-medium mb-1">Bis</label>
@@ -424,7 +500,13 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
 
       {/* Feedback + Button */}
       <div className="mt-6 flex justify-between items-center">
-        <span className={`text-sm ${feedback?.startsWith('Fehler') || feedback?.includes('Bitte') ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+        <span
+          className={`text-sm ${
+            feedback?.startsWith('Fehler') || feedback?.includes('Bitte')
+              ? 'text-red-600 dark:text-red-400'
+              : 'text-green-600 dark:text-green-400'
+          }`}
+        >
           {feedback}
         </span>
         <button
@@ -448,8 +530,16 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
             <h3 className="text-lg font-semibold mb-2">Hinweise zum Bedarfformular</h3>
             <ul className="list-disc pl-5 text-sm space-y-2">
               <li>Wähle links eine Qualifikation aus.</li>
-              <li><b>Normalbetrieb</b>: dauerhaft – entweder alle Schichten gleich (1 Datensatz) oder je Schicht (bis zu 3 Datensätze).</li>
-              <li><b>Zeitlich begrenzt</b>: Zeitraum + Start-/End-Schicht; Bezeichnung & Farbe dienen der Orientierung.</li>
+              <li>
+                <b>Normalbetrieb</b>: dauerhaft – entweder alle Schichten gleich (1 Datensatz) oder je Schicht (bis zu 3 Datensätze).
+              </li>
+              <li>
+                Im Normalbetrieb kannst du zwischen <b>24/7-Betrieb</b> und
+                <b> Wochenbetrieb (z. B. Mo–Fr)</b> wählen. Dieses Muster wird später in der Bedarfsanalyse verwendet.
+              </li>
+              <li>
+                <b>Zeitlich begrenzt</b>: Zeitraum + Start-/End-Schicht; Bezeichnung &amp; Farbe dienen der Orientierung.
+              </li>
               <li>Zeitlich begrenzt <b>überschreibt</b> Normalbetrieb im Zeitraum für betroffene Schichten.</li>
             </ul>
             <div className="text-right mt-4">

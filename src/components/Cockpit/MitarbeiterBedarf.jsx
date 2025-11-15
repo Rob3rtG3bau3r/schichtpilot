@@ -268,16 +268,70 @@ const schichtInnerhalbGrenzen = (b, datumISO, schLabel) => {
 };
 
 const bedarfGiltFuerSchicht = (b, datumISO, schKey) => {
-  // Zeitfenster
-  if (b.von && datumISO <  b.von) return false;
-  if (b.bis && datumISO >  b.bis) return false;
+  // Zeitfenster (Von/Bis)
+  if (b.von && datumISO < b.von) return false;
+  if (b.bis && datumISO > b.bis) return false;
 
-  const schLabel = SCH_LABEL[schKey]; // 'Früh'|'Spät'|'Nacht'
+  const schLabel = SCH_LABEL[schKey]; // 'Früh' | 'Spät' | 'Nacht'
 
-  // Schichtgrenzen beachten (nur ZB)
+  // 1) Wochenbetriebs-Logik nur für Normalbetrieb relevant
+  if (b.normalbetrieb && b.betriebsmodus === 'wochenbetrieb') {
+    const weekday = dayjs(datumISO).day(); // 0=So, 1=Mo, ... 6=Sa
+
+    switch (b.wochen_tage) {
+      case 'MO_FR': {
+        // Mo–Fr (F/S/N)
+        if (weekday < 1 || weekday > 5) return false;
+        break;
+      }
+      case 'MO_SA_ALL': {
+        // Mo–Sa (F/S/N)
+        if (weekday < 1 || weekday > 6) return false;
+        break;
+      }
+      case 'MO_FR_SA_F': {
+        // Mo–Fr (F/S/N), Sa nur Früh
+        if (weekday === 0) return false;              // Sonntag: kein Bedarf
+        if (weekday === 6 && schLabel !== 'Früh') return false; // Sa: nur Früh
+        if (weekday < 1 || weekday > 6) return false;
+        break;
+      }
+      case 'MO_FR_SA_FS': {
+        // Mo–Fr (F/S/N), Sa Früh & Spät
+        if (weekday === 0) return false;              // Sonntag: kein Bedarf
+        if (weekday === 6 && schLabel === 'Nacht') return false; // Sa: keine Nacht
+        if (weekday < 1 || weekday > 6) return false;
+        break;
+      }
+      case 'SO_FR_ALL': {
+        // So Nacht – Fr Spät
+        if (weekday === 0) {
+          // Sonntag: nur Nachtschicht hat Bedarf
+          if (schLabel !== 'Nacht') return false;
+        } else if (weekday >= 1 && weekday <= 4) {
+          // Mo–Do: F/S/N erlaubt
+          // (nichts zu tun)
+        } else if (weekday === 5) {
+          // Freitag: nur Früh & Spät
+          if (schLabel === 'Nacht') return false;
+        } else {
+          // Samstag: kein Bedarf
+          return false;
+        }
+        break;
+      }
+      default: {
+        // unbekanntes Muster → wie 24/7 behandeln
+        break;
+      }
+    }
+  }
+  // (b.normalbetrieb && betriebsmodus === '24_7' oder null) => keine Einschränkung
+
+  // 2) Schichtgrenzen beachten (nur für zeitlich begrenzt relevant)
   if (!schichtInnerhalbGrenzen(b, datumISO, schLabel)) return false;
 
-  // schichtart: null = ganztägig (alle Schichten), sonst nur diese Schicht
+  // 3) Schichtart: null = alle Schichten, sonst nur die konkrete
   if (b.schichtart == null) return true;
   return b.schichtart === schLabel;
 };
@@ -368,7 +422,7 @@ const bedarfGiltFuerSchicht = (b, datumISO, schKey) => {
     // 5) Bedarf & Matrix
 const { data: bedarf } = await supabase
   .from('DB_Bedarf')
-  .select('quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb, schichtart, start_schicht, end_schicht')
+  .select('quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb, schichtart, start_schicht, end_schicht, betriebsmodus, wochen_tage')
   .eq('firma_id', firma)
   .eq('unit_id', unit);
 
@@ -521,6 +575,25 @@ for (const datum of tage) {
       .filter((b) => b.relevant)
       .sort((a, b) => a.position - b.position);
 
+      // ➜ NEU: Kein betriebsrelevanter Bedarf = graue Zelle
+if (bedarfSortiert.length === 0) {
+  status[schicht][datum] = {
+    // keine Farbe setzen → fällt im Render auf bg-gray-200 / dark:bg-gray-600 zurück
+    farbe: null,
+    bottom: null,
+    topLeft: null,
+    topRight: null,
+    fehlend: [],
+    meta: {
+      aktiveUserIds: aktiveUser,
+      abdeckung: {},
+      nichtVerwendeteIds: aktiveUser,
+      userQualiMap,
+      zusatzFehltKuerzel: [],
+    },
+  };
+  continue; // nächste Schicht/Datum
+}
     // --- Zuweisung (jede Person deckt max. 1 Quali) ---
     const verwendeteUser = new Set();
     const userSortMap = aktiveUser.map((userId) => {
@@ -841,7 +914,7 @@ const buildBarTooltip = (datum, entry) => {
                   className={`relative ${
                     allowAnalyse ? 'cursor-pointer' : 'cursor-default'
                   } w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${
-                    cell?.farbe || 'bg-gray-200 dark:bg-gray-600'
+                    cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'
                   } ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''} ${selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''}`}
                 >
                   {cell?.topLeft && (

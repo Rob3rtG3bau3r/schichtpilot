@@ -1,3 +1,4 @@
+// NormalbetriebAnzeige.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
@@ -14,23 +15,26 @@ const NormalbetriebAnzeige = ({ refreshKey }) => {
     const lade = async () => {
       if (!firma || !unit) return;
 
-      const { data, error } = await supabase
-        .from('DB_Bedarf')
-        .select(`
-          id,
-          anzahl,
-          quali_id,
-          schichtart,
-          namebedarf,
-          DB_Qualifikationsmatrix (
-            qualifikation,
-            quali_kuerzel,
-            betriebs_relevant
-          )
-        `)
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('normalbetrieb', true);
+const { data, error } = await supabase
+  .from('DB_Bedarf')
+  .select(`
+    id,
+    anzahl,
+    quali_id,
+    schichtart,
+    betriebsmodus,
+    wochen_tage,
+    namebedarf,
+    DB_Qualifikationsmatrix (
+      qualifikation,
+      quali_kuerzel,
+      betriebs_relevant
+    )
+  `)
+  .eq('firma_id', firma)
+  .eq('unit_id', unit)
+  .eq('normalbetrieb', true);
+
 
       if (error) {
         console.error('Fehler beim Laden (Normalbetrieb):', error.message);
@@ -52,53 +56,92 @@ const NormalbetriebAnzeige = ({ refreshKey }) => {
           name: r.DB_Qualifikationsmatrix?.qualifikation || '–',
           kuerzel: r.DB_Qualifikationsmatrix?.quali_kuerzel || '',
           betriebs_relevant: !!r.DB_Qualifikationsmatrix?.betriebs_relevant,
-          items: [] // { id, schichtart, anzahl }
+          items: [], // { id, schichtart, anzahl }
         });
       }
       map.get(key).items.push({
         id: r.id,
         schichtart: r.schichtart, // null = ganztägig
-        anzahl: Number(r.anzahl || 0)
+        anzahl: Number(r.anzahl || 0),
       });
     }
-    const order = (s) => (s == null ? 0 : s === 'Früh' ? 1 : s === 'Spät' ? 2 : 3);
+    const order = (s) =>
+      s == null ? 0 : s === 'Früh' ? 1 : s === 'Spät' ? 2 : 3;
     const arr = Array.from(map.values());
-    arr.forEach(card => card.items.sort((a,b) => order(a.schichtart) - order(b.schichtart)));
-    arr.sort((a,b) => (a.betriebs_relevant === b.betriebs_relevant)
-      ? a.name.localeCompare(b.name, 'de')
-      : (a.betriebs_relevant ? -1 : 1));
+    arr.forEach((card) =>
+      card.items.sort((a, b) => order(a.schichtart) - order(b.schichtart))
+    );
+    arr.sort((a, b) =>
+      a.betriebs_relevant === b.betriebs_relevant
+        ? a.name.localeCompare(b.name, 'de')
+        : a.betriebs_relevant
+        ? -1
+        : 1
+    );
     return arr;
   }, [rows]);
 
   const summen = useMemo(() => {
-    let fr = 0, sp = 0, na = 0;
+    let fr = 0,
+      sp = 0,
+      na = 0;
     for (const card of gruppiert) {
       if (!card.betriebs_relevant) continue;
-      const f = card.items.find(i => i.schichtart === 'Früh');
-      const s = card.items.find(i => i.schichtart === 'Spät');
-      const n = card.items.find(i => i.schichtart === 'Nacht');
-      const g = card.items.find(i => i.schichtart == null);
-      fr += f ? f.anzahl : (g ? g.anzahl : 0);
-      sp += s ? s.anzahl : (g ? g.anzahl : 0);
-      na += n ? n.anzahl : (g ? g.anzahl : 0);
+      const f = card.items.find((i) => i.schichtart === 'Früh');
+      const s = card.items.find((i) => i.schichtart === 'Spät');
+      const n = card.items.find((i) => i.schichtart === 'Nacht');
+      const g = card.items.find((i) => i.schichtart == null);
+      fr += f ? f.anzahl : g ? g.anzahl : 0;
+      sp += s ? s.anzahl : g ? g.anzahl : 0;
+      na += n ? n.anzahl : g ? g.anzahl : 0;
     }
     return { fr, sp, na };
   }, [gruppiert]);
 
   const gesamtRelevant = useMemo(() => {
     return gruppiert
-      .filter(c => c.betriebs_relevant)
+      .filter((c) => c.betriebs_relevant)
       .reduce((sum, c) => {
-        const f = c.items.find(i => i.schichtart === 'Früh');
-        const s = c.items.find(i => i.schichtart === 'Spät');
-        const n = c.items.find(i => i.schichtart === 'Nacht');
-        const g = c.items.find(i => i.schichtart == null);
-        const fr = f ? f.anzahl : (g ? g.anzahl : 0);
-        const sp = s ? s.anzahl : (g ? g.anzahl : 0);
-        const na = n ? n.anzahl : (g ? g.anzahl : 0);
+        const f = c.items.find((i) => i.schichtart === 'Früh');
+        const s = c.items.find((i) => i.schichtart === 'Spät');
+        const n = c.items.find((i) => i.schichtart === 'Nacht');
+        const g = c.items.find((i) => i.schichtart == null);
+        const fr = f ? f.anzahl : g ? g.anzahl : 0;
+        const sp = s ? s.anzahl : g ? g.anzahl : 0;
+        const na = n ? n.anzahl : g ? g.anzahl : 0;
         return sum + Math.max(fr, sp, na);
       }, 0);
   }, [gruppiert]);
+
+  // NEU: Info-Text zum Betriebsmodus (24/7 vs. Wochenbetrieb)
+const betriebsInfo = useMemo(() => {
+  if (!rows.length) return 'Modus: (Standard 24/7, noch keine Einträge)';
+  const anyWeek = rows.find((r) => r.betriebsmodus === 'wochenbetrieb');
+  if (!anyWeek) return 'Modus: 24/7-Betrieb';
+
+  let muster = '';
+  switch (anyWeek.wochen_tage) {
+    case 'MO_FR':
+      muster = 'Mo–Fr (F/S/N)';
+      break;
+    case 'MO_SA_ALL':
+      muster = 'Mo–Sa (F/S/N)';
+      break;
+    case 'MO_FR_SA_F':
+      muster = 'Mo–Fr (F/S/N), Sa nur Früh';
+      break;
+    case 'MO_FR_SA_FS':
+      muster = 'Mo–Fr (F/S/N), Sa Früh & Spät';
+      break;
+    case 'SO_FR_ALL':
+      muster = 'So Nacht – Fr Spät';
+      break;
+    default:
+      muster = anyWeek.wochen_tage || '';
+  }
+  return `Modus: Wochenbetrieb ${muster}`;
+}, [rows]);
+
 
   const handleLoeschen = async (id) => {
     if (!window.confirm('Soll dieser Eintrag gelöscht werden?')) return;
@@ -109,7 +152,7 @@ const NormalbetriebAnzeige = ({ refreshKey }) => {
       alert('Löschen fehlgeschlagen.');
       return;
     }
-    setRows(prev => prev.filter(r => r.id !== id));
+    setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
   const renderItem = (it) => {
@@ -123,7 +166,9 @@ const NormalbetriebAnzeige = ({ refreshKey }) => {
           <span className="font-medium">{it.anzahl}</span>
         </div>
         <button
-          className={`p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 ${busyId===it.id ? 'opacity-50 pointer-events-none' : ''}`}
+          className={`p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 ${
+            busyId === it.id ? 'opacity-50 pointer-events-none' : ''
+          }`}
           title="Eintrag löschen"
           onClick={() => handleLoeschen(it.id)}
         >
@@ -136,69 +181,91 @@ const NormalbetriebAnzeige = ({ refreshKey }) => {
   return (
     <div className="relative p-4 border border-gray-300 dark:border-gray-700 shadow-xl rounded-xl">
       {/* Header */}
-<div className="flex justify-between items-center mb-3">
-  <h3 className="text-md font-semibold">
-    Normalbetrieb
-    {/* Summenzeile F/S/N (nur betriebsrelevant) */}
-    <div className="text-sm font-medium border-t pt-2 dark:border-gray-600">
-      <span className="mr-4">Früh: <b>{summen.fr}</b></span>
-      <span className="mr-4">Spät: <b>{summen.sp}</b></span>
-      <span>Nacht: <b>{summen.na}</b></span>
-    </div>
-  </h3>
-  <button
-    className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
-    onClick={() => setInfoOffen(true)}
-    title="Informationen"
-  >
-    <Info size={20} />
-  </button>
-</div>
-
-{gruppiert.length === 0 ? (
-  <p className="text-sm text-gray-500 italic">Keine Einträge im Normalbetrieb vorhanden.</p>
-) : (
-  <>
-    {/* Betriebsrelevante */}
-    <ul className="text-sm space-y-3 mb-4">
-      {gruppiert.filter(c => c.betriebs_relevant).map((card) => (
-        <li key={`rel-${card.quali_id}`} className="bg-gray-300 dark:bg-gray-700 rounded-2xl">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-            <div className="flex items-center gap-2">
-              <div className="font-medium">{card.name}</div>
-              <div className="text-xs text-gray-500">{card.kuerzel}</div>
-            </div>
+      <div className="flex justify-between items-center mb-3">
+        <div>
+          <h3 className="text-md font-semibold">Normalbetrieb</h3>
+          {/* NEU: Modus-Anzeige */}
+          <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+            {betriebsInfo}
           </div>
-          <div className="px-3 py-2">
-            {card.items.map(renderItem)}
+          {/* Summenzeile F/S/N (nur betriebsrelevant) */}
+          <div className="text-sm font-medium border-t pt-2 mt-2 dark:border-gray-600">
+            <span className="mr-4">
+              Früh: <b>{summen.fr}</b>
+            </span>
+            <span className="mr-4">
+              Spät: <b>{summen.sp}</b>
+            </span>
+            <span>
+              Nacht: <b>{summen.na}</b>
+            </span>
           </div>
-        </li>
-      ))}
-    </ul>
-
-    {/* Zusatz / nicht betriebsrelevant */}
-    {gruppiert.some(c => !c.betriebs_relevant) && (
-      <div className="mt-5">
-        <h4 className="text-sm font-semibold mb-2">Weitere Qualifikationen (nicht gezählt)</h4>
-        <ul className="text-sm space-y-3">
-          {gruppiert.filter(c => !c.betriebs_relevant).map((card) => (
-            <li key={`nrel-${card.quali_id}`} className="bg-gray-300/50 dark:bg-gray-700/50 rounded-2xl">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-                <div className="flex items-center gap-2">
-                  <div className="font-medium">{card.name}</div>
-                  <div className="text-xs text-gray-500">{card.kuerzel}</div>
-                </div>
-              </div>
-              <div className="px-3 py-2">
-                {card.items.map(renderItem)}
-              </div>
-            </li>
-          ))}
-        </ul>
+        </div>
+        <button
+          className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+          onClick={() => setInfoOffen(true)}
+          title="Informationen"
+        >
+          <Info size={20} />
+        </button>
       </div>
-    )}
-  </>
-)}
+
+      {gruppiert.length === 0 ? (
+        <p className="text-sm text-gray-500 italic">
+          Keine Einträge im Normalbetrieb vorhanden.
+        </p>
+      ) : (
+        <>
+          {/* Betriebsrelevante */}
+          <ul className="text-sm space-y-3 mb-4">
+            {gruppiert
+              .filter((c) => c.betriebs_relevant)
+              .map((card) => (
+                <li
+                  key={`rel-${card.quali_id}`}
+                  className="bg-gray-300 dark:bg-gray-700 rounded-2xl"
+                >
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{card.name}</div>
+                      <div className="text-xs text-gray-500">{card.kuerzel}</div>
+                    </div>
+                  </div>
+                  <div className="px-3 py-2">{card.items.map(renderItem)}</div>
+                </li>
+              ))}
+          </ul>
+
+          {/* Zusatz / nicht betriebsrelevant */}
+          {gruppiert.some((c) => !c.betriebs_relevant) && (
+            <div className="mt-5">
+              <h4 className="text-sm font-semibold mb-2">
+                Weitere Qualifikationen (nicht gezählt)
+              </h4>
+              <ul className="text-sm space-y-3">
+                {gruppiert
+                  .filter((c) => !c.betriebs_relevant)
+                  .map((card) => (
+                    <li
+                      key={`nrel-${card.quali_id}`}
+                      className="bg-gray-300/50 dark:bg-gray-700/50 rounded-2xl"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">{card.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {card.kuerzel}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="px-3 py-2">{card.items.map(renderItem)}</div>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Info-Modal */}
       {infoOffen && (
@@ -210,12 +277,26 @@ const NormalbetriebAnzeige = ({ refreshKey }) => {
             className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow animate-fade-in max-w-lg w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-2">Hinweise zur Normalbetrieb-Anzeige</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              Hinweise zur Normalbetrieb-Anzeige
+            </h3>
             <ul className="list-disc pl-5 text-sm space-y-2">
               <li>Nur <b>Normalbetrieb</b>-Einträge werden hier gezeigt.</li>
-              <li>Pro Qualifikation: <i>Ganztägig</i> oder <i>Früh/Spät/Nacht</i>-Zeilen.</li>
-              <li>Summen unten zählen ausschließlich <b>betriebsrelevante</b> Qualifikationen.</li>
-              <li>„Weitere Qualifikationen (nicht gezählt)“ sind Zusatz/Info und fließen nicht in Summen ein.</li>
+              <li>
+                Der <b>Betriebsmodus</b> (24/7 oder Wochenbetrieb) wird im Bedarfsformular
+                festgelegt und hier oben angezeigt.
+              </li>
+              <li>
+                Pro Qualifikation: <i>Ganztägig</i> oder <i>Früh/Spät/Nacht</i>-Zeilen.
+              </li>
+              <li>
+                Summen unten zählen ausschließlich <b>betriebsrelevante</b>{' '}
+                Qualifikationen.
+              </li>
+              <li>
+                „Weitere Qualifikationen (nicht gezählt)“ sind Zusatz/Info und fließen
+                nicht in Summen ein.
+              </li>
               <li>🗑 löscht die jeweilige Zeile nach Bestätigung.</li>
             </ul>
             <div className="text-right mt-4">

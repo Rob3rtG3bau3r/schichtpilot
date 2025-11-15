@@ -69,13 +69,13 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/dashboard': 'Übersicht',
     '/schichtcockpit': 'Cockpit',
     '/kundenverwaltung': 'Unternehmen',
-    '/schichtart-pflegen': 'Schichtarten einpflegen',
+    '/schichtart-pflegen': 'Schichtarten pflegen',
     '/schichtzuweisen': 'Schicht zuweisen',
     '/user-anlegen': 'Benutzerverwaltung',
     '/sollplan-editor': 'Sollplan erstellen',
     '/bedarfsverwaltung': 'Bedarf Verwalten',
     '/qualifikationenverwalten': 'Qualifikationen zuweisen',
-    '/qualifikationsmatrix': 'Qualifikationen einpflegen',
+    '/qualifikationsmatrix': 'Qualifikationen pflegen',
     '/ferienundfeiertage': 'Ferien & Feiertage',
     '/termineverwaltung': 'Termine',
     '/system-tools': 'System-Tools',
@@ -118,8 +118,8 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             <span className="cursor-pointer">Verwaltung ▾</span>
             {verwaltungOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-                <Link to="/schichtart-pflegen" className="hover:bg-gray-700 rounded px-2 py-1">Schichtarten einpflegen</Link>
-                <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikation einpflegen</Link>
+                <Link to="/schichtart-pflegen" className="hover:bg-gray-700 rounded px-2 py-1">Schichtarten pflegen</Link>
+                <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikation pflegen</Link>
                 <Link to="/qualifikationenverwalten" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikationen zuweisen</Link>
                 <Link to="/schichtzuweisen" className="hover:bg-gray-700 rounded px-2 py-1">Schicht zuweisen</Link>
                 <Link to="/userpflege" className="hover:bg-gray-700 rounded px-2 py-1">User Pflegen</Link>
