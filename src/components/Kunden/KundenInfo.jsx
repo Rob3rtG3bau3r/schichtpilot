@@ -101,7 +101,7 @@ const KundenInfo = ({ firma, onFirmaChange }) => {
   if (!kunde) return <div className="text-sm text-gray-400">Lade Unternehmensdaten…</div>;
 
   return (
-    <div className="p-4 rounded-xl text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-600 shadow-xl bg-gray-200 dark:bg-gray-800">
+    <div className="p-4 rounded-xl text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-600 shadow bg-gray-400/50 dark:bg-gray-900/50">
 
       {/* Dropdown für SuperAdmin */}
       {rolle === 'SuperAdmin' && (

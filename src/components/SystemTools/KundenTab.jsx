@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
 import { ChevronDown, ChevronRight, RotateCw, ArrowUpDown } from 'lucide-react';
+import KundenUnitErstellen from './KundenUnitErstellen';
 
 const fmtDate = (d) => (d ? dayjs(d).format('DD.MM.YYYY') : '—');
 const startOfToday = () => dayjs().startOf('day');
@@ -39,6 +40,7 @@ const SortHeader = ({ label, sortKey, current, setCurrent }) => {
     </button>
   );
 };
+
 
 const TriPill = ({ label, state, onClick, title }) => {
   const style = state==='allow' ? 'bg-green-700/60 border-green-500'
@@ -153,6 +155,7 @@ useEffect(()=> {
   const [orgAdmins, setOrgAdmins] = useState([]);
   const [units, setUnits] = useState([]);
   const [unitsLoading, setUnitsLoading] = useState(false);
+  const [showCreateUnit, setShowCreateUnit] = useState(false);
 
   const loadFirmaDetails = async (firma) => {
     const { data: admins } = await supabase
@@ -612,9 +615,20 @@ const saveUnit = async () => {
           <div className="col-span-12 lg:col-span-7">
             <Panel
               title={`Units von ${selFirma.firmenname}`}
-              right={<Badge tone="default">{units.length} Units</Badge>}
-            >
-
+              //right={<Badge tone="default">{units.length} Units</Badge>}
+              right={
+      <div className="flex items-center gap-2">
+        <Badge tone="default">{units.length} Units</Badge>
+        <button
+          type="button"
+          className="text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-700"
+          onClick={() => setShowCreateUnit(true)}
+        >
+          + Unit erstellen
+        </button>
+      </div>
+    }
+  >
               {/* SECTION: Unit-Liste / Übersicht */}
               <SubSectionTitle>Unit-Übersicht</SubSectionTitle>
 
@@ -888,8 +902,38 @@ const saveUnit = async () => {
     </div>
   </div>
 )}
+  {/* ... deine Unit-Tabelle & Unit-Editor bleiben wie sie sind ... */}
 
-            </Panel>
+  {showCreateUnit && (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
+      <div className="bg-gray-900 rounded-2xl shadow-xl w-full max-w-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold">
+            Neue Unit für {selFirma.firmenname}
+          </h4>
+          <button
+            type="button"
+            className="text-xs px-2 py-1 rounded border border-gray-600 hover:bg-gray-800"
+            onClick={() => setShowCreateUnit(false)}
+          >
+            Schließen
+          </button>
+        </div>
+
+<KundenUnitErstellen
+  firmaId={selFirma.id}
+  onCreated={async (newUnit) => {
+    setShowCreateUnit(false);
+    await loadFirmaDetails(selFirma);
+    setSelUnit(newUnit);
+  }}
+/>
+
+      </div>
+    </div>
+  )}
+
+</Panel>
           </div>
 
         </div>

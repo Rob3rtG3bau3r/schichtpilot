@@ -1,61 +1,147 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../../supabaseClient';
+import { useRollen } from '../../context/RollenContext';
 
-const FEATURES = [
-  { key: 'schichtplannung', label: 'Schichtplannung' },
-  { key: 'schichtstatistik', label: 'Schichtstatistik' },
-  { key: 'handyapp', label: 'Handy App' }
-];
+const Pill = ({ active, children }) => (
+  <span
+    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ${
+      active
+        ? 'bg-emerald-600/80 text-white'
+        : 'bg-gray-700 text-gray-200'
+    }`}
+  >
+    {children}
+  </span>
+);
 
-const KundenFeatureUebersicht = () => {
-  const [selected, setSelected] = useState({});
+export default function KundenFeatureUebersicht() {
+  const { sichtFirma } = useRollen();
+  const [plan, setPlan] = useState(null);
+  const [features, setFeatures] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const toggleFeature = (key) => {
-    setSelected(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
-  };
+  // Plan der Firma laden
+  useEffect(() => {
+    if (!sichtFirma) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('DB_Kunden')
+        .select('plan')
+        .eq('id', sichtFirma)
+        .maybeSingle();
+      if (!error && data) {
+        setPlan(data.plan || null);
+      }
+    })();
+  }, [sichtFirma]);
 
-  const handleSave = () => {
-    console.log('Aktivierte Features:', selected);
-    // TODO: speichern in DB oder Backend-Call planen
-  };
+  // Feature-Matrix laden, sobald Plan bekannt ist
+  useEffect(() => {
+    if (!plan) {
+      setFeatures([]);
+      return;
+    }
 
-  const handleReset = () => {
-    setSelected({});
-  };
+    (async () => {
+      setLoading(true);
+      try {
+        const [{ data: featRows, error: fErr }, { data: pfRows, error: pErr }] =
+          await Promise.all([
+            supabase
+              .from('DB_Features')
+              .select('key, beschreibung, active')
+              .order('key'),
+            supabase
+              .from('DB_PlanFeatures')
+              .select('feature_key, enabled')
+              .eq('plan', plan),
+          ]);
+
+        if (fErr || pErr) {
+          console.error('Feature-Matrix:', fErr || pErr);
+          setFeatures([]);
+          return;
+        }
+
+        const pfMap = new Map();
+        (pfRows || []).forEach((p) => pfMap.set(p.feature_key, !!p.enabled));
+
+        const merged = (featRows || []).map((f) => ({
+          key: f.key,
+          beschreibung: f.beschreibung,
+          systemAktiv: !!f.active,
+          imPlan: pfMap.get(f.key) === true,
+        }));
+
+        setFeatures(merged);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [plan]);
+
+  if (!sichtFirma) {
+    return <div className="text-sm text-gray-400">Keine Firma ausgewählt.</div>;
+  }
+
+  if (!plan) {
+    return (
+      <div className="text-sm text-gray-400">
+        Kein aktiver Plan hinterlegt oder wird geladen…
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-200 p-6 rounded-xl shadow-md">
-      <h2 className="text-xl font-bold mb-4">Features auswählen</h2>
-      <div className="space-y-2">
-        {FEATURES.map(f => (
-          <div key={f.key} className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={!!selected[f.key]}
-              onChange={() => toggleFeature(f.key)}
-            />
-            <label>{f.label}</label>
-          </div>
-        ))}
+    <div className="text-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <div>
+          <div className="text-xs uppercase opacity-70">Aktueller Plan</div>
+          <div className="text-sm font-semibold">{plan}</div>
+        </div>
+        <div className="text-xs text-gray-400 text-right">
+          Diese Übersicht zeigt, welche Features laut Plan grundsätzlich
+          enthalten sind. Feinere Einstellungen pro Unit siehst du auf
+          der System-Admin-Seite.
+        </div>
       </div>
-      <div className="pt-4 flex space-x-4">
-        <button
-          onClick={handleSave}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-        >
-          Speichern
-        </button>
-        <button
-          onClick={handleReset}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
-        >
-          Reset
-        </button>
-      </div>
+
+      {loading ? (
+        <div className="text-gray-400">Lade Features…</div>
+      ) : features.length === 0 ? (
+        <div className="text-gray-400">Keine Features gefunden.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-left uppercase text-[11px] opacity-70 border-b border-gray-700">
+                <th className="py-1 pr-2">Feature</th>
+                <th className="py-1 pr-2">Beschreibung</th>
+                <th className="py-1 pr-2">Im Plan</th>
+                <th className="py-1 pr-2">Systemstatus</th>
+              </tr>
+            </thead>
+            <tbody>
+              {features.map((f) => (
+                <tr key={f.key} className="border-b border-gray-800">
+                  <td className="py-1 pr-2 font-mono text-[11px]">{f.key}</td>
+                  <td className="py-1 pr-2">{f.beschreibung || '—'}</td>
+                  <td className="py-1 pr-2">
+                    <Pill active={f.imPlan}>
+                      {f.imPlan ? 'inklusive' : 'nicht im Plan'}
+                    </Pill>
+                  </td>
+                  <td className="py-1 pr-2">
+                    <Pill active={f.systemAktiv}>
+                      {f.systemAktiv ? 'aktiv' : 'deaktiviert'}
+                    </Pill>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
-};
-
-export default KundenFeatureUebersicht;
+}
