@@ -38,9 +38,6 @@ const fmt2 = (n) => {
   return Number.isFinite(v) ? v.toFixed(2) : '–';
 };
 
-// Nur eq anwenden, wenn Wert vorhanden
-const addEq = (q, col, val) => (val === null || val === undefined ? q : q.eq(col, val));
-
 const KampfListe = ({
   jahr,
   monat,
@@ -252,9 +249,9 @@ const KampfListe = ({
       const monthStartDefault = `${prefix}-01`;
       const monthEndDefault = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
-      // Bereich für Ausgrauen/Quali etc.
-      const monthStart = rangeStart || monthStartDefault;
-      const monthEnd = rangeEnd || monthEndDefault;
+      // ⬇️ NEU: Range immer auf YYYY-MM-DD normalisieren
+      const monthStart = rangeStart ? dayjs(rangeStart).format('YYYY-MM-DD') : monthStartDefault;
+      const monthEnd   = rangeEnd   ? dayjs(rangeEnd).format('YYYY-MM-DD')   : monthEndDefault;
 
       // ---- v_tagesplan laden: je nach Modus ----
       let viewRows = [];
@@ -263,21 +260,48 @@ const KampfListe = ({
         'hat_aenderung, kommentar, ist_created_at, ist_created_by';
 
       if (rangeStart && rangeEnd) {
-        // 🔥 Wochen-/Bereichsansicht → direkt den Bereich nehmen (monatsübergreifend)
-        const { data, error } = await supabase
-          .from('v_tagesplan')
-          .select(selectCols)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .gte('datum', monthStart)
-          .lte('datum', monthEnd);
+        // 🔥 Wochen-/Bereichsansicht → in 7-Tage-Chunks aufteilen (gegen 999-Limit)
+        const start = dayjs(monthStart);
+const end = dayjs(monthEnd);
+const MAX_DAYS_PER_CHUNK = 7;
+const ranges = [];
+let cursor = start;
 
-        if (error) {
-          console.error('❌ Fehler v_tagesplan (Range):', error.message || error);
-          viewRows = [];
-        } else {
-          viewRows = data || [];
-        }
+while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
+  const chunkStart = cursor;
+
+  // bis zu 7 Tage nach vorne gehen
+  let chunkEnd = chunkStart.add(MAX_DAYS_PER_CHUNK - 1, 'day');
+  // aber nicht über das Gesamtende hinaus
+  if (chunkEnd.isAfter(end, 'day')) {
+    chunkEnd = end;
+  }
+
+  ranges.push([
+    chunkStart.format('YYYY-MM-DD'),
+    chunkEnd.format('YYYY-MM-DD'),
+  ]);
+
+  cursor = chunkEnd.add(1, 'day');
+}
+
+        const viewChunks = await Promise.all(
+          ranges.map(async ([startDate, endDate]) => {
+            const { data, error } = await supabase
+              .from('v_tagesplan')
+              .select(selectCols)
+              .eq('firma_id', firma)
+              .eq('unit_id', unit)
+              .gte('datum', startDate)
+              .lte('datum', endDate);
+            if (error) {
+              console.error('❌ Fehler v_tagesplan (Range-Chunk):', error.message || error);
+              return [];
+            }
+            return data || [];
+          })
+        );
+        viewRows = viewChunks.flat();
       } else {
         // 🧱 Fallback: Monatsansicht wie bisher in 4 Chunks
         const q1 = Math.floor(daysInMonth / 4);
@@ -863,4 +887,3 @@ const KampfListe = ({
 };
 
 export default KampfListe;
-

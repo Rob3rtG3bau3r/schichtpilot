@@ -46,7 +46,6 @@ const Badge = ({ children }) => (
 // ------------------------------------------------------------------------
 
 const Kundenverwaltung = () => {
-  const [showUnit, setShowUnit] = useState(false);
   const [showFeatures, setShowFeatures] = useState(false);
   const [showTabelle, setShowTabelle] = useState(true);
   const { sichtFirma } = useRollen();
