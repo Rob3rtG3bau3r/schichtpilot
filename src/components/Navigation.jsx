@@ -9,7 +9,8 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   const [verwaltungOpen, setVerwaltungOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [plannungOpen, setPlannungOpen] = useState(false);
+  const [PlanungOpen, setPlanungOpen] = useState(false);
+  const [canSeeWochenplaner, setCanSeeWochenplaner] = useState(false);
 
   const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
   const [canSeeCompanyPage, setCanSeeCompanyPage] = useState(false);
@@ -17,11 +18,35 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   const verwaltungTimeout = useRef(null);
   const reportTimeout = useRef(null);
   const adminTimeout = useRef(null);
-  const plannungTimeout = useRef(null);
+  const PlanungTimeout = useRef(null);
   const delay = 300;
 
   // ---------- Feature Gate: top_report (nur für Linkanzeige) ----------
   const [canSeeTopReport, setCanSeeTopReport] = useState(false);
+useEffect(() => {
+  if (!unit) {
+    setCanSeeWochenplaner(false);
+    return;
+  }
+  (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('DB_Unit')
+        .select('wochenplanung_aktiv')
+        .eq('id', unit)
+        .maybeSingle();
+
+      if (error || !data) {
+        setCanSeeWochenplaner(false);
+      } else {
+        setCanSeeWochenplaner(!!data.wochenplanung_aktiv);
+      }
+    } catch (e) {
+      console.error('wochenplanung_aktiv check error:', e);
+      setCanSeeWochenplaner(false);
+    }
+  })();
+}, [unit]);
 
   useEffect(() => {
     // Nur für Rollen mit Reports-Menü prüfen
@@ -81,8 +106,8 @@ const Navigation = ({ darkMode, setDarkMode }) => {
   const openVerwaltung = () => { clearTimeout(verwaltungTimeout.current); setVerwaltungOpen(true); };
   const closeVerwaltung = () => { verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay); };
 
-  const openPlannung = () => { clearTimeout(plannungTimeout.current); setPlannungOpen(true); };
-  const closePlannung = () => { plannungTimeout.current = setTimeout(() => setPlannungOpen(false), delay); };
+  const openPlanung = () => { clearTimeout(PlanungTimeout.current); setPlanungOpen(true); };
+  const closePlanung = () => { PlanungTimeout.current = setTimeout(() => setPlanungOpen(false), delay); };
 
   const openReport = () => { clearTimeout(reportTimeout.current); setReportOpen(true); };
   const closeReport = () => { reportTimeout.current = setTimeout(() => setReportOpen(false), delay); };
@@ -109,6 +134,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/unit-reports': 'Unit bericht',
     '/userpflege': 'UserPflege',
     '/top-report': 'Top bericht',
+    '/wochenplaner': 'Wochenplaner',   
   };
 
     const aktuellerTitel = pfadZuTitel[location.pathname] || '';
@@ -129,16 +155,21 @@ const Navigation = ({ darkMode, setDarkMode }) => {
 
         {/* Planner-Menü: Nur SuperAdmin, Admin_Dev, Planner */}
         {['SuperAdmin', 'Admin_Dev', 'Planner'].includes(rolle) && (
-          <div className="relative" onMouseEnter={openPlannung} onMouseLeave={closePlannung}>
-            <span className="cursor-pointer">Plannung ▾</span>
-            {plannungOpen && (
-              <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-                <Link to="/bedarfsverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">Bedarf Verwalten</Link>
-                <Link to="/termineverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">Termine</Link>
-              </div>
-            )}
-          </div>
+  <div className="relative" onMouseEnter={openPlanung} onMouseLeave={closePlanung}>
+    <span className="cursor-pointer">Planung ▾</span>
+    {PlanungOpen && (
+      <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
+        <Link to="/bedarfsverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">Bedarf Verwalten</Link>
+        <Link to="/termineverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">Termine</Link>
+        { (rolle === 'SuperAdmin' || canSeeWochenplaner) && (
+          <Link to="/wochenplaner" className="hover:bg-gray-700 rounded px-2 py-1">
+            Wochenplaner
+          </Link>
         )}
+      </div>
+    )}
+  </div>
+)}
 
         {/* Verwaltung-Menü: Nur SuperAdmin, Admin_Dev */}
         {['SuperAdmin', 'Admin_Dev'].includes(rolle) && (

@@ -1,4 +1,4 @@
-// src/components/Dashboard/KampfListe.jsx
+// src/components/Cockpit/Wochen_Kampfliste.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
@@ -38,7 +38,7 @@ const fmt2 = (n) => {
   return Number.isFinite(v) ? v.toFixed(2) : '–';
 };
 
-const KampfListe = ({
+const Wochen_Kampfliste = ({
   jahr,
   monat,
   setPopupOffen,
@@ -46,7 +46,8 @@ const KampfListe = ({
   reloadkey,
   sichtbareGruppen,
   setGruppenZähler,
-  onRefreshMitarbeiterBedarf,
+  onRefreshMitarbeiterBedarf, // optional, wie bei Monats-KampfListe
+  wochenAnzahl, // wird aktuell nur indirekt über sp:visibleRange genutzt
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
@@ -56,12 +57,39 @@ const KampfListe = ({
   const [popupEintrag, setPopupEintrag] = useState(null);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
 
-  // Globale Auswahl aus dem Kalender (Selection kann bleiben, nur keine Wochenlogik)
+  // Globale Auswahl aus der Wochen-KalenderStruktur
   const [selectedDates, setSelectedDates] = useState(new Set());
   useEffect(() => {
     const onSel = (e) => setSelectedDates(new Set(e.detail?.selected || []));
     window.addEventListener('sp:selectedDates', onSel);
     return () => window.removeEventListener('sp:selectedDates', onSel);
+  }, []);
+
+  // 🔄 Sichtbarer Datumsbereich von Wochen_KalenderStruktur
+  const [rangeStart, setRangeStart] = useState(null);
+  const [rangeEnd, setRangeEnd] = useState(null);
+
+  useEffect(() => {
+    const onRange = (e) => {
+      const { start, end } = e.detail || {};
+      if (start && end) {
+        setRangeStart(start);
+        setRangeEnd(end);
+      }
+    };
+
+    window.addEventListener('sp:visibleRange', onRange);
+
+    // Beim Mount evtl. schon bekannten Bereich übernehmen
+    if (typeof window !== 'undefined' && window.__spVisibleRange) {
+      const { start, end } = window.__spVisibleRange;
+      if (start && end) {
+        setRangeStart(start);
+        setRangeEnd(end);
+      }
+    }
+
+    return () => window.removeEventListener('sp:visibleRange', onRange);
   }, []);
 
   const [qualiModalOffen, setQualiModalOffen] = useState(false);
@@ -101,23 +129,32 @@ const KampfListe = ({
     cellHideTimerRef.current = setTimeout(() => setHoveredCellKey(null), 120);
   };
 
-  // ---- Datum-Prefix (Monatsbasis) ----
-  const prefix = `${jahr}-${String(monat + 1).padStart(2, '0')}`;
-
-  // 🔁 Spalten/Tage: immer kompletter Monat
+  // 🔁 Spalten/Tage aus rangeStart / rangeEnd
   useEffect(() => {
-    const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
+    if (!rangeStart || !rangeEnd) {
+      setTage([]);
+      return;
+    }
+
+    const start = dayjs(rangeStart);
+    const end = dayjs(rangeEnd);
     const neueTage = [];
-    for (let tag = 1; tag <= tageImMonat; tag++) {
-      const datum = new Date(jahr, monat, tag);
+
+    for (
+      let d = start;
+      d.isSame(end, 'day') || d.isBefore(end, 'day');
+      d = d.add(1, 'day')
+    ) {
+      const datum = d.toDate();
       neueTage.push({
-        date: dayjs(datum).format('YYYY-MM-DD'),
-        tag,
+        date: d.format('YYYY-MM-DD'),
+        tag: d.date(),
         wochentag: datum.toLocaleDateString('de-DE', { weekday: 'short' }),
       });
     }
+
     setTage(neueTage);
-  }, [jahr, monat]);
+  }, [rangeStart, rangeEnd]);
 
   // --- Quali-Counts laden (gültig am cutoff) ---
   const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
@@ -189,48 +226,55 @@ const KampfListe = ({
   useEffect(() => {
     const ladeKampfliste = async () => {
       if (!firma || !unit) return;
+      if (!rangeStart || !rangeEnd) return;
 
-      const daysInMonth = new Date(jahr, monat + 1, 0).getDate();
-      const monthStart = `${prefix}-01`;
-      const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
+      const rangeStartIso = dayjs(rangeStart).format('YYYY-MM-DD');
+      const rangeEndIso = dayjs(rangeEnd).format('YYYY-MM-DD');
 
-      // ---- v_tagesplan laden: immer Monatsansicht in 4 Chunks (gegen 999-Limit) ----
+      // ---- v_tagesplan laden: Bereich in 7-Tage-Chunks (gegen 999-Limit) ----
       let viewRows = [];
       const selectCols =
         'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
         'hat_aenderung, kommentar, ist_created_at, ist_created_by';
 
-      const q1 = Math.floor(daysInMonth / 4);
-      const q2 = Math.floor(daysInMonth / 2);
-      const q3 = Math.floor((3 * daysInMonth) / 4);
+      const start = dayjs(rangeStartIso);
+      const end = dayjs(rangeEndIso);
+      const MAX_DAYS_PER_CHUNK = 7;
+      const ranges = [];
+      let cursor = start;
 
-      const dayToDate = (d) => `${prefix}-${String(d).padStart(2, '0')}`;
-
-      const ranges = [
-        [1, q1],
-        [q1 + 1, q2],
-        [q2 + 1, q3],
-        [q3 + 1, daysInMonth],
-      ].filter(([a, b]) => a <= b);
-
-      const fetchViewRange = async (startDate, endDate) => {
-        const { data, error } = await supabase
-          .from('v_tagesplan')
-          .select(selectCols)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .gte('datum', startDate)
-          .lte('datum', endDate);
-        if (error) {
-          console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
-          return [];
+      while (cursor.isSame(end, 'day') || cursor.isBefore(end, 'day')) {
+        const chunkStart = cursor;
+        let chunkEnd = chunkStart.add(MAX_DAYS_PER_CHUNK - 1, 'day');
+        if (chunkEnd.isAfter(end, 'day')) {
+          chunkEnd = end;
         }
-        return data || [];
-      };
+
+        ranges.push([
+          chunkStart.format('YYYY-MM-DD'),
+          chunkEnd.format('YYYY-MM-DD'),
+        ]);
+
+        cursor = chunkEnd.add(1, 'day');
+      }
 
       const viewChunks = await Promise.all(
-        ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
+        ranges.map(async ([startDate, endDate]) => {
+          const { data, error } = await supabase
+            .from('v_tagesplan')
+            .select(selectCols)
+            .eq('firma_id', firma)
+            .eq('unit_id', unit)
+            .gte('datum', startDate)
+            .lte('datum', endDate);
+          if (error) {
+            console.error('❌ Fehler v_tagesplan (Range-Chunk):', error.message || error);
+            return [];
+          }
+          return data || [];
+        })
       );
+
       viewRows = viewChunks.flat();
 
       // ---- Schichtarten (Farben/Kürzel) laden ----
@@ -255,9 +299,8 @@ const KampfListe = ({
       // ---- View → kampfData-Form ----
       const kampfData = (viewRows || [])
         .filter((r) => {
-          if (!monthStart || !monthEnd) return true;
           const d = r.datum;
-          return d >= monthStart && d <= monthEnd;
+          return d >= rangeStartIso && d <= rangeEndIso;
         })
         .map((r) => ({
           id: null,
@@ -305,8 +348,8 @@ const KampfListe = ({
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .in('user_id', alleUserIds)
-        .lte('von', monthEnd)
-        .or(`bis.is.null, bis.gte.${monthStart}`);
+        .lte('von', rangeEndIso)
+        .or(`bis.is.null, bis.gte.${rangeStartIso}`);
 
       if (ausErr) {
         console.error('❌ Fehler DB_Ausgrauen:', ausErr.message || ausErr);
@@ -326,11 +369,11 @@ const KampfListe = ({
       setAusgrauenByUser(mapAus);
 
       // ---- Quali-Counts ----
-      const cutoffIso = dayjs(monthEnd).endOf('day').toISOString();
+      const cutoffIso = dayjs(rangeEndIso).endOf('day').toISOString();
       const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
       setQualiCountMap(qualiMap);
 
-      // ---- Urlaub & Stunden ----
+      // ---- Urlaub & Stunden (Jahresdaten) ----
       const jahrNum = Number(jahr) || new Date().getFullYear();
       const [urlaubRes, stundenRes] = await Promise.all([
         supabase
@@ -383,16 +426,16 @@ const KampfListe = ({
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .in('user_id', alleUserIds)
-        .lte('von_datum', monthEnd);
+        .lte('von_datum', rangeEndIso);
       if (zuwErr) {
         console.error('❌ Fehler beim Laden der Zuweisungen:', zuwErr.message || zuwErr);
       }
 
-      const zuwMonat = (zuwRaw || []).filter(
-        (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(monthStart, 'day')
+      const zuwBereich = (zuwRaw || []).filter(
+        (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(rangeStartIso, 'day')
       );
       const zuwByUser = new Map();
-      for (const z of zuwMonat) {
+      for (const z of zuwBereich) {
         const uid = String(z.user_id);
         const arr = zuwByUser.get(uid) || [];
         arr.push(z);
@@ -488,10 +531,10 @@ const KampfListe = ({
 
     ladeKampfliste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, setGruppenZähler]);
+  }, [firma, unit, jahr, reloadkey, sichtbareGruppen, rangeStart, rangeEnd, setGruppenZähler]);
 
   return (
-    <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
+    <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6 mt-3">
       <div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
         <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
           {/* linke Namensspalte */}
@@ -791,4 +834,4 @@ const KampfListe = ({
   );
 };
 
-export default KampfListe;
+export default Wochen_Kampfliste;

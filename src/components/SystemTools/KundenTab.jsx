@@ -181,7 +181,8 @@ useEffect(()=> {
     preis_monat_basis,
     rabatt_unit_prozent,
     rabatt_unit_fix,
-    abrechnung_notiz
+    abrechnung_notiz,
+    wochenplanung_aktiv 
   `)
   .eq('firma', firma.id)
   .order('unitname', { ascending: true });
@@ -294,6 +295,7 @@ useEffect(()=> {
     rabatt_unit_prozent: selUnit.rabatt_unit_prozent ?? '',
     rabatt_unit_fix: selUnit.rabatt_unit_fix ?? '',
     abrechnung_notiz: selUnit.abrechnung_notiz || '',
+    wochenplanung_aktiv: !!selUnit.wochenplanung_aktiv,
   });
 }, [selUnit]);
 
@@ -337,6 +339,7 @@ const saveUnit = async () => {
     rabatt_unit_prozent: toNumOrNull(unitEdit.rabatt_unit_prozent),
     rabatt_unit_fix: toNumOrNull(unitEdit.rabatt_unit_fix),
     abrechnung_notiz: unitEdit.abrechnung_notiz || null,
+    wochenplanung_aktiv: !!unitEdit.wochenplanung_aktiv,
   };
 
   await supabase.from('DB_Unit').update(payload).eq('id', selUnit.id);
@@ -356,7 +359,8 @@ const saveUnit = async () => {
       preis_monat_basis,
       rabatt_unit_prozent,
       rabatt_unit_fix,
-      abrechnung_notiz
+      abrechnung_notiz,
+      wochenplanung_aktiv  
     `)
     .eq('id', selUnit.id).maybeSingle()).data;
   setSelUnit(updated);
@@ -806,6 +810,30 @@ const saveUnit = async () => {
           </div>
         </div>
       </div>
+    </div>
+    {/* --- SECTION: Wochen-Planung Flag --- */}
+    <div>
+      <SubSectionTitle>Wochen-Planung</SubSectionTitle>
+
+      <div className="mt-2 flex items-center gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={!!unitEdit.wochenplanung_aktiv}
+            onChange={e =>
+              setUnitEdit(s => ({
+                ...s,
+                wochenplanung_aktiv: e.target.checked,
+              }))
+            }
+          />
+          <span>WochenPlanung für diese Unit aktiv</span>
+        </label>
+      </div>
+
+      <p className="mt-1 text-xs text-gray-400">
+        Wenn aktiv, ist der Wochenplaner in der Navigation für diese Unit sichtbar.
+      </p>
     </div>
 
     {/* --- SECTION: Abrechnung / Preise --- */}

@@ -1,4 +1,4 @@
-// src/components/Dashboard/MitarbeiterBedarf.jsx
+// src/components/Cockpit/Wochen_MitarbeiterBedarf.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
@@ -14,7 +14,7 @@ import { Info } from 'lucide-react';
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
 const FEATURE_ANALYSE = 'bedarf_analyse';
 
-// --- Schicht-Helpers (neu) ---
+// --- Schicht-Helpers ---
 const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
 const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
 
@@ -59,11 +59,13 @@ const groupByQualiSum = (items) => {
 
 const iconFor = (n) => (n === 1 ? '👤' : '👥');
 
-
-const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
+const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
-  const [tage, setTage] = useState([]);
+  const [tage, setTage] = useState([]); // ['YYYY-MM-DD', ...] – jetzt aus visibleRange
+  const [rangeStart, setRangeStart] = useState(null);
+  const [rangeEnd, setRangeEnd] = useState(null);
+
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
 
@@ -158,17 +160,42 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   // Cache leeren bei Kontextwechsel
   useEffect(() => {
     tooltipCache.current = new Map();
-  }, [firma, unit, jahr, monat, refreshKey]);
+  }, [firma, unit, rangeStart, rangeEnd, refreshKey]);
 
-  // Tage des Monats (ohne Wochenlogik – immer kompletter Monat)
+  // ===== Tage aus sichtbarem Bereich (sp:visibleRange), NICHT ganzer Monat =====
   useEffect(() => {
-    const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
-    const arr = [];
-    for (let d = 1; d <= tageImMonat; d++) {
-      arr.push(dayjs(new Date(jahr, monat, d)).format('YYYY-MM-DD'));
+    const onRange = (e) => {
+      const { start, end } = e.detail || {};
+      if (!start || !end) return;
+
+      setRangeStart(start);
+      setRangeEnd(end);
+
+      const startD = dayjs(start);
+      const endD = dayjs(end);
+      const arr = [];
+      for (
+        let d = startD;
+        d.isSame(endD, 'day') || d.isBefore(endD, 'day');
+        d = d.add(1, 'day')
+      ) {
+        arr.push(d.format('YYYY-MM-DD'));
+      }
+      setTage(arr);
+    };
+
+    window.addEventListener('sp:visibleRange', onRange);
+
+    // Initialwert, falls Kalender schon gemountet war
+    if (typeof window !== 'undefined' && window.__spVisibleRange) {
+      const { start, end } = window.__spVisibleRange;
+      if (start && end) {
+        onRange({ detail: { start, end } });
+      }
     }
-    setTage(arr);
-  }, [jahr, monat]);
+
+    return () => window.removeEventListener('sp:visibleRange', onRange);
+  }, []);
 
   // Feature-Flags
   useEffect(() => {
@@ -245,55 +272,44 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
       switch (b.wochen_tage) {
         case 'MO_FR': {
-          // Mo–Fr (F/S/N)
           if (weekday < 1 || weekday > 5) return false;
           break;
         }
         case 'MO_SA_ALL': {
-          // Mo–Sa (F/S/N)
           if (weekday < 1 || weekday > 6) return false;
           break;
         }
         case 'MO_FR_SA_F': {
-          // Mo–Fr (F/S/N), Sa nur Früh
-          if (weekday === 0) return false;              // Sonntag: kein Bedarf
-          if (weekday === 6 && schLabel !== 'Früh') return false; // Sa: nur Früh
+          if (weekday === 0) return false;
+          if (weekday === 6 && schLabel !== 'Früh') return false;
           if (weekday < 1 || weekday > 6) return false;
           break;
         }
         case 'MO_FR_SA_FS': {
-          // Mo–Fr (F/S/N), Sa Früh & Spät
-          if (weekday === 0) return false;              // Sonntag: kein Bedarf
-          if (weekday === 6 && schLabel === 'Nacht') return false; // Sa: keine Nacht
+          if (weekday === 0) return false;
+          if (weekday === 6 && schLabel === 'Nacht') return false;
           if (weekday < 1 || weekday > 6) return false;
           break;
         }
         case 'SO_FR_ALL': {
-          // So Nacht – Fr Spät
           if (weekday === 0) {
-            // Sonntag: nur Nachtschicht hat Bedarf
             if (schLabel !== 'Nacht') return false;
           } else if (weekday >= 1 && weekday <= 4) {
-            // Mo–Do: F/S/N erlaubt
-            // (nichts zu tun)
+            // ok
           } else if (weekday === 5) {
-            // Freitag: nur Früh & Spät
             if (schLabel === 'Nacht') return false;
           } else {
-            // Samstag: kein Bedarf
             return false;
           }
           break;
         }
         default: {
-          // unbekanntes Muster → wie 24/7 behandeln
-          break;
+          break; // 24/7
         }
       }
     }
-    // (b.normalbetrieb && betriebsmodus === '24_7' oder null) => keine Einschränkung
 
-    // 2) Schichtgrenzen beachten (nur für zeitlich begrenzt relevant)
+    // 2) Schichtgrenzen
     if (!schichtInnerhalbGrenzen(b, datumISO, schLabel)) return false;
 
     // 3) Schichtart: null = alle Schichten, sonst nur die konkrete
@@ -301,7 +317,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     return b.schichtart === schLabel;
   };
 
-  // ===== Daten laden (Plan + Zuweisung als Basis, Kampfliste überschreibt) =====
+  // ===== Daten laden (identische Logik wie Monats-Komponente, aber mit Wochen-Tagen) =====
   const ladeMitarbeiterBedarf = async () => {
     if (!firma || !unit || tage.length === 0) return;
 
@@ -325,7 +341,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       planByDate.get(d).set(r.schichtgruppe, r.kuerzel);
     });
 
-    // 2) ZUWEISUNGEN (wer gehört an welchem Tag zu welcher Gruppe)
+    // 2) ZUWEISUNGEN
     const { data: zuw } = await supabase
       .from('DB_SchichtZuweisung')
       .select('user_id, schichtgruppe, von_datum, bis_datum')
@@ -334,7 +350,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       .lte('von_datum', monthEnd)
       .or(`bis_datum.is.null, bis_datum.gte.${monthStart}`);
 
-    // Pro Tag: Map(userId -> { gruppe, von_datum }) — nur jüngste Zuweisung pro User
     const membersByDate = new Map();
     (tage || []).forEach((d) => membersByDate.set(d, new Map()));
     for (const z of zuw || []) {
@@ -349,7 +364,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       }
     }
 
-    // 3) KAMPFLISTE-OVERLAY (Änderungen)
+    // 3) KAMPFLISTE-OVERLAY
     const { data: kampf } = await supabase
       .from('DB_Kampfliste')
       .select('datum, user, ist_schicht(kuerzel)')
@@ -365,7 +380,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       override.set(`${d}|${r.user}`, r.ist_schicht?.kuerzel || null);
     });
 
-    // 4) FINAL: DIENSTE (liste)
+    // 4) FINAL: DIENSTE
     const dienste = [];
     const allUserIdsSet = new Set();
 
@@ -408,7 +423,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     });
     setMatrixMapState(matrixMap);
 
-    // 6) Qualis (gültig nach Matrix; Zeitraum-Check machen wir pro Tag) & Namen
     const userIds = Array.from(allUserIdsSet);
 
     let qualis = [];
@@ -431,12 +445,12 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .in('user_id', part)
           .eq('matrix.firma_id', firma)
           .eq('matrix.unit_id', unit)
-          .eq('matrix.aktiv', true); // nur aktive Matrix-Einträge berücksichtigen
+          .eq('matrix.aktiv', true);
         if (!error && data?.length) qualis.push(...data);
       }
     }
 
-    // --- NEU: Ausgrauen-Fenster laden (pro User, monatsübergreifend) ---
+    // --- Ausgrauen ---
     const ausgrauenByUser = new Map(); // uid -> [{von, bis}]
     if (userIds.length > 0) {
       for (const part of chunkArray(userIds, 150)) {
@@ -446,8 +460,8 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .eq('firma_id', firma)
           .eq('unit_id', unit)
           .in('user_id', part)
-          .lte('von', monthEnd) // von <= Monatsende
-          .or(`bis.is.null, bis.gte.${monthStart}`); // bis >= Monatsstart oder offen
+          .lte('von', monthEnd)
+          .or(`bis.is.null, bis.gte.${monthStart}`);
         for (const r of ausRows || []) {
           const uid = String(r.user_id);
           const arr = ausgrauenByUser.get(uid) || [];
@@ -455,7 +469,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           ausgrauenByUser.set(uid, arr);
         }
       }
-      // sortieren
       for (const [, arr] of ausgrauenByUser) {
         arr.sort((a, b) => dayjs(a.von).diff(dayjs(b.von)));
       }
@@ -475,7 +488,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     }
     setUserNameMapState(userNameMap);
 
-    // Helper: Ist User an Datum d ausgegraut?
     const isGrey = (uid, dISO) => {
       const arr = ausgrauenByUser.get(String(uid));
       if (!arr || arr.length === 0) return false;
@@ -488,34 +500,28 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
       return false;
     };
 
-    // 7) Bewertung/Status
     const status = { F: {}, S: {}, N: {} };
 
     for (const datum of tage) {
       for (const schicht of ['F', 'S', 'N']) {
-        // 1) Kandidaten (Zeitfenster)
         const bedarfTag = (bedarf || []).filter(
           (b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis)
         );
 
-        // 2) Nur Bedarfe, die für diese Schicht gelten
         const bedarfTagSchicht = bedarfTag.filter((b) =>
           bedarfGiltFuerSchicht(b, datum, schicht)
         );
 
-        // 3) Override-Regel pro Schicht
         const hatZeitlich = bedarfTagSchicht.some((b) => b.normalbetrieb === false);
         const bedarfHeute = bedarfTagSchicht.filter(
           (b) => b.normalbetrieb === !hatZeitlich
         );
 
-        // --- aktive User (nur nicht-ausgegraut) ---
         const aktiveUserRaw = dienste
           .filter((d) => d.datum === datum && d.ist_schicht?.kuerzel === schicht)
           .map((d) => d.user);
         const aktiveUser = [...new Set(aktiveUserRaw)].filter((uid) => !isGrey(uid, datum));
 
-        // --- Qualis am Tag ---
         const userQualiMap = {};
         const tag = dayjs(datum);
         for (const q of qualis) {
@@ -528,7 +534,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           }
         }
 
-        // --- Bedarf sortieren ---
         const bedarfSortiert = bedarfHeute
           .map((b) => ({
             ...b,
@@ -539,7 +544,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           .filter((b) => b.relevant)
           .sort((a, b) => a.position - b.position);
 
-        // ➜ Kein betriebsrelevanter Bedarf = graue Zelle
         if (bedarfSortiert.length === 0) {
           status[schicht][datum] = {
             farbe: null,
@@ -558,7 +562,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           continue;
         }
 
-        // --- Zuweisung (jede Person deckt max. 1 Quali) ---
         const verwendeteUser = new Set();
         const userSortMap = aktiveUser.map((userId) => {
           const userQualis = userQualiMap[userId] || [];
@@ -586,7 +589,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           }
         }
 
-        // --- Statusindikatoren ---
         let statusfarbe = 'bg-green-500';
         let totalMissing = 0;
         const fehlend = [];
@@ -730,7 +732,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
 
     const fmt = (d) => (d ? dayjs(d).format('DD.MM.YYYY') : '—');
 
-    // Min(von), Max(bis) + passende Start/End-Schicht ermitteln
     let minVon = null, maxBis = null, startSchicht = 'Früh', endSchicht = 'Nacht';
 
     for (const it of entry.items) {
@@ -750,7 +751,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
     return `Beginnt am ${start} in der ${startSchicht}-Schicht\nEndet am ${end} in der ${endSchicht}-Schicht`;
   };
 
-  // Tooltip-Builder (Bar)
   const buildBarTooltip = (datum, entry) => {
     if (!entry) return '';
     const lines = [];
@@ -984,4 +984,5 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
   );
 };
 
-export default MitarbeiterBedarf;
+export default Wochen_MitarbeiterBedarf;
+

@@ -25,6 +25,7 @@ import ResetPassword from "./pages/ResetPassword";
 import UnitReports from './pages/UnitReports';
 import TopReport from './pages/TopReport';
 import UserPflege from './pages/UserPflege';
+import WochenPlaner from './pages/WochenPlaner';
 import DesktopOnlyRoute from './routes/DesktopOnlyRoute';
 import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 
@@ -53,6 +54,7 @@ if (
   <Route path="/passwort-vergessen" element={<PasswortVergessen />} />
   <Route path="/reset-password" element={<ResetPassword />} />
 
+
   {/* Alle geschützten Routen im Layout */}
   <Route
   path="/"
@@ -62,6 +64,14 @@ if (
     </DesktopOnlyProtectedLayout>
   }
 >
+    <Route
+    path="wochenplaner"
+    element={
+      <RollenCheckRoute erlaubteRollen={['SuperAdmin', 'Admin_Dev', 'Planner']}>
+        <WochenPlaner />
+      </RollenCheckRoute>
+    }
+  />
     <Route
       path="dashboard"
       element={

@@ -3,9 +3,6 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
-import isoWeek from 'dayjs/plugin/isoWeek';
-
-dayjs.extend(isoWeek);
 
 const monate = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
@@ -20,37 +17,8 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
   // Auswahl im Kalender
   const [selectedDates, setSelectedDates] = useState(new Set());
 
-  // Anzeige-Modus & Wochenanzahl
-  const [viewMode, setViewMode] = useState('month'); // 'month' | 'week'
-  const [weekCount, setWeekCount] = useState(1);     // 1–4
-  const [weeksInYear, setWeeksInYear] = useState(52);
-  const [selectedWeek, setSelectedWeek] = useState(() => dayjs().isoWeek());
-
   const today = dayjs();
-  const aktuelleIsoWeek = today.isoWeek();
-  const aktuelleIsoWeekYear = today.isoWeekYear();
-
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
-
-  // aktuelle User-ID aus Supabase-Session
-  const [currentUserId, setCurrentUserId] = useState(null);
-
-  useEffect(() => {
-    const loadCurrentUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error) {
-        console.error('❌ Fehler beim Laden des aktuellen Users:', error.message || error);
-        return;
-      }
-      const uid = data?.user?.id || null;
-      if (!uid) {
-        console.warn('⚠️ Keine User-ID in Supabase-Session gefunden.');
-      }
-      setCurrentUserId(uid);
-    };
-
-    loadCurrentUser();
-  }, []);
 
   // Globale Auswahl-Events
   useEffect(() => {
@@ -72,110 +40,13 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     );
   };
 
-  // 🆕 User-Settings aus DB_UserSettings laden
-  useEffect(() => {
-    const loadUserPrefs = async () => {
-      if (!currentUserId) return;
-
-      const { data, error } = await supabase
-        .from('DB_UserSettings')
-        .select('cockpit_view_mode, cockpit_week_count')
-        .eq('user_id', currentUserId);
-
-      if (error) {
-        console.error('❌ Fehler beim Laden der Cockpit-Settings:', error.message || error);
-        return;
-      }
-
-      const row = data && data.length > 0 ? data[0] : null;
-
-      // Wenn noch kein Eintrag existiert → mit Defaults anlegen
-      if (!row) {
-        const { error: insertErr } = await supabase
-          .from('DB_UserSettings')
-          .insert({
-            user_id: currentUserId,
-            cockpit_view_mode: 'month',
-            cockpit_week_count: 1,
-          });
-
-        if (insertErr) {
-          console.error('❌ Fehler beim Anlegen der Cockpit-Settings:', insertErr.message || insertErr);
-        } else {
-          console.log('ℹ️ Cockpit-Settings neu angelegt (Defaults).');
-        }
-        return;
-      }
-
-      console.log('ℹ️ Cockpit-Settings geladen:', row);
-
-      if (row.cockpit_view_mode === 'month' || row.cockpit_view_mode === 'week') {
-        setViewMode(row.cockpit_view_mode);
-      }
-      if (
-        typeof row.cockpit_week_count === 'number' &&
-        row.cockpit_week_count >= 1 &&
-        row.cockpit_week_count <= 4
-      ) {
-        setWeekCount(row.cockpit_week_count);
-      }
-    };
-
-    loadUserPrefs();
-  }, [currentUserId]);
-
-  // 🆕 User-Settings in DB_UserSettings speichern
-  useEffect(() => {
-    const saveUserPrefs = async () => {
-      if (!currentUserId) return;
-
-      const { error } = await supabase
-        .from('DB_UserSettings')
-        .upsert({
-          user_id: currentUserId,
-          cockpit_view_mode: viewMode,
-          cockpit_week_count: weekCount,
-        }, { onConflict: 'user_id' });
-
-      if (error) {
-        console.error('❌ Fehler beim Speichern der Cockpit-Settings:', error.message || error);
-      } else {
-        console.log('✅ Cockpit-Settings gespeichert:', { viewMode, weekCount });
-      }
-    };
-
-    if (viewMode === 'month' || viewMode === 'week') {
-      saveUserPrefs();
-    }
-  }, [viewMode, weekCount, currentUserId]);
-
-  // Anzahl Wochen pro Jahr (max 52)
-  useEffect(() => {
-    const dec28 = dayjs(`${jahr}-12-28`);
-    let isoWeeks = dec28.isoWeek(); // 52 oder 53
-    if (!isoWeeks || isoWeeks < 1) isoWeeks = 52;
-    if (isoWeeks > 52) isoWeeks = 52;
-    setWeeksInYear(isoWeeks);
-    if (selectedWeek > isoWeeks) setSelectedWeek(isoWeeks);
-  }, [jahr, selectedWeek]);
-
-  // Sichtbare Tage + Einträge laden
+  // Sichtbare Tage + Einträge laden (nur Monatslogik)
   useEffect(() => {
     if (!firma || !unit) return;
 
     const heute = dayjs();
-    let startDate, endDate;
-
-    if (viewMode === 'month') {
-      startDate = dayjs(new Date(jahr, monat, 1));
-      endDate = dayjs(new Date(jahr, monat + 1, 0));
-    } else {
-      const anyDayInWeek = dayjs().year(jahr).isoWeek(selectedWeek);
-      const weekStart = anyDayInWeek.startOf('isoWeek'); // Montag
-      const weekEnd = weekStart.add(7 * weekCount - 1, 'day');
-      startDate = weekStart;
-      endDate = weekEnd;
-    }
+    const startDate = dayjs(new Date(jahr, monat, 1));
+    const endDate = dayjs(new Date(jahr, monat + 1, 0));
 
     // Tage-Array bauen
     const neueTage = [];
@@ -200,6 +71,7 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
       const start = startDate.format('YYYY-MM-DD');
       const ende = endDate.format('YYYY-MM-DD');
 
+      // Bundesland der Unit holen
       const { data: unitData, error: unitError } = await supabase
         .from('DB_Unit')
         .select('bundesland')
@@ -213,11 +85,13 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
       const bundesland = unitData?.bundesland;
 
+      // Ferien & Feiertage (typ unterscheidet)
       const { data: feiertage, error: feiertageError } = await supabase
         .from('DB_FeiertageundFerien')
-        .select('name, von, bis, farbe')
+        .select('typ, name, von, bis, farbe')
         .eq('bundesland', bundesland)
-        .or(`von.lte.${ende},bis.gte.${start}`);
+        .lte('von', ende)
+        .or(`bis.is.null, bis.gte.${start}`);
 
       const [
         { data: termine, error: termineError },
@@ -256,28 +130,29 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     };
 
     ladeEintraege();
-  }, [jahr, monat, viewMode, selectedWeek, weekCount, firma, unit]);
+  }, [jahr, monat, firma, unit]);
 
   // sichtbaren Datumsbereich an andere Komponenten schicken
   useEffect(() => {
     if (!tage || tage.length === 0) return;
+
     const start = tage[0].date;
     const end = tage[tage.length - 1].date;
+
+    // 🔄 global merken (für Komponenten, die später gemountet werden)
+    if (typeof window !== 'undefined') {
+      window.__spVisibleRange = { start, end };
+    }
+
+    // 🔊 Event für Listener (KampfListe, MitarbeiterBedarf, Sollplan, ...)
     window.dispatchEvent(
-      new CustomEvent('sp:visibleRange', { detail: { start, end } })
+      new CustomEvent('sp:visibleRange', {
+        detail: { start, end },
+      })
     );
   }, [tage]);
 
-  // Wochen, die bei weekCount mit angezeigt werden (transparentes Blau)
-  const visibleWeekSet = (() => {
-    if (viewMode !== 'week' || weekCount <= 1 || weeksInYear <= 0) return new Set();
-    const s = new Set();
-    for (let i = 0; i < weekCount; i++) {
-      const w = ((selectedWeek - 1 + i) % weeksInYear) + 1;
-      s.add(w);
-    }
-    return s;
-  })();
+  const { feiertage, termine } = eintraege;
 
   return (
     <div className="bg-gray-200 dark:bg-gray-800 pt-2 px-4 pb-1 rounded-xl shadow-xl w-full border border-gray-300 dark:border-gray-700">
@@ -299,120 +174,109 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
           );
         })()}
 
-        {/* Wochenanzahl */}
-        {viewMode === 'week' && (
-          <select
-            value={weekCount}
-            onChange={(e) => setWeekCount(parseInt(e.target.value, 10) || 1)}
-            className="bg-gray-200 dark:bg-gray-700 text-sm text-black dark:text-white px-3  rounded-xl"
-          >
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>
-                {n} Woche{n > 1 ? 'n' : ''}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* Monat / Woche Toggle */}
+        {/* Monate */}
         <div className="flex gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setViewMode('month')}
-            className={`px-3  rounded-xl text-sm transition-all duration-150 ${
-              viewMode === 'month'
-                ? 'bg-blue-600 text-white dark:bg-blue-500'
-                : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-            }`}
-          >
-            Monat
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('week')}
-            className={`px-3 rounded-xl text-sm transition-all duration-150 ${
-              viewMode === 'week'
-                ? 'bg-blue-600 text-white dark:bg-blue-500'
-                : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-            }`}
-          >
-            Woche
-          </button>
+          {monate.map((name, index) => (
+            <button
+              key={index}
+              onClick={() => setMonat(index)}
+              className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 ${
+                index === monat
+                  ? 'bg-blue-600 text-white dark:bg-blue-500'
+                  : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+              }`}
+            >
+              {name}
+            </button>
+          ))}
         </div>
-
-        {/* Monate oder KW-Buttons */}
-        {viewMode === 'month' ? (
-          <div className="flex gap-2 flex-wrap">
-            {monate.map((name, index) => (
-              <button
-                key={index}
-                onClick={() => setMonat(index)}
-                className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 ${
-                  index === monat
-                    ? 'bg-blue-600 text-white dark:bg-blue-500'
-                    : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                }`}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="flex gap-2 flex-wrap overflow-x-auto max-w-full">
-            {Array.from({ length: weeksInYear }, (_, i) => i + 1).map((kw) => {
-              const isActive = kw === selectedWeek;
-              const isCurrentWeek =
-                jahr === aktuelleIsoWeekYear && kw === aktuelleIsoWeek;
-              const isInMultiRange =
-                weekCount > 1 && visibleWeekSet.has(kw) && !isActive;
-
-              let baseClasses =
-                'px-2 py-1 rounded-xl text-xs transition-all duration-150 border ';
-
-              if (isActive) {
-                baseClasses +=
-                  'bg-blue-600 text-white dark:bg-blue-500 border-blue-700 dark:border-blue-300';
-              } else if (isInMultiRange) {
-                baseClasses +=
-                  'bg-blue-500/40 text-gray-900 dark:text-gray-100 border-blue-400/60';
-              } else {
-                baseClasses +=
-                  'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200 border-transparent';
-              }
-
-              if (isCurrentWeek) {
-                baseClasses += ' border-2 border-yellow-400';
-              }
-
-              return (
-                <button
-                  key={kw}
-                  type="button"
-                  onClick={() => setSelectedWeek(kw)}
-                  className={baseClasses}
-                >
-                  KW {kw}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* Kalenderspalten */}
       <div className="flex overflow-x-visible text-center text-sm">
+        {/* linke Leerspalte (für Namen, Teams etc. im Cockpit) */}
         <div className="w-[160px] min-w-[160px] flex-shrink-0"></div>
 
         <div className="flex gap-[2px] min-w-fit">
           {tage.map((t, index) => {
             const iso = t.date;
             const isSelected = selectedDates.has(iso);
-            const hoverLabel = dayjs(iso).format('dddd, DD.MM.YYYY');
+            const datumLabel = dayjs(iso).format('dddd, DD.MM.YYYY');
+
+            // --- Ferien & Feiertage für diesen Tag (Bereich von-bis) ---
+            const ffHeute = (feiertage || []).filter((f) => {
+              const von = dayjs(f.von);
+              const bis = dayjs(f.bis || f.von);
+              const d = dayjs(iso);
+              return (d.isSame(von, 'day') || d.isAfter(von, 'day')) &&
+                     (d.isSame(bis, 'day') || d.isBefore(bis, 'day'));
+            });
+
+            const ferien = ffHeute.filter((f) =>
+              (f.typ || '').toLowerCase().includes('ferien')
+            );
+            const feiertagTag = ffHeute.filter((f) =>
+              (f.typ || '').toLowerCase().includes('feiertag')
+            );
+
+            const termineHeute = (termine || []).filter((e) => e.datum === iso);
+
+            const ferienColor = ferien[0]?.farbe || '#10b981';
+            const feiertagColor = feiertagTag[0]?.farbe || '#ef4444';
+            const terminColor = termineHeute[0]?.farbe || '#3b82f6';
+
+            const ferienTitle = ferien.length
+              ? (() => {
+                  const f = ferien[0];
+                  const von = dayjs(f.von).format('DD.MM.');
+                  const bis = dayjs(f.bis || f.von).format('DD.MM.');
+                  return `Ferien: ${f.name || ''} (${von} – ${bis})`;
+                })()
+              : '';
+
+            const feiertagTitle = feiertagTag.length
+              ? `Feiertag: ${feiertagTag[0].name || ''}`
+              : '';
+
+            const terminTitle = termineHeute.length
+              ? (() => {
+                  const t0 = termineHeute[0];
+                  // Qualis auflösen
+                  let qualiText = '';
+                  if (Array.isArray(t0.quali_ids) && t0.quali_ids.length) {
+                    const namen = t0.quali_ids
+                      .map((id) => qualiMap[id])
+                      .filter(Boolean);
+                    if (namen.length) {
+                      qualiText = ` | Quali: ${namen.join(', ')}`;
+                    }
+                  }
+                  // Teams
+                  let teamText = '';
+                  if (Array.isArray(t0.team) && t0.team.length) {
+                    teamText = ` | Team: ${t0.team.join(', ')}`;
+                  }
+                  const rest =
+                    termineHeute.length > 1
+                      ? ` + ${termineHeute.length - 1} weitere`
+                      : '';
+                  return `Termin: ${t0.bezeichnung || ''}${rest}${qualiText}${teamText}`;
+                })()
+              : '';
+
+            const fullTitle = [
+              datumLabel,
+              ferienTitle,
+              feiertagTitle,
+              terminTitle,
+            ]
+              .filter(Boolean)
+              .join(' | ');
 
             return (
               <div
                 key={index}
-                title={hoverLabel}
+                title={fullTitle}
                 className={`relative flex flex-col items-center justify-center h-[42px] w-[48px] min-w-[48px] rounded
                 ${t.isSonntag ? 'bg-red-600 text-white' : ''}
                 ${t.isSamstag ? 'bg-orange-500 text-white' : ''}
@@ -426,6 +290,47 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
               `}
                 onClick={() => toggleSelectedDate(iso)}
               >
+                {/* Ferien-Balken oben */}
+                {ferien.length > 0 && (
+                  <div
+                    className="absolute top-0 left-0 right-0 h-[4px] rounded-t-[6px]"
+                    style={{ backgroundColor: ferienColor }}
+                    title={ferienTitle}
+                  />
+                )}
+
+                {/* Feiertag-Punkt oben rechts */}
+                {feiertagTag.length > 0 && (
+                  <div
+                    className="absolute top-[2px] right-[2px] w-[6px] h-[6px] rounded-full"
+                    style={{ backgroundColor: feiertagColor }}
+                    title={feiertagTitle}
+                  />
+                )}
+
+                {/* Termin-Ecke unten links */}
+                {termineHeute.length > 0 && (
+                  <>
+                    <div
+                      className="absolute bottom-0 left-0 w-0 h-0"
+                      style={{
+                        borderBottom: '12px solid white',
+                        borderRight: '12px solid transparent',
+                        zIndex: 5,
+                      }}
+                    />
+                    <div
+                      className="absolute bottom-0 left-0 w-0 h-0"
+                      style={{
+                        borderBottom: `10px solid ${terminColor}`,
+                        borderRight: '10px solid transparent',
+                        zIndex: 10,
+                      }}
+                      title={terminTitle}
+                    />
+                  </>
+                )}
+
                 <span className="text-[12px] leading-none">
                   {t.wochentag}
                 </span>
