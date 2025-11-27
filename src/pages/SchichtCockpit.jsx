@@ -9,10 +9,8 @@ import { useRollen } from '../context/RollenContext';
 import MitarbeiterBedarf from '../components/Cockpit/MitarbeiterBedarf';
 import dayjs from 'dayjs';
 import { Link } from 'react-router-dom';
-
-// 🔁 NEU: Wochen-Komponenten einbinden (werden später gebaut)
 import Wochen_KalenderStruktur from '../components/Cockpit/Wochen_KalenderStruktur';
-import Wochen_Kampfliste from '../components/Cockpit/Wochen_Kampfliste';
+import Wochen_Kampfliste from '../components/Cockpit/Wochen_KampfListe';
 import Wochen_MitarbeiterBedarf from '../components/Cockpit/Wochen_MitarbeiterBedarf';
 
 const MobileBlocker = () => (
