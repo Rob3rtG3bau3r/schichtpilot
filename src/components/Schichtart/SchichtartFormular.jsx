@@ -276,7 +276,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
               />
               Schicht enthält Pause
             </label>
-            
+
             <label className="text-sm">Beginn Arbeitszeit</label>
             <input
               type="time"
@@ -286,8 +286,6 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
                 darkMode ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-800'
               }`}
             />
-
-            
 
             {pauseAktiv && (
               <div className="flex flex-col gap-1">

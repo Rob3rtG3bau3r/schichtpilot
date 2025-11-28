@@ -43,6 +43,59 @@ const MobileMeineAnfragen = () => {
     ladeAnfragen();
   }, [userId]);
 
+ useEffect(() => {
+  if (!userId) return;
+
+  const markiere = async () => {
+    let zuMarkieren = [];
+
+    // Tab "Genehmigt"
+    if (filter === "genehmigt") {
+      zuMarkieren = anfragen.filter(
+        a => a.genehmigt === true && a.antwort_gesehen === false
+      );
+    }
+
+    // Tab "Abgelehnt"
+    if (filter === "abgelehnt") {
+      zuMarkieren = anfragen.filter(
+        a => a.genehmigt === false && a.antwort_gesehen === false
+      );
+    }
+
+    if (zuMarkieren.length === 0) return;
+
+    const ids = zuMarkieren.map(a => a.id);
+
+    const { error } = await supabase
+      .from("DB_AnfrageMA")
+      .update({ antwort_gesehen: true })
+      .in("id", ids);
+
+    if (error) {
+      console.error("Fehler beim Markieren:", error.message);
+      return;
+    }
+
+    // Lokal sofort updaten
+    setAnfragen(prev =>
+      prev.map(a =>
+        ids.includes(a.id) ? { ...a, antwort_gesehen: true } : a
+      )
+    );
+
+    // Badge im Layout aktualisieren
+    window.dispatchEvent(
+      new CustomEvent("schichtpilot:anfragen_gelesen", {
+        detail: { ids },
+      })
+    );
+  };
+
+  markiere();
+}, [filter, anfragen, userId]);
+
+
   const gefilterteAnfragen = useMemo(() => {
     const base = (anfragen || []).filter(a => {
       const status = triStatus(a.genehmigt);

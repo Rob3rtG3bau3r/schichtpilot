@@ -19,6 +19,8 @@ const MobileLayout = () => {
   const { pathname } = useLocation();
   const isAuthScreen = pathname.startsWith("/mobile/login");
 
+    const gespeicherteId = localStorage.getItem("user_id");
+
   const [menueOffen, setMenueOffen] = useState(false);
   const [darkMode, setDarkMode] = useState(
     document.documentElement.classList.contains("dark")
@@ -26,6 +28,8 @@ const MobileLayout = () => {
   const [einwilligung, setEinwilligung] = useState(false);
   const [einwilligungDatum, setEinwilligungDatum] = useState(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [offeneAntworten, setOffeneAntworten] = useState(0);
+
 
   // 🌙 Dark-Init (aus LS / System)
   useEffect(() => {
@@ -42,7 +46,43 @@ const MobileLayout = () => {
     }
   }, []);
 
-  const gespeicherteId = localStorage.getItem("user_id");
+useEffect(() => {
+  const handler = () => {
+    // nach dem Gelesen-Event einfach neu laden
+    if (gespeicherteId) {
+      ladeOffeneAntworten(gespeicherteId);
+    }
+  };
+
+  window.addEventListener('schichtpilot:anfragen_gelesen', handler);
+  return () => window.removeEventListener('schichtpilot:anfragen_gelesen', handler);
+}, [gespeicherteId]);
+
+  const ladeOffeneAntworten = async (userId) => {
+  if (!userId) {
+    setOffeneAntworten(0);
+    return;
+  }
+
+  const { count, error } = await supabase
+    .from('DB_AnfrageMA')
+    .select('id', { count: 'exact', head: true })
+    .eq('created_by', userId)
+    .not('genehmigt', 'is', null)           // beantwortet
+    .eq('antwort_gesehen', false);         // noch nicht gesehen
+
+  if (error) {
+    console.error('Fehler beim Laden offener Antworten:', error.message);
+    return;
+  }
+
+  setOffeneAntworten(count || 0);
+};
+
+useEffect(() => {
+  if (!gespeicherteId) return;
+  ladeOffeneAntworten(gespeicherteId);
+}, [gespeicherteId, pathname]);
 
   // 🚪 Zugangsschutz: Wenn nicht eingeloggt → Login
   useEffect(() => {
@@ -199,16 +239,22 @@ const MobileLayout = () => {
           </button>
 
           <button
-            onClick={() => navigate("/mobile/anfragen")}
-            className={`flex items-center gap-2 px-2 py-1 ${
-              pathname.includes("/anfragen")
-                ? "bg-green-600 bg-opacity-10 border border-green-600 border-opacity-20"
-                : ""
-            }`}
-            title="Meine Anfragen"
-          >
-            <MailQuestion className="w-6 h-6" />
-          </button>
+  onClick={() => navigate("/mobile/anfragen")}
+  className={`relative flex items-center gap-2 px-2 py-1 ${
+    pathname.includes("/anfragen")
+      ? "bg-green-600 bg-opacity-10 border border-green-600 border-opacity-20"
+      : ""
+  }`}
+  title="Meine Anfragen"
+>
+  <MailQuestion className="w-6 h-6" />
+
+  {offeneAntworten > 0 && (
+    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1">
+      {offeneAntworten > 9 ? "9+" : offeneAntworten}
+    </span>
+  )}
+</button>
 
           <button onClick={() => setMenueOffen(true)} title="Menü">
             <Settings className="w-6 h-6 text-white" />
