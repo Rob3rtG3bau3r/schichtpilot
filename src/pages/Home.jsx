@@ -196,7 +196,7 @@ const screens = [
       {/* Hero (ohne H1, weil im Header) */}
       <section className="mt-6 text-center px-6 max-w-3xl z-20">
         <p className="text-lg text-gray-300 mb-6">
-          Plane smarter. Arbeite flexibler. Zugriff für dein ganzes Team – egal
+          Plane smarter. Arbeite flexibler. Zugriff für dein ganzes Team egal
           ob Büro oder Mobilgerät.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -223,7 +223,7 @@ const screens = [
           },
           {
             title: "Datenschutzkonform",
-            text: "Alle Daten auf EU-Servern – kein Risiko.",
+            text: "Alle Daten auf EU-Servern kein Risiko.",
           },
         ].map((v, i) => (
           <div
@@ -275,7 +275,7 @@ const screens = [
       <section className="mt-16 px-6 max-w-4xl text-center">
         <h2 className="text-3xl font-bold mb-6">Wofür ist SchichtPilot ideal?</h2>
         <p className="text-lg text-gray-300 mb-10">
-          Perfekt für alle, die im vollkontinuierlichen Schichtsystem arbeiten – und den nächsten Schritt in der Planung gehen wollen.
+          Perfekt für alle, die im vollkontinuierlichen Schichtsystem arbeiten und den nächsten Schritt in der Planung gehen wollen.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
@@ -297,7 +297,7 @@ const screens = [
       <section className="mt-16 px-6 max-w-4xl text-center">
         <h2 className="text-3xl font-bold mb-4">Warum SchichtPilot?</h2>
         <p className="text-gray-300">
-          Weil wir selbst aus der Praxis kommen – unsere Lösung ist für echte Anforderungen in der Schichtplanung gemacht. 
+          Weil wir selbst aus der Praxis kommen, unsere Lösung ist für echte Anforderungen in der Schichtplanung gemacht. 
         <h3 className="text-xl font-semibold"> Einfach, schnell, mobil. </h3>
         </p>
       </section>
