@@ -13,6 +13,7 @@ const POLL_MS = 60_000; // 1 Minute Polling für offene Anfragen
 const Layout = () => {
   const [eingeloggt, setEingeloggt] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
+  const [themeLoaded, setThemeLoaded] = useState(false); // 👈 NEU
   const [rolleGeladen, setRolleGeladen] = useState(false);
   const [umgeloggt, setUmgeloggt] = useState(false);
   const [adminPanelOffen, setAdminPanelOffen] = useState(false);
@@ -45,39 +46,57 @@ const Layout = () => {
   const begruessungRef = useRef('');
   const navigate = useNavigate();
 
-  // === DARK/LIGHT MODE ===
+  // === THEME AUS DB_UserSettings LADEN ===
   useEffect(() => {
     const ladeTheme = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData?.session?.user;
       if (user) {
-        const { data: userDaten } = await supabase
-          .from('DB_User')
+        const { data: settings } = await supabase
+          .from('DB_UserSettings')
           .select('theme')
           .eq('user_id', user.id)
-          .single();
-        setDarkMode(userDaten?.theme === 'dark');
+          .maybeSingle();
+
+        if (settings?.theme === 'light') {
+          setDarkMode(false);
+        } else {
+          // Fallback: wenn nichts gesetzt → dark
+          setDarkMode(true);
+        }
       }
+      setThemeLoaded(true); // 👈 Ab jetzt darf gespeichert werden
     };
     ladeTheme();
   }, []);
 
+  // === THEME SPEICHERN (in DB_UserSettings) ===
   useEffect(() => {
+    // Klasse auf <html>
     document.documentElement.classList.toggle('dark', darkMode);
+
+    // Beim initialen Laden noch NICHT in die DB schreiben
+    if (!themeLoaded) return;
+
     const speichereTheme = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData?.session?.user;
       if (user) {
         await supabase
-          .from('DB_User')
-          .update({ theme: darkMode ? 'dark' : 'light' })
-          .eq('user_id', user.id);
+          .from('DB_UserSettings')
+          .upsert(
+            {
+              user_id: user.id,
+              theme: darkMode ? 'dark' : 'light',
+            },
+            { onConflict: 'user_id' }
+          );
       }
     };
     speichereTheme();
-  }, [darkMode]);
+  }, [darkMode, themeLoaded]);
 
-  // === AKTUELLEN USER LADEN ===
+  // === AKTUELLEN USER LADEN (OHNE theme) ===
   useEffect(() => {
     const ladeUser = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -85,12 +104,11 @@ const Layout = () => {
       if (user) {
         const { data: userDaten } = await supabase
           .from('DB_User')
-          .select('user_id, vorname, rolle, firma_id, unit_id, theme')
+          .select('user_id, vorname, rolle, firma_id, unit_id') // 👈 theme entfernt
           .eq('user_id', user.id)
           .single();
 
         if (userDaten?.user_id) setUserId(userDaten.user_id);
-        setDarkMode(userDaten?.theme === 'dark');
 
         // Firma laden
         if (userDaten?.firma_id) {
@@ -132,7 +150,8 @@ const Layout = () => {
           `Alles gut bei dir ${userDaten?.vorname}?`,
           `${userDaten?.vorname}, alles gut bei dir?`,
         ];
-        begruessungRef.current = begruessungen[Math.floor(Math.random() * begruessungen.length)];
+        begruessungRef.current =
+          begruessungen[Math.floor(Math.random() * begruessungen.length)];
       }
       setRolleGeladen(true);
     };
@@ -244,7 +263,7 @@ const Layout = () => {
     if (user) {
       const { data: originalUserDaten } = await supabase
         .from('DB_User')
-        .select('vorname, rolle, firma_id, unit_id, theme')
+        .select('vorname, rolle, firma_id, unit_id') // 👈 theme entfernt
         .eq('user_id', user.id)
         .single();
 
@@ -252,7 +271,6 @@ const Layout = () => {
         setNutzerName(originalUserDaten.vorname);
         setRolle(originalUserDaten.rolle);
         setIstSuperAdmin(originalUserDaten.rolle === 'SuperAdmin');
-        setDarkMode(originalUserDaten.theme === 'dark');
 
         if (originalUserDaten.firma_id) {
           const { data: firma } = await supabase
@@ -280,6 +298,20 @@ const Layout = () => {
           setSichtUnit(null);
         }
       }
+
+      // 👇 Theme des echten Users wieder aus DB_UserSettings holen
+      const { data: settings } = await supabase
+        .from('DB_UserSettings')
+        .select('theme')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (settings?.theme === 'light') {
+        setDarkMode(false);
+      } else {
+        setDarkMode(true);
+      }
+      setThemeLoaded(true);
     }
     setAdminPanelOffen(!closePanel);
   };
