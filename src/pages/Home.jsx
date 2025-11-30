@@ -215,7 +215,7 @@ const screens = [
         {[
           {
             title: "Mobile App",
-            text: "Schichten auf dem Handy sehen & beantragen – jederzeit.",
+            text: "Schichten auf dem Handy sehen & beantragen jederzeit.",
           },
           {
             title: "Automatische Bedarfsprüfung",

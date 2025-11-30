@@ -2,19 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from "../supabaseClient";
 import logo from "../assets/logo.png";
 import qrCode from "../assets/qr_code_mockup.png";
-// ⬇️ NEU: useLocation import
 import { useNavigate, useLocation, Link } from "react-router-dom";
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const location = useLocation(); // ⬅️ NEU
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // ⬇️ NEU: Erfolgshinweis nach Passwort-Reset
+  // Erfolgshinweis nach Passwort-Reset
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("reset") === "success") {
@@ -24,28 +23,77 @@ const LoginPage = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError(null);
+    setError('');
+    setSuccessMessage('');
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    } else {
-      // 📥 Login-Log speichern
-      await supabase.from("DB_LoginLog").insert({
-        user_id: data.user.id,
-        user_agent: navigator.userAgent
+    try {
+      // 1️⃣ Authentifizierung bei Supabase
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
+      if (authError) {
+        // Schöne deutsche Fehlermeldung
+        if (authError.message?.toLowerCase().includes('invalid login credentials')) {
+          setError('E-Mail oder Passwort ist falsch.');
+        } else {
+          setError('Login fehlgeschlagen. Bitte Eingaben prüfen oder später erneut versuchen.');
+        }
+        return;
+      }
+
+      const authUser = data?.user;
+      if (!authUser) {
+        setError('Login fehlgeschlagen. Kein Benutzerprofil gefunden.');
+        return;
+      }
+
+      // 2️⃣ DB_User prüfen (aktiv / RLS)
+      const { data: userRow, error: userError } = await supabase
+        .from('DB_User')
+        .select('user_id, aktiv')
+        .eq('user_id', authUser.id)
+        .single();
+
+      // Wenn wegen RLS oder fehlendem Datensatz nichts zurückkommt:
+      if (userError || !userRow) {
+        console.warn('DB_User nicht lesbar oder nicht vorhanden:', userError);
+        await supabase.auth.signOut();
+        setError('Ihr Zugang ist nicht (mehr) aktiv. Bitte wenden Sie sich an Ihren Administrator.');
+        return;
+      }
+
+      // Wenn explizit aktiv = false
+      if (userRow.aktiv === false) {
+        await supabase.auth.signOut();
+        setError('Ihr Zugang wurde deaktiviert. Bitte wenden Sie sich an Ihren Administrator.');
+        return;
+      }
+
+      // 3️⃣ Login-Log (Fehler hier sollen NICHT auf dem Login landen)
+      try {
+        await supabase.from("DB_LoginLog").insert({
+          user_id: authUser.id,
+          user_agent: navigator.userAgent
+        });
+      } catch (logErr) {
+        console.warn('LoginLog konnte nicht geschrieben werden:', logErr);
+        // Kein UI-Fehler, nur im Hintergrund loggen
+      }
+
+      // 4️⃣ Alles gut → weiterleiten
       setSuccessMessage('Login erfolgreich! Weiterleitung...');
       setTimeout(() => {
         navigate("/dashboard");
       }, 1000);
+
+    } catch (err) {
+      console.error('Unerwarteter Fehler beim Login:', err);
+      setError('Es ist ein unerwarteter Fehler beim Login aufgetreten. Bitte versuchen Sie es erneut.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -92,7 +140,7 @@ const LoginPage = () => {
               />
             </div>
 
-            {/* ⬇️ NEU: Passwort vergessen Link */}
+            {/* Passwort vergessen Link */}
             <div className="flex justify-end">
               <Link to="/passwort-vergessen" className="text-sm text-blue-400 hover:underline">
                 Passwort vergessen?
@@ -107,8 +155,8 @@ const LoginPage = () => {
               {loading ? 'Einloggen...' : 'Einloggen'}
             </button>
 
-            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-            {successMessage && <p className="text-green-500 text-sm text-center">{successMessage}</p>}
+            {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
+            {successMessage && <p className="text-green-500 text-sm text-center mt-2">{successMessage}</p>}
           </form>
         </div>
 
@@ -124,7 +172,7 @@ const LoginPage = () => {
         </div>
       </div>
 
-      {/* Footer mit Impressum & Datenschutz */}
+      {/* Footer */}
       <footer className="w-full text-center text-gray-400 text-xs py-4 border-t border-gray-800">
         © {new Date().getFullYear()} SchichtPilot | 
         <Link to="/impressum" className="ml-2 text-blue-400 hover:underline">Impressum</Link> | 
@@ -135,4 +183,3 @@ const LoginPage = () => {
 };
 
 export default LoginPage;
-
