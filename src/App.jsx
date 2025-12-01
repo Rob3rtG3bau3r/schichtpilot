@@ -27,7 +27,9 @@ import TopReport from './pages/TopReport';
 import UserPflege from './pages/UserPflege';
 import WochenPlaner from './pages/WochenPlaner';
 import DesktopOnlyRoute from './routes/DesktopOnlyRoute';
+import UserReport from './pages/UserReport.jsx';
 import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
+
 
 const App = () => {
 const isMobileNow =
@@ -181,6 +183,14 @@ if (
        element={
        <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
          <UnitReports />
+       </RollenCheckRoute>
+        }
+       />
+       <Route
+      path="/user-report"
+       element={
+       <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
+         <UserReport />
        </RollenCheckRoute>
         }
        />

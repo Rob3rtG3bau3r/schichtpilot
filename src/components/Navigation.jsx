@@ -134,7 +134,8 @@ useEffect(() => {
     '/unit-reports': 'Unit bericht',
     '/userpflege': 'UserPflege',
     '/top-report': 'Top bericht',
-    '/wochenplaner': 'Wochenplaner',   
+    '/wochenplaner': 'Wochenplaner', 
+    '/user-report': 'Mitarbeiter-Report',  
   };
 
     const aktuellerTitel = pfadZuTitel[location.pathname] || '';
@@ -194,6 +195,10 @@ useEffect(() => {
             {reportOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
                 <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit bericht</Link>
+                {/* 🔽 NEU: Mitarbeiter-Report */}
+                <Link to="/user-report" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Mitarbeiter-Report
+                </Link>
                 {canSeeTopReport && (
                   <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">Top bericht</Link>
                 )}
