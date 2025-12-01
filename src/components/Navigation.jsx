@@ -201,7 +201,10 @@ useEffect(() => {
             )}
           </div>
         )}
-
+        {/* Kundenverwaltung: Org_Admin, SuperAdmin oder User mit Flag */}
+        {( ['SuperAdmin', 'Org_Admin'].includes(rolle) || canSeeCompanyPage ) && (
+          <Link to="/kundenverwaltung" className="hover:underline">Unternehmen</Link>
+        )}
         {/* Admin-Menü: Nur SuperAdmin */}
         {rolle === 'SuperAdmin' && (
           <div className="relative" onMouseEnter={openAdmin} onMouseLeave={closeAdmin}>
@@ -215,11 +218,6 @@ useEffect(() => {
               </div>
             )}
           </div>
-        )}
-
-        {/* Kundenverwaltung: Org_Admin, SuperAdmin oder User mit Flag */}
-        {( ['SuperAdmin', 'Org_Admin'].includes(rolle) || canSeeCompanyPage ) && (
-          <Link to="/kundenverwaltung" className="hover:underline">Unternehmen</Link>
         )}
       </div>
 
