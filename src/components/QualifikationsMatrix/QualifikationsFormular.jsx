@@ -113,7 +113,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-white p-6 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 max-w-xl mx-auto relative">
+    <div className="bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-white p-6 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 max-w-xl mx-auto relative">
       <div className="absolute top-4 right-4">
         <button onClick={() => setInfoOffen(true)}>
           <Info className="w-5 h-5 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
@@ -132,7 +132,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
             placeholder="Kürzel (max. 3 Zeichen)"
             value={kuerzel}
             onChange={(e) => setKuerzel(e.target.value.slice(0, 3))}
-            className={`w-full border px-3 py-1 rounded bg-white dark:bg-gray-800 ${fehlerKuerzel ? 'border-red-500' : ''}`}
+            className={`w-full border border-gray-400 dark:border-gray-700 px-3 py-1 rounded bg-gray-200 dark:bg-gray-800 ${fehlerKuerzel ? 'border-red-500' : ''}`}
           />
         </div>
         <div>
@@ -142,7 +142,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
             placeholder="Bezeichnung"
             value={qualifikation}
             onChange={(e) => setQualifikation(e.target.value)}
-            className={`w-full border px-3 py-1 rounded bg-white dark:bg-gray-800 ${fehlerQuali ? 'border-red-500' : ''}`}
+            className={`w-full border border-gray-400 dark:border-gray-700 px-3 py-1 rounded bg-gray-200 dark:bg-gray-800 ${fehlerQuali ? 'border-red-500' : ''}`}
           />
         </div>
         <div>
@@ -152,7 +152,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
             placeholder="Beschreibung"
             onChange={(e) => setBeschreibung(e.target.value.slice(0, 100))}
             rows={2}
-            className="w-full border px-3 py-1 rounded bg-white dark:bg-gray-800"
+            className="w-full border border-gray-400 dark:border-gray-700 px-3 py-1 rounded bg-gray-200 dark:bg-gray-800"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -164,7 +164,7 @@ const QualifikationsFormular = ({ bearbeitung, setBearbeitung, onReload }) => {
           <select
             value={schwerpunkt}
             onChange={(e) => setSchwerpunkt(e.target.value)}
-            className={`w-full border px-3 py-1 rounded bg-white dark:bg-gray-800 ${fehlerSchwerpunkt ? 'border-red-500' : ''}`}
+            className={`w-full border border-gray-400 dark:border-gray-700 px-3 py-1 rounded bg-gray-200 dark:bg-gray-800 ${fehlerSchwerpunkt ? 'border-red-500' : ''}`}
           >
             <option value="">Bitte wählen</option>
             {schwerpunktOptionen.map(opt => <option key={opt} value={opt}>{opt}</option>)}
