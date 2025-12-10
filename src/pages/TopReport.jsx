@@ -6,7 +6,7 @@ import { useRollen } from '../context/RollenContext';
 import { ChevronDown, ChevronRight, RotateCw } from 'lucide-react';
 
 const Panel = ({ title, children, right }) => (
-  <div className="rounded-2xl border border-gray-700/50 bg-gray-800 text-white p-3">
+  <div className="rounded-2xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white p-3">
     <div className="flex items-center justify-between mb-2">
       <h3 className="font-semibold">{title}</h3>
       {right}
@@ -33,7 +33,7 @@ const Card = ({ title, items, topN = 5 }) => {
   };
 
   return (
-    <div className="rounded-xl border border-gray-700/40 bg-gray-700 p-3">
+    <div className="rounded-xl text-gray-900 dark:text-gray-200 border border-gray-400 dark:border-gray-700/40 bg-gray-300 dark:bg-gray-900 p-3">
       <div className="flex items-center justify-between">
         <div className="font-medium">{title}</div>
         {items ? (
@@ -108,26 +108,25 @@ export default function TopReport() {
   const enabled = !!payload?.enabled;
 
   return (
-    <div className="min-h-screen bg-gray-800 text-white p-4">
+    <div className="min-h-screen bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4">
       <div className="flex items-end justify-between mb-4">
-        <h1 className="text-2xl font-bold">Top Report</h1>
         <div className="flex items-end gap-2">
-          <div className="text-xs opacity-70">Zeitraum</div>
+          <div className="text-md opacity-70">Zeitraum</div>
           <input
             type="date"
-            className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-sm"
+            className="px-2 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
           />
           <span>–</span>
           <input
             type="date"
-            className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-sm"
+            className="px-2 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm"
             value={to}
             onChange={(e) => setTo(e.target.value)}
           />
           <select
-            className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-sm"
+            className="px-2 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm"
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value))}
           >
@@ -137,7 +136,7 @@ export default function TopReport() {
           </select>
           <button
             onClick={load}
-            className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm flex items-center gap-1"
+            className="px-3 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm flex items-center gap-1"
           >
             <RotateCw size={14} /> Aktualisieren
           </button>
