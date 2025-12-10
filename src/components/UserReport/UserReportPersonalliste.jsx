@@ -42,8 +42,8 @@ const UserReportPersonalliste = ({
   const visibleStats = stats.filter((u) => !!u.schichtgruppe);
 
   return (
-    <div className="xl:col-span-2 rounded-2xl border border-gray-300/70 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm flex flex-col">
-      <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+    <div className="xl:col-span-2 rounded-2xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm flex flex-col">
+      <div className="px-4 py-2 border-b border-gray-300 dark:border-gray-800 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Übersicht nach Mitarbeiter
         </h2>
@@ -54,7 +54,7 @@ const UserReportPersonalliste = ({
 
       <div className="overflow-auto">
         <table className="min-w-full text-[11px]">
-          <thead className="bg-gray-50 dark:bg-gray-800/70 sticky top-0 z-10">
+          <thead className="text-gray-900 dark:text-gray-200 bg-gray-300 dark:bg-gray-800/70 sticky top-0 z-10">
             <tr>
               <Th
                 label="Mitarbeiter"
@@ -166,9 +166,9 @@ const UserReportPersonalliste = ({
                     onClick={() =>
                       setSelectedUserId(selected ? null : u.userId)
                     }
-                    className={`cursor-pointer border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50/80 dark:hover:bg-gray-800/60 ${
+                    className={`cursor-pointer border-b border-gray-300 dark:border-gray-800 hover:bg-gray-500/40 dark:hover:bg-gray-800/60 ${
                       selected
-                        ? 'bg-indigo-50/80 dark:bg-indigo-900/40'
+                        ? 'bg-indigo-300/50 dark:bg-indigo-900/40'
                         : ''
                     }`}
                   >

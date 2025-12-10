@@ -583,7 +583,7 @@ const { data: urlaub, error: urlaubError } = await supabase
   return (
     <div className="p-2 md:py-1 space-y-4">
       {/* Filter-Panel */}
-      <div className="rounded-2xl border border-gray-300/70 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 space-y-3 shadow-sm">
+      <div className="rounded-2xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 space-y-3 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
             <Calendar className="w-4 h-4" />

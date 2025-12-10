@@ -21,7 +21,7 @@ const MONATE = [
 ];
 
 const StatLine = ({ label, value }) => (
-  <div className="flex items-center justify-between text-[11px] text-gray-700 dark:text-gray-200">
+  <div className="flex items-center justify-between text-[11px] text-gray-800 dark:text-gray-200">
     <span>{label}</span>
     <span className="font-medium">{fmt(value)}</span>
   </div>
@@ -61,6 +61,25 @@ const UserReportDetailansicht = ({
 
   const istStundenJahr = stundenSummeJahr + stundenUebernahme;
   const restStundenJahresende = stundenGesamt - stundenSummeJahr - stundenUebernahme;
+  const diffStunden = istStundenJahr - stundenGesamt;
+
+  const urlaubUebrig = urlaubGesamt + urlaubUebernahme - urlaubSummeJahr;
+
+  const diffClass = (v) => {
+  if (v > 0)
+    return "text-emerald-600 dark:text-emerald-300 bg-emerald-300/50 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700";
+  if (v < 0)
+    return "text-red-800 dark:text-red-200 bg-red-500/40 dark:bg-red-900/40 border border-red-500 dark:border-red-700";
+  return "text-gray-800 dark:text-gray-400 bg-gray-300 dark:bg-gray-800 border border-gray-400 dark:border-gray-600";
+};
+
+const urlaubDiffClass = (v) => {
+  if (v > 0)
+    return "text-emerald-600 dark:text-emerald-300 bg-emerald-300/50 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700";
+  if (v < 0)
+    return "text-red-800 dark:text-red-200 bg-red-500/40 dark:bg-red-900/40 border border-red-500 dark:border-red-700";
+  return "text-gray-800 dark:text-gray-400 bg-gray-300 dark:bg-gray-800 border border-gray-400 dark:border-gray-600";
+};
 
   // Monate, die im aktuellen Modus relevant sind
   const monthsInRange = [];
@@ -71,8 +90,8 @@ const UserReportDetailansicht = ({
   }
 
   return (
-    <div className="rounded-2xl border border-gray-300/70 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm flex flex-col">
-      <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+    <div className="rounded-2xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl flex flex-col">
+      <div className="px-4 py-2 border-b border-gray-400 dark:border-gray-800 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Detailansicht
         </h2>
@@ -91,13 +110,13 @@ const UserReportDetailansicht = ({
                 selectedUser.vorname || ''
               }`.trim() || 'Mitarbeiter'}
             </p>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            <p className="text-[11px] text-gray-800 dark:text-gray-400">
               Schichtgruppe:{' '}
               <span className="font-medium">
                 {selectedUser.schichtgruppe || '—'}
               </span>
             </p>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            <p className="text-[11px] text-gray-600 dark:text-gray-400">
               Planerfüllung:{' '}
               {selectedUser.planQuote == null
                 ? '—'
@@ -106,117 +125,142 @@ const UserReportDetailansicht = ({
                   } Tage, ${selectedUser.planTageFehler} Abweichungen)`}
             </p>
           </div>
-
-          {/* 🔹 NEU: Stunden & Urlaub Block (über Krank) */}
-          <div className="border rounded-xl border-gray-200 dark:border-gray-700 p-2 space-y-2">
-            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-              Stunden
+     {/* Kurzfristige Einträge */}
+          <div className="border rounded-xl bg-red-600/20 dark:bg-red-600/10 border-gray-400 dark:border-gray-700 p-2 space-y-1">
+            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">
+              Kurzfristige Einträge 'Jahresplanung ausgeschlossen'
             </p>
-
-            {modus === 'jahr' && isFullYear ? (
-              <div className="space-y-1">
-                <StatLine label="Stunden im Jahr" value={stundenSummeJahr} />
-                <StatLine
-                  label="Stunden aus Vorjahr"
-                  value={stundenUebernahme}
-                />
-                <StatLine
-                  label="Ist-Stunden (Jahr)"
-                  value={istStundenJahr}
-                />
-                <StatLine
-                  label="Vorgabe Jahresstunden"
-                  value={stundenGesamt}
-                />
-                <StatLine
-                  label="Stunden Jahresende"
-                  value={restStundenJahresende}
-                />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="text-gray-500 dark:text-gray-400">
-                      <th className="text-left font-medium pb-1">Monat</th>
-                      <th className="text-right font-medium pb-1">
-                        Ist-Stunden
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthsInRange.map((m) => (
-                      <tr key={m}>
-                        <td className="py-0.5">{MONATE[m]}</td>
-                        <td className="py-0.5 text-right">
-                          {fmt(stundenMonate[m])}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="border rounded-xl border-gray-200 dark:border-gray-700 p-2 space-y-2">
-            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-              Urlaub
-            </p>
-
-            {modus === 'jahr' && isFullYear ? (
-              <div className="space-y-1">
-                <StatLine label="Urlaub (Jahr)" value={urlaubSummeJahr} />
-                <StatLine
-                  label="Vorgabe Jahresurlaub"
-                  value={urlaubGesamt}
-                />
-                <StatLine
-                  label="Urlaub aus Vorjahr"
-                  value={urlaubUebernahme}
-                />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="text-gray-500 dark:text-gray-400">
-                      <th className="text-left font-medium pb-1">Monat</th>
-                      <th className="text-right font-medium pb-1">
-                        Ist-Urlaubstage
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthsInRange.map((m) => (
-                      <tr key={m}>
-                        <td className="py-0.5">{MONATE[m]}</td>
-                        <td className="py-0.5 text-right">
-                          {fmt(urlaubMonate[m])}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* 🔹 Krank-Block */}
-          <div className="border rounded-xl border-gray-200 dark:border-gray-700 p-2 space-y-1">
-            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-              Kranktage (K / KO)
-            </p>
-            <div className="space-y-1">
-              <StatLine label="Krank gesamt (Tage)" value={krankGesamt} />
-              <StatLine label="davon K (Tage)" value={krankK} />
-              <StatLine label="davon KO (Tage)" value={krankKO} />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <StatLine label="< 1 Tag" value={selectedUser.kLt1} />
+              <StatLine label="1–3 Tage" value={selectedUser.k1_3} />
+              <StatLine label="4–6 Tage" value={selectedUser.k4_6} />
+              <StatLine label="≥ 7 Tage" value={selectedUser.kGte7} />
             </div>
           </div>
+{/* 🔹 Krank-Block */}
+<div className="border rounded-xl border-gray-400 dark:border-gray-700 p-2 space-y-1">
+  <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">
+    Kranktage (K / KO)
+  </p>
+
+  <div className="space-y-1">
+    {/* Einzelwerte */}
+    <StatLine label="K (mit Attest)" value={krankK} />
+    <StatLine label="KO (ohne Attest)" value={krankKO} />
+
+    {/* Trennlinie */}
+    <div className="border-t border-gray-400 dark:border-gray-700 my-1" />
+
+    {/* Gesamt – neutral hervorgehoben */}
+    <div className="flex items-center justify-between text-[11px] font-semibold">
+      <span>Krank gesamt</span>
+      <span className="px-2 py-0.5 rounded-full bg-gray-300 dark:bg-gray-800 border border-gray-400 dark:border-gray-600 text-gray-900 dark:text-gray-200">
+        {fmt(krankGesamt)}
+      </span>
+    </div>
+  </div>
+</div>
+
+    {/* Stunden Block */}
+<div className="border rounded-xl border-gray-400 dark:border-gray-700 p-2 space-y-2">
+  <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">
+    Stunden
+  </p>
+
+  {modus === 'jahr' && isFullYear ? (
+    <div className="space-y-1">
+      <StatLine label="Stunden im Jahr" value={stundenSummeJahr} />
+      <StatLine label="Stunden aus Vorjahr" value={stundenUebernahme} />
+
+      {/* Trennlinie */}
+      <div className="border-t border-gray-400 dark:border-gray-700 my-1" />
+
+      <StatLine label="Ist-Stunden (Jahr)" value={istStundenJahr} />
+      <StatLine label="Vorgabe Jahresstunden" value={stundenGesamt} />
+
+      {/* Zweite Trennlinie */}
+      <div className="border-t border-gray-400 dark:border-gray-700 my-1" />
+
+      {/* Ergebnis: Differenz */}
+      <div className="flex items-center justify-between text-[11px] font-semibold">
+        <span>Stunden Jahresende (Differenz)</span>
+        <span className={`px-2 py-0.5 rounded-full ${diffClass(diffStunden)}`}>
+          {fmt(diffStunden)}
+        </span>
+      </div>
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-gray-500 dark:text-gray-400">
+            <th className="text-left font-medium pb-1">Monat</th>
+            <th className="text-right font-medium pb-1">Ist-Stunden</th>
+          </tr>
+        </thead>
+        <tbody>
+          {monthsInRange.map((m) => (
+            <tr key={m}>
+              <td className="py-0.5">{MONATE[m]}</td>
+              <td className="py-0.5 text-right">{fmt(stundenMonate[m])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
+
+{/* Urlaub Block */}
+<div className="border rounded-xl border-gray-400 dark:border-gray-700 p-2 space-y-2">
+  <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">
+    Urlaub
+  </p>
+
+  {modus === 'jahr' && isFullYear ? (
+    <div className="space-y-1">
+
+      <StatLine label="Urlaub (Jahr)" value={urlaubSummeJahr} />
+      <StatLine label="Vorgabe Jahresurlaub" value={urlaubGesamt} />
+      <StatLine label="Urlaub aus Vorjahr" value={urlaubUebernahme} />
+
+      {/* Linie vor dem Ergebnis */}
+      <div className="border-t border-gray-400 dark:border-gray-700 my-1" />
+
+      {/* Hervorgehobenes Ergebnis: Urlaub übrig (inkl. Vorjahr) */}
+      <div className="flex items-center justify-between text-[11px] font-semibold">
+        <span>Urlaub übrig (inkl. Vorjahr)</span>
+        <span className={`px-2 py-0.5 rounded-full ${urlaubDiffClass(urlaubUebrig)}`}>
+          {fmt(urlaubUebrig)}
+        </span>
+      </div>
+
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-gray-500 dark:text-gray-400">
+            <th className="text-left font-medium pb-1">Monat</th>
+            <th className="text-right font-medium pb-1">Ist-Urlaubstage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {monthsInRange.map((m) => (
+            <tr key={m}>
+              <td className="py-0.5">{MONATE[m]}</td>
+              <td className="py-0.5 text-right">{fmt(urlaubMonate[m])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
 
           {/* Wochenend- & Feiertagsstunden */}
-          <div className="border rounded-xl border-gray-200 dark:border-gray-700 p-2 space-y-1">
-            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
+          <div className="border rounded-xl border-gray-400 dark:border-gray-700 p-2 space-y-1">
+            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">
               Wochenend- & Feiertagsstunden
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -246,21 +290,10 @@ const UserReportDetailansicht = ({
               />
             </div>
           </div>
-          {/* Kurzfristige Einträge */}
-          <div className="border rounded-xl border-gray-200 dark:border-gray-700 p-2 space-y-1">
-            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-              Kurzfristige Einträge
-            </p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              <StatLine label="< 1 Tag" value={selectedUser.kLt1} />
-              <StatLine label="1–3 Tage" value={selectedUser.k1_3} />
-              <StatLine label="4–6 Tage" value={selectedUser.k4_6} />
-              <StatLine label="≥ 7 Tage" value={selectedUser.kGte7} />
-            </div>
-          </div>
+
           {/* F / S / N */}
-          <div className="border rounded-xl border-gray-200 dark:border-gray-700 p-2 space-y-1">
-            <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
+          <div className="border rounded-xl border-gray-400 dark:border-gray-700 p-2 space-y-1">
+            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">
               F / S / N – Tage &amp; Stunden
             </p>
             <table className="w-full text-[11px]">
