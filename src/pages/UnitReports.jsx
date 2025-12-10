@@ -18,7 +18,7 @@ import {
 
 // ---- UI primitives ---------------------------------------------------------
 const Card = ({ className = '', children, ...rest }) => (
-  <div className={`rounded-2xl shadow-sm border border-gray-200 bg-gray-200 dark:bg-gray-700 p-2 ${className}`} {...rest}>{children}</div>
+  <div className={`rounded-2xl shadow-sm border border-gray-400 dark:border-bg-gray-200 dark:bg-gray-800 p-2 ${className}`} {...rest}>{children}</div>
 );
 const Muted = ({ className = '', children, ...rest }) => (
   <span className={`text-gray-500 dark:text-gray-300 ${className}`} {...rest}>{children}</span>
@@ -31,7 +31,7 @@ const SelectYear = ({ value, onChange, years }) => (
     <select
       value={value}
       onChange={(e)=>onChange(parseInt(e.target.value))}
-      className="appearance-none rounded-2xl border border-gray-500 px-3 py-2 pr-8 bg-gray-200 dark:bg-gray-700"
+      className="appearance-none rounded-2xl border border-gray-500 px-3 py-2 pr-8 bg-gray-200 dark:bg-gray-800"
     >
       {years.map(y=> <option key={y} value={y}>{y}</option>)}
     </select>
@@ -111,7 +111,7 @@ const ChartsMenu = ({ value, onChange }) => {
           </div>
           <div className="max-h-72 overflow-auto p-1">
             {Object.keys(labels).map((k) => (
-              <label key={k} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg cursor-pointer">
+              <label key={k} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer">
                 <input
                   type="checkbox"
                   checked={!!value[k]}
@@ -427,9 +427,9 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
     return (
       <button
         onClick={() => ready && (setSelectedMonth(m), setShowYear(false))}
-        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border
-                    bg-gray-200 dark:bg-gray-600
-                    ${ready ? 'hover:bg-gray-500 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
+        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-400 dark:border-gray-500
+                    bg-gray-300 dark:bg-gray-700
+                    ${ready ? 'hover:bg-gray-400 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
                     ${selected && ready ? 'ring-2 ring-blue-500' : 'ring-0'}
                     leading-none transition-colors`}
         disabled={!ready}
@@ -451,9 +451,9 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
     return (
       <button
         onClick={() => ready && setShowYear(true)}
-        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border
-                    bg-gray-200 dark:bg-gray-600
-                    ${ready ? 'hover:bg-gray-500 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
+        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-400 dark:border-gray-500
+                    bg-gray-300 dark:bg-gray-700
+                    ${ready ? 'hover:bg-gray-400 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
                     ${selected ? 'ring-2 ring-blue-500' : 'ring-0'}
                     leading-none transition-colors`}
         disabled={!ready}
@@ -520,20 +520,20 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
 
               {!monthRow && <Muted>Wähle einen fertigen Monat oben aus.</Muted>}
               {monthRow && (
-                <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
+                <div className='grid grid-cols-2  md:grid-cols-3 gap-3'>
                   {/* Ist/Soll/Diff */}
                   {typeof monthRow.soll_stunden_sum === 'number' && (
-                    <div className='rounded-xl border p-3'>
+                    <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                       <div className='text-sm text-gray-400'>Ist-Stunden</div>
                       <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
                     </div>
                   )}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Soll-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
                   </div>
                   {monthDiff != null && (
-                    <div className='rounded-xl border p-3'>
+                    <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                       <div className='text-sm text-gray-400'>Differenz (Ist−Soll)</div>
                       <div className={`text-lg font-semibold ${colorBySign(monthDiff)}`}>
                         {monthDiff >= 0 ? '+' : '-'}{deNumber(Math.abs(monthDiff))}
@@ -542,43 +542,43 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                   )}
 
                   {/* Urlaub */}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Urlaubstage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.urlaubstage_sum,0)}</div>
                   </div>
 
                   {/* Krank getrennt: Tage */}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>K-Tage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthKCount,0)}</div>
                   </div>
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>KO-Tage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthKOCount,0)}</div>
                   </div>
 
                   {/* Krank getrennt: Stunden */}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>K-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthK)}</div>
                   </div>
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>KO-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthKO)}</div>
                   </div>
 
                   {/* Krank % separat */}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>K-% (Stundenbasis)</div>
                     <div className='text-lg font-semibold'>{dePercent(monthKQuote)}</div>
                   </div>
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>KO-% (Stundenbasis)</div>
                     <div className='text-lg font-semibold'>{dePercent(monthKOQuote)}</div>
                   </div>
 
                   {/* 10/11/12h */}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>10/11/12 Std Einsätze</div>
                     <div className='text-lg font-semibold'>
                       {(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
@@ -589,19 +589,19 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                   </div>
 
                   {/* Planänderungen + Planerfüllung + Kurzfristigkeit */}
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Planänderungen gesamt</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow?.planchg_total ?? 0, 0)}</div>
                   </div>
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Planänderungen (aus dem Rhythmus)</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow?.planchg_off_rhythm ?? 0, 0)}</div>
                   </div>
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Planerfüllung</div>
                     <div className='text-lg font-semibold'>{dePercent(monthPlanQuote)}</div>
                   </div>
-                  <div className='rounded-xl border p-3'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Kurzfristigkeit ≤1 / 2–≤3 / 4–6 / ≥7 Tage</div>
                     <div className='text-lg font-semibold'>
                       {(monthRow?.kurzfrist_1d ?? 0)} / {(monthRow?.kurzfrist_3d ?? 0)} / {(monthRow?.kurzfrist_7d ?? 0)} / {(monthRow?.kurzfrist_gt7d ?? 0)}
@@ -764,17 +764,17 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Ist-Stunden (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.ytd_ist ?? 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Soll-Stunden (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>
                         {ytdRow?.ytd_soll != null ? deNumber(ytdRow.ytd_soll) : '–'}
                       </div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Differenz (Ist−Soll, YTD)</div>
                       <div className={`text-base font-semibold leading-tight ${colorBySign(ytdRow?.ytd_diff ?? 0)}`}>
                         {ytdRow?.ytd_diff == null ? '–'
@@ -786,17 +786,17 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Stunden · gesamtes Jahr
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Ist-Stunden (Jahr)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.year_ist ?? 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Soll-Stunden (Jahr)</div>
                       <div className='text-base font-semibold leading-tight'>
                         {ytdRow?.year_soll != null ? deNumber(ytdRow.year_soll) : '–'}
                       </div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Differenz (Ist−Soll, Jahr)</div>
                       <div className={`text-base font-semibold leading-tight ${colorBySign(ytdRow?.year_diff ?? 0)}`}>
                         {ytdRow?.year_diff == null ? '–'
@@ -805,19 +805,19 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     </div>
 
                     {/* Übernahme & inkl. Übernahme */}
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Vorjahresstunden (Übernahme)</div>
                       <div className='text-base font-semibold leading-tight'>
                         {deNumber(ytdRow?.year_uebernahme ?? 0)}
                       </div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Ist-Stunden inkl. Übernahme (Jahr)</div>
                       <div className='text-base font-semibold leading-tight'>
                         {deNumber(ytdRow?.year_ist_incl ?? ( (ytdRow?.year_ist ?? 0) + (ytdRow?.year_uebernahme ?? 0) ))}
                       </div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Differenz inkl. Übernahme (Ist+Übernahme − Soll)</div>
                       <div className={`text-base font-semibold leading-tight ${colorBySign(
                         (ytdRow?.year_diff_incl ??
@@ -835,18 +835,18 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Urlaub · bis Monat {ytdRow?.bis_monat ?? '–'}
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Urlaubstage (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.ytd_urlaub ?? 0, 0)}</div>
                     </div>
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Urlaub · gesamtes Jahr
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Urlaubstage (Jahr)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.year_urlaub ?? 0, 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Urlaubstage-Soll (Jahr)</div>
                       <div className='text-base font-semibold leading-tight'>
                         {ytdRow?.year_urlaub_soll != null ? deNumber(ytdRow.year_urlaub_soll, 0) : '–'}
@@ -857,15 +857,15 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Krank · bis Monat {ytdRow?.bis_monat ?? '–'}
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Kranktage (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.kranktage_ytd ?? 0, 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Krank-Stunden (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.krank_stunden_ytd ?? 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Krank-% (Stundenbasis, YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{dePercent(ytdKrankQuote)}</div>
                     </div>
@@ -874,7 +874,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Einsätze über 10 Stunden · bis Monat {ytdRow?.bis_monat ?? '–'}
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>10/11/12 Std Einsätze (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>
                         {(ytdRow?.dauer10_ytd ?? 0) + (ytdRow?.dauer11_ytd ?? 0) + (ytdRow?.dauer12_ytd ?? 0)}
@@ -888,15 +888,15 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                     <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
                       Planänderungen · bis Monat {ytdRow?.bis_monat ?? '–'}
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Gesamt (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.planchg_total_ytd ?? 0, 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Aus dem Rhythmus (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{deNumber(ytdRow?.planchg_off_rhythm_ytd ?? 0, 0)}</div>
                     </div>
-                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-700/50'>
+                    <div className='rounded-lg border border-gray-300 p-2 bg-gray-200/60 dark:bg-gray-800/50'>
                       <div className='text-xs text-gray-500'>Planerfüllung (YTD)</div>
                       <div className='text-base font-semibold leading-tight'>{dePercent(ytdRow?.planerfuellung_ytd)}</div>
                     </div>
@@ -1238,7 +1238,7 @@ const KuerzelPicker = ({ available, value, onChange, colorFor }) => {
               value={q}
               onChange={(e)=>setQ(e.target.value)}
               placeholder="Kürzel suchen…"
-              className="w-full rounded-lg bg-gray-100 dark:bg-gray-700 px-2 py-1 text-sm outline-none"
+              className="w-full rounded-lg bg-gray-100 dark:bg-gray-800 px-2 py-1 text-sm outline-none"
             />
           </div>
 
@@ -1250,7 +1250,7 @@ const KuerzelPicker = ({ available, value, onChange, colorFor }) => {
               <button
                 key={k}
                 onClick={()=>toggle(k)}
-                className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
               >
                 <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: colorFor(k, idx) }} />
                 <span className="font-mono">{k}</span>
