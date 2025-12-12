@@ -523,17 +523,17 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                 <div className='grid grid-cols-2  md:grid-cols-3 gap-3'>
                   {/* Ist/Soll/Diff */}
                   {typeof monthRow.soll_stunden_sum === 'number' && (
-                    <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                    <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                       <div className='text-sm text-gray-400'>Ist-Stunden</div>
                       <div className='text-lg font-semibold'>{deNumber(monthRow.ist_stunden_sum)}</div>
                     </div>
                   )}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Soll-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.soll_stunden_sum)}</div>
                   </div>
                   {monthDiff != null && (
-                    <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                    <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                       <div className='text-sm text-gray-400'>Differenz (Ist−Soll)</div>
                       <div className={`text-lg font-semibold ${colorBySign(monthDiff)}`}>
                         {monthDiff >= 0 ? '+' : '-'}{deNumber(Math.abs(monthDiff))}
@@ -542,43 +542,43 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                   )}
 
                   {/* Urlaub */}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Urlaubstage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow.urlaubstage_sum,0)}</div>
                   </div>
 
                   {/* Krank getrennt: Tage */}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>K-Tage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthKCount,0)}</div>
                   </div>
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>KO-Tage</div>
                     <div className='text-lg font-semibold'>{deNumber(monthKOCount,0)}</div>
                   </div>
 
                   {/* Krank getrennt: Stunden */}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>K-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthK)}</div>
                   </div>
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>KO-Stunden</div>
                     <div className='text-lg font-semibold'>{deNumber(monthKO)}</div>
                   </div>
 
                   {/* Krank % separat */}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>K-% (Stundenbasis)</div>
                     <div className='text-lg font-semibold'>{dePercent(monthKQuote)}</div>
                   </div>
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>KO-% (Stundenbasis)</div>
                     <div className='text-lg font-semibold'>{dePercent(monthKOQuote)}</div>
                   </div>
 
                   {/* 10/11/12h */}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>10/11/12 Std Einsätze</div>
                     <div className='text-lg font-semibold'>
                       {(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
@@ -589,19 +589,19 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
                   </div>
 
                   {/* Planänderungen + Planerfüllung + Kurzfristigkeit */}
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Planänderungen gesamt</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow?.planchg_total ?? 0, 0)}</div>
                   </div>
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Planänderungen (aus dem Rhythmus)</div>
                     <div className='text-lg font-semibold'>{deNumber(monthRow?.planchg_off_rhythm ?? 0, 0)}</div>
                   </div>
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Planerfüllung</div>
                     <div className='text-lg font-semibold'>{dePercent(monthPlanQuote)}</div>
                   </div>
-                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 p-3 shadow'>
+                  <div className='rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow'>
                     <div className='text-sm text-gray-400'>Kurzfristigkeit ≤1 / 2–≤3 / 4–6 / ≥7 Tage</div>
                     <div className='text-lg font-semibold'>
                       {(monthRow?.kurzfrist_1d ?? 0)} / {(monthRow?.kurzfrist_3d ?? 0)} / {(monthRow?.kurzfrist_7d ?? 0)} / {(monthRow?.kurzfrist_gt7d ?? 0)}
@@ -623,7 +623,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
             {/* Ist vs Soll (Balken) */}
             <Card>
               <div className='px-3 pt-2 pb-3'>
-                <div className='flex items-center justify-between mb-2'>
+                <div className='flex items-center justify-between mb-2 '>
                   <div className='font-medium'>Ist vs. Soll (Monat)</div>
                   <Muted>{monthRow ? MONTHS[monthRow.monat-1] : '–'}</Muted>
                 </div>
