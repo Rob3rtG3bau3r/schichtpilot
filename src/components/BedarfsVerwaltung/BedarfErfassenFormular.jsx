@@ -250,13 +250,13 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
             <label className="block text-sm font-medium mb-1">Modus Normalbetrieb</label>
             <div className="flex gap-2 mb-2">
               <button
-                className={`px-3 py-1 rounded ${betriebsmodus === '24_7' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                className={`px-3 py-1 rounded ${betriebsmodus === '24_7' ? 'bg-blue-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
                 onClick={() => setBetriebsmodus('24_7')}
               >
                 24/7-Betrieb
               </button>
               <button
-                className={`px-3 py-1 rounded ${betriebsmodus === 'wochenbetrieb' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                className={`px-3 py-1 rounded ${betriebsmodus === 'wochenbetrieb' ? 'bg-blue-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
                 onClick={() => setBetriebsmodus('wochenbetrieb')}
               >
                 Wochenbetrieb
@@ -265,9 +265,9 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
 
 {betriebsmodus === 'wochenbetrieb' && (
   <div className="mt-1">
-    <label className="block text-sm font-medium mb-1">Wochenmuster</label>
+    <label className="block text-sm font-medium mb-1 ">Wochenmuster</label>
     <select
-      className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+      className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800"
       value={wochenTage}
       onChange={(e) => setWochenTage(e.target.value)}
     >
@@ -292,13 +292,13 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
           <div className="mb-3">
             <div className="flex gap-2">
               <button
-                className={`px-3 py-1 rounded ${nbModus === 'alle' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                className={`px-3 py-1 rounded ${nbModus === 'alle' ? 'bg-blue-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
                 onClick={() => setNbModus('alle')}
               >
                 Alle Schichten gleich
               </button>
               <button
-                className={`px-3 py-1 rounded ${nbModus === 'je' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                className={`px-3 py-1 rounded ${nbModus === 'je' ? 'bg-blue-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
                 onClick={() => setNbModus('je')}
               >
                 Je Schicht
@@ -311,7 +311,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
               <label className="block text-sm font-medium mb-1">Anzahl (ganztägig)</label>
               <input
                 type="number"
-                className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                 value={anzahlAlle}
                 min={1}
                 onChange={(e) => setAnzahlAlle(parseInt(e.target.value || '1', 10))}
@@ -323,7 +323,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <label className="block text-sm font-medium mb-1">Früh</label>
                 <input
                   type="number"
-                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                   value={anzahlFrueh}
                   min={0}
                   onChange={(e) => setAnzahlFrueh(parseInt(e.target.value || '0', 10))}
@@ -333,7 +333,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <label className="block text-sm font-medium mb-1">Spät</label>
                 <input
                   type="number"
-                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                   value={anzahlSpaet}
                   min={0}
                   onChange={(e) => setAnzahlSpaet(parseInt(e.target.value || '0', 10))}
@@ -343,7 +343,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <label className="block text-sm font-medium mb-1">Nacht</label>
                 <input
                   type="number"
-                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                   value={anzahlNacht}
                   min={0}
                   onChange={(e) => setAnzahlNacht(parseInt(e.target.value || '0', 10))}
@@ -373,7 +373,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
             <label className="block text-sm font-medium mb-1">Bezeichnung Bedarf</label>
             <input
               type="text"
-              className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+              className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800"
               value={namebedarf}
               onChange={(e) => setNamebedarf(e.target.value)}
             />
@@ -385,7 +385,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
               <label className="block text-sm font-medium mb-1">Von</label>
               <input
                 type="date"
-                className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+                className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800"
                 value={von}
                 min={heute}
                 onChange={(e) => handleChangeVon(e.target.value)}
@@ -396,7 +396,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
               <label className="block text-sm font-medium mb-1">Bis</label>
               <input
                 type="date"
-                className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+                className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800"
                 value={bis}
                 min={minBis}
                 onChange={(e) => setBis(e.target.value)}
@@ -409,7 +409,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
             <div>
               <label className="block text-sm font-medium mb-1">Start-Schicht</label>
               <select
-                className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+                className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800"
                 value={startSchicht}
                 onChange={(e) => setStartSchicht(e.target.value)}
               >
@@ -421,7 +421,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
             <div>
               <label className="block text-sm font-medium mb-1">End-Schicht</label>
               <select
-                className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+                className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800"
                 value={endSchicht}
                 onChange={(e) => setEndSchicht(e.target.value)}
               >
@@ -436,13 +436,13 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
           <div className="mb-3">
             <div className="flex gap-2">
               <button
-                className={`px-3 py-1 rounded ${zbModus === 'alle' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                className={`px-3 py-1 rounded ${zbModus === 'alle' ? 'bg-blue-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
                 onClick={() => setZbModus('alle')}
               >
                 Alle Schichten gleich
               </button>
               <button
-                className={`px-3 py-1 rounded ${zbModus === 'je' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
+                className={`px-3 py-1 rounded ${zbModus === 'je' ? 'bg-blue-600 text-white' : 'bg-gray-300 dark:bg-gray-700'}`}
                 onClick={() => setZbModus('je')}
               >
                 Je Schicht
@@ -455,7 +455,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
               <label className="block text-sm font-medium mb-1">Anzahl (im Zeitraum; alle Schichten)</label>
               <input
                 type="number"
-                className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                 value={zbAlle}
                 min={1}
                 onChange={(e) => setZbAlle(parseInt(e.target.value || '1', 10))}
@@ -467,7 +467,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <label className="block text-sm font-medium mb-1">Früh</label>
                 <input
                   type="number"
-                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                   value={zbFrueh}
                   min={0}
                   onChange={(e) => setZbFrueh(parseInt(e.target.value || '0', 10))}
@@ -477,7 +477,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <label className="block text-sm font-medium mb-1">Spät</label>
                 <input
                   type="number"
-                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                   value={zbSpaet}
                   min={0}
                   onChange={(e) => setZbSpaet(parseInt(e.target.value || '0', 10))}
@@ -487,7 +487,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <label className="block text-sm font-medium mb-1">Nacht</label>
                 <input
                   type="number"
-                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded"
+                  className="w-full text-xl px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
                   value={zbNacht}
                   min={0}
                   onChange={(e) => setZbNacht(parseInt(e.target.value || '0', 10))}
@@ -524,7 +524,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
           onClick={() => setInfoOffen(false)}
         >
           <div
-            className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow animate-fade-in max-w-lg w-full"
+            className="bg-gray-200 dark:bg-gray-800 p-6 rounded-xl shadow animate-fade-in max-w-lg w-full"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold mb-2">Hinweise zum Bedarfformular</h3>
