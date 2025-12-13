@@ -214,7 +214,7 @@ const TermineFormular = ({ setReloadKey }) => {
             <div
               key={idx}
               onClick={() => toggleAuswahl(team, 'team')}
-              className={`px-3 py-1 rounded cursor-pointer border ${
+              className={`px-3 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 ${
                 auswahlTeams.includes(team)
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300'
@@ -238,7 +238,7 @@ const TermineFormular = ({ setReloadKey }) => {
             <div
               key={quali.id}
               onClick={() => toggleAuswahl(quali.id, 'quali')}
-              className={`px-3 py-1 rounded cursor-pointer border ${
+              className={`px-3 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 ${
                 auswahlQualis.includes(quali.id)
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300'
