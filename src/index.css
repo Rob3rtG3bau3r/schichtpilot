@@ -4,10 +4,19 @@
 
 @layer base {
   html { scrollbar-gutter: stable both-edges; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-gray-200 text-gray-900 dark:bg-gray-800 dark:text-gray-200;
+  }
 }
 
-/* Optionaler Fallback für Browser ohne Support (kannst du weglassen):
-   erzwingt immer eine vertikale Scrollbar, damit nichts springt. */
 @supports not (scrollbar-gutter: stable) {
   body { overflow-y: scroll; }
 }
