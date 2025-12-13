@@ -54,7 +54,7 @@ const QualiMatrixAnzeige = ({ onQualiClick }) => {
 <li
   key={quali.id}
   onClick={() => onQualiClick?.(quali.id, quali.qualifikation)}
-  className="relative group bg-gray-200 dark:bg-gray-700 p-2 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition cursor-pointer"
+  className="relative group bg-gray-300/40 dark:bg-gray-700 border border-gray-400/40 dark:border-gray-600 p-2 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-600 transition cursor-pointer"
 >
   <div className="flex justify-between items-center">
     <div className="flex flex-col">

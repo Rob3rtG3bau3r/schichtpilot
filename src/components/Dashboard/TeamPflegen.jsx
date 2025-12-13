@@ -267,7 +267,7 @@ const TeamPflegen = () => {
   if (loading) return <div>Lade Teamdaten...</div>;
 
   return (
-    <div className="rounded-xl shadow-xl px-1 py-4 border  border-gray-200 dark:border-gray-700">
+    <div className="rounded-xl shadow-xl px-1 py-4 border border-gray-200 dark:border-gray-700">
       <div
         className="flex justify-between items-center cursor-pointer"
         onClick={() => setOffen(!offen)}
