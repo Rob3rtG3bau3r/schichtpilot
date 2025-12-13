@@ -270,7 +270,7 @@ const onEditCell = (qualiId, slot, val) => {
           <label className="block text-sm font-medium mb-1">Bezeichnung</label>
           <input
             type="text"
-            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={namebedarf}
             onChange={(e) => setNamebedarf(e.target.value)}
           />
@@ -279,7 +279,7 @@ const onEditCell = (qualiId, slot, val) => {
           <label className="block text-sm font-medium mb-1">Farbe</label>
           <input
             type="color"
-            className="w-full h-9 rounded bg-gray-200 dark:bg-gray-800"
+            className="w-full h-9 rounded-full bg-gray-200 dark:bg-gray-800"
             value={farbe}
             onChange={(e) => setFarbe(e.target.value)}
           />
@@ -288,7 +288,7 @@ const onEditCell = (qualiId, slot, val) => {
           <label className="block text-sm font-medium mb-1">Von</label>
           <input
             type="date"
-            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={von}
             onChange={(e) => setVon(e.target.value)}
           />
@@ -297,7 +297,7 @@ const onEditCell = (qualiId, slot, val) => {
           <label className="block text-sm font-medium mb-1">Bis</label>
           <input
             type="date"
-            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={bis}
             min={minBis}
             onChange={(e) => setBis(e.target.value)}
@@ -306,7 +306,7 @@ const onEditCell = (qualiId, slot, val) => {
         <div>
           <label className="block text-sm font-medium mb-1">Start-Schicht</label>
           <select
-            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={startSchicht}
             onChange={(e) => setStartSchicht(e.target.value)}
           >
@@ -318,7 +318,7 @@ const onEditCell = (qualiId, slot, val) => {
         <div>
           <label className="block text-sm font-medium mb-1">End-Schicht</label>
           <select
-            className="w-full px-3 py-1 rounded border dark:bg-gray-800"
+            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={endSchicht}
             onChange={(e) => setEndSchicht(e.target.value)}
           >
@@ -332,7 +332,7 @@ const onEditCell = (qualiId, slot, val) => {
 {/* Vorschau (Tages-Optik) + Enthaltene Zeilen (aufgeräumt) */}
 <div className="mt-4 space-y-4">
   {/* Kopfzeile + Datum-Chips */}
-  <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900/20 p-3">
+  <div className="rounded-2xl bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700  p-3">
     <div className="flex items-center flex-wrap gap-2 mb-3">
       {farbe && (
         <span
@@ -398,7 +398,7 @@ const onEditCell = (qualiId, slot, val) => {
                 <input
                   type="number"
                   min={0}
-                  className={`w-20 text-center text-xs px-2 py-1 rounded border dark:bg-gray-800 ${
+                  className={`w-20 text-center text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-300/50 dark:bg-gray-700/50 ${
                     disabled ? 'opacity-40 cursor-not-allowed' : ''
                   }`}
                   value={disabled ? '' : (val[slotKey] ?? 0)}
@@ -408,7 +408,7 @@ const onEditCell = (qualiId, slot, val) => {
                 />
               );
               return (
-                <tr key={i} className="bg-gray-50 dark:bg-gray-900/30">
+                <tr key={i} className="rounded-xl bg-gray-300/50 dark:bg-gray-900/30">
                   <td className="py-1 pr-4">
                     <span className="font-mono mr-2">{r.kuerzel}</span>
                     <span className="opacity-60 text-[11px]">Pos {Number(r.position ?? 0)}</span>
