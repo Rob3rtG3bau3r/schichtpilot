@@ -217,7 +217,7 @@ const TermineFormular = ({ setReloadKey }) => {
               className={`px-3 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 ${
                 auswahlTeams.includes(team)
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300'
+                  : 'bg-gray-300/50 dark:bg-gray-700  text-gray-900 dark:text-gray-200'
               }`}
             >
               {team}
@@ -241,7 +241,7 @@ const TermineFormular = ({ setReloadKey }) => {
               className={`px-3 py-1 rounded cursor-pointer border border-gray-300 dark:border-gray-600 ${
                 auswahlQualis.includes(quali.id)
                   ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300'
+                  : 'bg-gray-300/50 dark:bg-gray-700  text-gray-900 dark:text-gray-200'
               }`}
             >
               {quali.qualifikation}
