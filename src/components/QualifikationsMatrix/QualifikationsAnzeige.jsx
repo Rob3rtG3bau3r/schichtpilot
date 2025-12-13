@@ -123,7 +123,7 @@ useEffect(() => {
               onDragStart={() => handleDragStart(index)}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => handleDrop(index)}
-              className={`border-b dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700 ${
+              className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700 ${
                 eintrag.betriebs_relevant ? 'cursor-move' : ''
               }`}
               title={eintrag.beschreibung || ''}
