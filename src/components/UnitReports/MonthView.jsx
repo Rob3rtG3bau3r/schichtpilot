@@ -5,7 +5,7 @@ import MonthsCharts from './MonthsCharts';
 import { MONTHS, deNumber, dePercent, colorBySign, FALLBACK_COLORS } from './unitReportsShared';
 
 const Card = ({ className='', children, ...rest }) => (
-  <div className={`rounded-2xl shadow-sm border border-gray-400 dark:border-bg-gray-200 dark:bg-gray-800 p-2 ${className}`} {...rest}>
+  <div className={`rounded-2xl shadow-sm border border-gray-300 dark:border-gray-700 dark:bg-gray-800 p-2 ${className}`} {...rest}>
     {children}
   </div>
 );
@@ -13,10 +13,24 @@ const Muted = ({ className='', children, ...rest }) => (
   <span className={`text-gray-500 dark:text-gray-300 ${className}`} {...rest}>{children}</span>
 );
 
+const SectionTitle = ({ children }) => (
+  <div className="col-span-full mt-1 text-[10px] uppercase tracking-wide text-gray-500">
+    {children}
+  </div>
+);
+
+const StatCard = ({ label, value, sub, valueClass = '' }) => (
+  <div className="rounded-lg border border-gray-300 dark:border-gray-700 p-2 bg-gray-300/60 dark:bg-gray-900/50">
+    <div className="text-xs text-gray-500">{label}</div>
+    <div className={`text-base font-semibold leading-tight ${valueClass}`}>{value}</div>
+    {sub ? <div className="text-[11px] text-gray-500 mt-1">{sub}</div> : null}
+  </div>
+);
+
 const KuerzelTable = ({ title, data, unit }) => {
   const rows = Object.entries(data ?? {}).map(([k,v])=>({k, v})).sort((a,b)=> (b.v ?? 0) - (a.v ?? 0));
   return (
-    <Card className="p-0 overflow-hidden">
+    <Card className="min-h-[14rem]">
       <div className="px-4 pt-3 pb-2 border-b flex items-center gap-2">
         <Calendar className="w-4 h-4" /><span className="font-medium">{title}</span>
       </div>
@@ -75,95 +89,52 @@ export default function MonthView({
           {!monthRow && <Muted>Wähle einen fertigen Monat oben aus.</Muted>}
 
           {monthRow && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {typeof monthRow.soll_stunden_sum === 'number' && (
-                <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                  <div className="text-sm text-gray-400">Ist-Stunden</div>
-                  <div className="text-lg font-semibold">{deNumber(monthRow.ist_stunden_sum)}</div>
-                </div>
-              )}
+            <div className="h-[calc(100%-2.5rem)] overflow-y-auto pr-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
 
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">Soll-Stunden</div>
-                <div className="text-lg font-semibold">{deNumber(monthRow.soll_stunden_sum)}</div>
-              </div>
+    <SectionTitle>Stunden</SectionTitle>
+    {typeof monthRow.soll_stunden_sum === 'number' && (
+      <StatCard label="Ist-Stunden" value={deNumber(monthRow.ist_stunden_sum)} />
+    )}
+    <StatCard label="Soll-Stunden" value={deNumber(monthRow.soll_stunden_sum)} />
+    {monthDiff != null && (
+      <StatCard
+        label="Differenz (Ist−Soll)"
+        value={`${monthDiff >= 0 ? '+' : '-'}${deNumber(Math.abs(monthDiff))}`}
+        valueClass={colorBySign(monthDiff)}
+      />
+    )}
 
-              {monthDiff != null && (
-                <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                  <div className="text-sm text-gray-400">Differenz (Ist−Soll)</div>
-                  <div className={`text-lg font-semibold ${colorBySign(monthDiff)}`}>
-                    {monthDiff >= 0 ? '+' : '-'}{deNumber(Math.abs(monthDiff))}
-                  </div>
-                </div>
-              )}
+    <SectionTitle>Urlaub</SectionTitle>
+    <StatCard label="Urlaubstage" value={deNumber(monthRow.urlaubstage_sum, 0)} />
 
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">Urlaubstage</div>
-                <div className="text-lg font-semibold">{deNumber(monthRow.urlaubstage_sum, 0)}</div>
-              </div>
+    <SectionTitle>Krank</SectionTitle>
+    <StatCard label="K-Tage" value={deNumber(monthKCount, 0)} />
+    <StatCard label="KO-Tage" value={deNumber(monthKOCount, 0)} />
+    <StatCard label="K-Stunden" value={deNumber(monthK)} />
+    <StatCard label="KO-Stunden" value={deNumber(monthKO)} />
+    <StatCard label="K-% (Stundenbasis)" value={dePercent(monthKQuote)} />
+    <StatCard label="KO-% (Stundenbasis)" value={dePercent(monthKOQuote)} />
 
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">K-Tage</div>
-                <div className="text-lg font-semibold">{deNumber(monthKCount, 0)}</div>
-              </div>
+    <SectionTitle>Plan & Kurzfristigkeit</SectionTitle>
+    <StatCard label="Planänderungen gesamt" value={deNumber(monthRow?.planchg_total ?? 0, 0)} />
+    <StatCard label="Planänderungen (aus dem Rhythmus)" value={deNumber(monthRow?.planchg_off_rhythm ?? 0, 0)} />
+    <StatCard label="Planerfüllung" value={dePercent(monthPlanQuote)} />
+    <StatCard
+      label="Kurzfristigkeit ≤1 / 2–≤3 / 4–6 / ≥7"
+      value={`${monthRow?.kurzfrist_1d ?? 0} / ${monthRow?.kurzfrist_3d ?? 0} / ${monthRow?.kurzfrist_7d ?? 0} / ${monthRow?.kurzfrist_gt7d ?? 0}`}
+    />
 
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">KO-Tage</div>
-                <div className="text-lg font-semibold">{deNumber(monthKOCount, 0)}</div>
-              </div>
+    <SectionTitle>Lange Dienste</SectionTitle>
+    <StatCard
+      label="10/11/12 Std Einsätze"
+      value={(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
+      sub={`10h ${monthRow.dauer10_count ?? 0} · 11h ${monthRow.dauer11_count ?? 0} · 12h ${monthRow.dauer12_count ?? 0}`}
+    />
 
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">K-Stunden</div>
-                <div className="text-lg font-semibold">{deNumber(monthK)}</div>
-              </div>
+  </div>
+</div>
 
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">KO-Stunden</div>
-                <div className="text-lg font-semibold">{deNumber(monthKO)}</div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">K-% (Stundenbasis)</div>
-                <div className="text-lg font-semibold">{dePercent(monthKQuote)}</div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">KO-% (Stundenbasis)</div>
-                <div className="text-lg font-semibold">{dePercent(monthKOQuote)}</div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">10/11/12 Std Einsätze</div>
-                <div className="text-lg font-semibold">
-                  {(monthRow.dauer10_count ?? 0) + (monthRow.dauer11_count ?? 0) + (monthRow.dauer12_count ?? 0)}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  10h {monthRow.dauer10_count ?? 0} · 11h {monthRow.dauer11_count ?? 0} · 12h {monthRow.dauer12_count ?? 0}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">Planänderungen gesamt</div>
-                <div className="text-lg font-semibold">{deNumber(monthRow?.planchg_total ?? 0, 0)}</div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">Planänderungen (aus dem Rhythmus)</div>
-                <div className="text-lg font-semibold">{deNumber(monthRow?.planchg_off_rhythm ?? 0, 0)}</div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">Planerfüllung</div>
-                <div className="text-lg font-semibold">{dePercent(monthPlanQuote)}</div>
-              </div>
-
-              <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-gray-200 dark:bg-gray-900 p-3 shadow">
-                <div className="text-sm text-gray-400">Kurzfristigkeit ≤1 / 2–≤3 / 4–6 / ≥7 Tage</div>
-                <div className="text-lg font-semibold">
-                  {(monthRow?.kurzfrist_1d ?? 0)} / {(monthRow?.kurzfrist_3d ?? 0)} / {(monthRow?.kurzfrist_7d ?? 0)} / {(monthRow?.kurzfrist_gt7d ?? 0)}
-                </div>
-              </div>
-            </div>
           )}
         </Card>
 

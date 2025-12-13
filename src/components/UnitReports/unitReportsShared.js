@@ -1,6 +1,6 @@
 // src/components/UnitReports/unitReportsShared.js
 
-export const MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+export const MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
 export const deNumber = (n, digits = 2) => {
   const v = typeof n === 'number' && isFinite(n) ? n : 0;

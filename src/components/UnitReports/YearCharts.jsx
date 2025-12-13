@@ -10,7 +10,7 @@ import {
 import { deNumber } from './unitReportsShared';
 
 const Card = ({ className='', children, ...rest }) => (
-  <div className={`rounded-2xl shadow-sm border border-gray-400 dark:border-bg-gray-200 dark:bg-gray-800 p-2 ${className}`} {...rest}>
+  <div className={`rounded-2xl shadow-sm border border-gray-300 dark:border-gray-700 dark:bg-gray-800 p-2 ${className}`} {...rest}>
     {children}
   </div>
 );

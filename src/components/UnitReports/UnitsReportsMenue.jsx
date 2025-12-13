@@ -4,12 +4,12 @@ import { ChevronDown, Download, RefreshCw, AlertCircle, CheckCircle2, Circle } f
 import { MONTHS } from './unitReportsShared';
 
 const Card = ({ className='', children, ...rest }) => (
-  <div className={`rounded-2xl shadow-sm border border-gray-400 dark:border-bg-gray-200 dark:bg-gray-800 p-2 ${className}`} {...rest}>
+  <div className={`rounded-2xl shadow-sm border border-gray-300 dark:border-gray-700 dark:bg-gray-800 p-2 ${className}`} {...rest}>
     {children}
   </div>
 );
 const Button = ({ className='', children, ...rest }) => (
-  <button className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 hover:bg-gray-500 active:scale-[.99] ${className}`} {...rest}>
+  <button className={`inline-flex items-center gap-2 rounded-2xl border border-gray-300 dark:border-gray-700 px-3 py-2 hover:bg-gray-500 active:scale-[.99] ${className}`} {...rest}>
     {children}
   </button>
 );
@@ -17,11 +17,11 @@ const Muted = ({ className='', children, ...rest }) => (
   <span className={`text-gray-500 dark:text-gray-300 ${className}`} {...rest}>{children}</span>
 );
 const SelectYear = ({ value, onChange, years }) => (
-  <div className="relative inline-flex items-center">
+  <div className="relative inline-flex items-center gap-2">
     <select
       value={value}
       onChange={(e)=>onChange(parseInt(e.target.value))}
-      className="appearance-none rounded-2xl border border-gray-500 px-3 py-2 pr-8 bg-gray-200 dark:bg-gray-800"
+      className="appearance-none rounded-2xl border border-gray-300 dark:border-gray-700 px-3 py-2 pr-8 bg-gray-200 dark:bg-gray-800"
     >
       {years.map(y => <option key={y} value={y}>{y}</option>)}
     </select>
@@ -65,7 +65,7 @@ const ChartsMenu = ({ value, onChange }) => {
       <button
         type="button"
         onClick={()=>setOpen(v=>!v)}
-        className="inline-flex items-center gap-2 rounded-2xl border px-3 py-2 hover:bg-gray-500"
+        className="inline-flex items-center gap-2 rounded-2xl border border-gray-300 dark:border-gray-700 px-3 py-2 hover:bg-gray-500"
         title="Charts ein-/ausblenden"
       >
         Jahres Charts wählen
@@ -122,7 +122,7 @@ export default function UnitsReportsMenue({
     return (
       <button
         onClick={() => ready && (setSelectedMonth(m), setShowYear(false))}
-        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-400 dark:border-gray-500
+        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-300 dark:border-gray-700
                     bg-gray-300 dark:bg-gray-700
                     ${ready ? 'hover:bg-gray-400 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
                     ${selected && ready ? 'ring-2 ring-blue-500' : 'ring-0'}
@@ -146,7 +146,7 @@ export default function UnitsReportsMenue({
     return (
       <button
         onClick={() => ready && setShowYear(true)}
-        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-400 dark:border-gray-500
+        className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-300 dark:border-gray-700
                     bg-gray-300 dark:bg-gray-700
                     ${ready ? 'hover:bg-gray-400 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
                     ${selected ? 'ring-2 ring-blue-500' : 'ring-0'}
