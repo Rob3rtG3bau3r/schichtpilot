@@ -267,7 +267,7 @@ const TeamPflegen = () => {
   if (loading) return <div>Lade Teamdaten...</div>;
 
   return (
-    <div className="rounded-xl shadow-xl px-1 py-4 border border-gray-300 dark:border-gray-700">
+    <div className="rounded-xl shadow-xl px-1 py-4 border  border-gray-200 dark:border-gray-700">
       <div
         className="flex justify-between items-center cursor-pointer"
         onClick={() => setOffen(!offen)}
@@ -324,7 +324,7 @@ const TeamPflegen = () => {
               .map((m) => (
                 <div
                   key={m.user_id}
-                  className="bg-gray-200 dark:bg-gray-900 p-4 rounded-md shadow-xl border border-gray-00 dark:border-gray-600 flex justify-between items-center"
+                  className="bg-gray-300/20 dark:bg-gray-900/20 p-4 rounded-md shadow-xl border border-gray-300 dark:border-gray-700 flex justify-between items-center"
                 >
                   <div>
                     <div className="font-medium">
