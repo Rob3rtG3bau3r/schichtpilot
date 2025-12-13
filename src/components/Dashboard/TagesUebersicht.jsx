@@ -27,7 +27,7 @@ const Section = ({ id, title, counter, children, defaultOpen = true }) => {
   }, [open]);
 
   return (
-    <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900/20">
+    <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-300/10 dark:bg-gray-900/20">
       <button
         className="w-full flex items-center justify-between px-3 py-2"
         onClick={() => setOpen(o => !o)}
@@ -57,7 +57,7 @@ const MiniTable = ({ rows }) => (
       </thead>
       <tbody>
         {rows.map((r, idx) => (
-          <tr key={idx} className="border-t border-gray-100 dark:border-gray-800">
+          <tr key={idx} className="border-t border-gray-300 dark:border-gray-700">
             <td className="py-1 pr-4 font-mono">{r.kuerzel}</td>
             <td className="py-1 pr-4">{r.anzahl}</td>
             <td className="py-1">
@@ -477,7 +477,7 @@ const summiert = Array.from(summeMap.entries())
   const counter = `${termine.length} Termine • ${andere.length} andere Kürzel • ${krank.length} krank`;
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+    <div className="rounded-2xl shadow-xl border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-800 p-3">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 mb-2 cursor-pointer" onClick={() => setOffen(o => !o)}>
         <div className="flex items-center gap-2">
@@ -485,7 +485,7 @@ const summiert = Array.from(summeMap.entries())
           <span className="text-lg font-semibold">Tagesübersicht</span>
           <span className="text-sm opacity-70">heute: {datumStr}</span>
           {!enabled && !loading && (
-            <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800">Feature nicht aktiv</span>
+            <span className="text-xs px-2 py-1 rounded-full bg-gray-200 dark:bg-gray-800">Feature nicht aktiv</span>
           )}
         </div>
         <div className="text-xs opacity-70">{counter}</div>
@@ -500,7 +500,7 @@ const summiert = Array.from(summeMap.entries())
           ) : !enabled ? null : (
             <div className="space-y-3">
               {/* Schichten */}
-              <Section id="schichten" title="Schichten (Früh / Spät / Nacht)">
+              <Section id="schichten" title="Schichten">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Früh</div>
@@ -648,7 +648,7 @@ for (const e of aktive) {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm border-separate border-spacing-y-1">
             <thead>
-              <tr className="text-left text-xs uppercase opacity-70">
+              <tr className="p-1 text-left text-xs uppercase opacity-70">
                 <th className="py-1 pr-4">Quali</th>
                 <th className="py-1 pr-4">Früh</th>
                 <th className="py-1 pr-4">Spät</th>
@@ -657,28 +657,28 @@ for (const e of aktive) {
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className="bg-gray-50 dark:bg-gray-900/30">
+                <tr key={i} className="bg-gray-300/40 dark:bg-gray-900/30">
 <td className={`py-1 pr-4 ${!r.relevant ? 'opacity-60 italic' : ''}`}>
-  <span className="font-mono mr-2">{r.kuerzel}</span>
+  <span className="font-mono mr-2 p-1">{r.kuerzel}</span>
   {r.label && r.label !== r.kuerzel && <span className="opacity-80">{r.label}</span>}
   {!r.relevant && (
-    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-700">
+    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-gray-400 dark:border-gray-700">
       nicht betriebsl.
     </span>
   )}
 </td>
                   <td className="py-1 pr-4">
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 inline-block min-w-[2.5rem] text-center">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-400/20 dark:bg-gray-500 border border-gray-400 dark:border-gray-500 inline-block min-w-[2.5rem] text-center">
                       {r.frueh}
                     </span>
                   </td>
                   <td className="py-1 pr-4">
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 inline-block min-w-[2.5rem] text-center">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-400/20 dark:bg-gray-500 border border-gray-400 dark:border-gray-500 inline-block min-w-[2.5rem] text-center">
                       {r.spaet}
                     </span>
                   </td>
                   <td className="py-1 pr-0">
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 inline-block min-w-[2.5rem] text-center">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-400/20 dark:bg-gray-500 border border-gray-400 dark:border-gray-700 inline-block min-w-[2.5rem] text-center">
                       {r.nacht}
                     </span>
                   </td>
