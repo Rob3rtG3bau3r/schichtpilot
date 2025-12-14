@@ -90,7 +90,7 @@ const urlaubDiffClass = (v) => {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl flex flex-col">
+    <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900/20 shadow-xl flex flex-col">
       <div className="px-4 py-2 border-b border-gray-400 dark:border-gray-800 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Detailansicht

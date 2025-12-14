@@ -583,7 +583,7 @@ const { data: urlaub, error: urlaubError } = await supabase
   return (
     <div className="p-2 md:py-1 space-y-4">
       {/* Filter-Panel */}
-      <div className="rounded-2xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 space-y-3 shadow-sm">
+      <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900/20 px-4 py-3 space-y-3 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
             <Calendar className="w-4 h-4" />
@@ -603,7 +603,7 @@ const { data: urlaub, error: urlaubError } = await supabase
           <div className="flex flex-col gap-1 text-xs">
             <label className="text-gray-600 dark:text-gray-300">Jahr</label>
             <select
-              className="rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+              className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-300 hover:dark:bg-gray-700/50"
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}
             >
@@ -626,8 +626,8 @@ const { data: urlaub, error: urlaubError } = await supabase
                 onClick={() => setModus('jahr')}
                 className={`px-2 py-1 rounded-lg border text-[11px] ${
                   modus === 'jahr'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-gray-300 hover:dark:bg-gray-700'
                 }`}
               >
                 Jahr gesamt
@@ -637,8 +637,8 @@ const { data: urlaub, error: urlaubError } = await supabase
                 onClick={() => setModus('monat')}
                 className={`px-2 py-1 rounded-lg border text-[11px] ${
                   modus === 'monat'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-gray-300 hover:dark:bg-gray-700'
                 }`}
               >
                 Einzelner Monat
@@ -648,8 +648,8 @@ const { data: urlaub, error: urlaubError } = await supabase
                 onClick={() => setModus('bereich')}
                 className={`px-2 py-1 rounded-lg border text-[11px] ${
                   modus === 'bereich'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-gray-300 hover:dark:bg-gray-700'
                 }`}
               >
                 Monatsbereich
@@ -662,7 +662,7 @@ const { data: urlaub, error: urlaubError } = await supabase
             <div className="flex flex-col gap-1 text-xs">
               <label className="text-gray-600 dark:text-gray-300">Monat</label>
               <select
-                className="rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+                className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800 px-2 py-1 text-xs"
                 value={singleMonth}
                 onChange={(e) => setSingleMonth(Number(e.target.value))}
               >
@@ -683,7 +683,7 @@ const { data: urlaub, error: urlaubError } = await supabase
                   Von Monat
                 </label>
                 <select
-                  className="rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+                  className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-300 hover:dark:bg-gray-700"
                   value={startMonth}
                   onChange={(e) => {
                     const v = Number(e.target.value);
@@ -704,7 +704,7 @@ const { data: urlaub, error: urlaubError } = await supabase
                   Bis Monat
                 </label>
                 <select
-                  className="rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+                  className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-300 hover:dark:bg-gray-700"
                   value={endMonth}
                   onChange={(e) => {
                     const v = Number(e.target.value);
@@ -729,7 +729,7 @@ const { data: urlaub, error: urlaubError } = await supabase
             </label>
             <input
               type="text"
-              className="rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+              className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-300 hover:dark:bg-gray-700"
               placeholder="Name eingeben…"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
@@ -738,7 +738,7 @@ const { data: urlaub, error: urlaubError } = await supabase
 
           <button
             onClick={loadData}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-400/40 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-400/40 dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-800 dark:text-gray-100 bg-gray-300/50 dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
             <RefreshCw className="w-4 h-4" />
             Neu laden

@@ -42,7 +42,7 @@ const UserReportPersonalliste = ({
   const visibleStats = stats.filter((u) => !!u.schichtgruppe);
 
   return (
-    <div className="xl:col-span-2 rounded-2xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm flex flex-col">
+    <div className="xl:col-span-2 rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900/20 shadow-sm flex flex-col">
       <div className="px-4 py-2 border-b border-gray-300 dark:border-gray-800 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Übersicht nach Mitarbeiter
@@ -168,7 +168,7 @@ const UserReportPersonalliste = ({
                     }
                     className={`cursor-pointer border-b border-gray-300 dark:border-gray-800 hover:bg-gray-500/40 dark:hover:bg-gray-800/60 ${
                       selected
-                        ? 'bg-indigo-300/50 dark:bg-indigo-900/40'
+                        ? 'bg-blue-300/50 dark:bg-blue-900/40'
                         : ''
                     }`}
                   >
