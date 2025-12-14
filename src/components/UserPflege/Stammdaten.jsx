@@ -8,11 +8,11 @@ import { useRollen } from '../../context/RollenContext';
 const ALLOWED_ROLES = ['Employee', 'Team_Leader', 'Planner'];
 
 const Card = ({ className = '', children, ...rest }) => (
-  <div className={`rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm ${className}`} {...rest}>{children}</div>
+  <div className={`rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-200 dark:bg-gray-800 shadow-sm ${className}`} {...rest}>{children}</div>
 );
 const Label = ({ children }) => <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">{children}</label>;
-const Input = (props) => <input {...props} className={`w-full rounded-xl border px-3 py-2 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
-const Select = (props) => <select {...props} className={`w-full rounded-xl border px-3 py-2 bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
+const Input = (props) => <input {...props} className={`w-full rounded-xl border px-3 py-2 bg-gray-300/20 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
+const Select = (props) => <select {...props} className={`w-full rounded-xl border px-3 py-2 bg-gray-300/20 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className||''}`} />;
 const Checkbox = ({ label, checked, onChange, disabled, title }) => (
   <label className={`inline-flex items-center gap-2 ${disabled ? 'opacity-60' : ''}`} title={title}>
     <input type="checkbox" className="w-4 h-4" checked={checked} onChange={onChange} disabled={disabled} />
@@ -478,7 +478,7 @@ if (start !== deaktiviertAb) {
   };
 
   return (
-    <Card className="h-full flex flex-col shadow-xl border border-gray-300">
+    <Card className="h-full flex flex-col shadow-xl border border-gray-300 dark:border-gray-700">
       <div className="px-4 pt-4 font-bold text-2xl text-gray-900 dark:text-gray-200">Stammdaten</div>
 
       {!userId ? (
@@ -529,7 +529,7 @@ if (start !== deaktiviertAb) {
             <Divider />
             {/* Liste */}
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mt-3">
-              <div className="grid grid-cols-12 text-xs font-semibold bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-3 py-2">
+              <div className="grid grid-cols-12 text-xs font-semibold bg-gray-300/50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-300 px-3 py-2">
                 <div className="col-span-3">Von</div>
                 <div className="col-span-3">Bis</div>
                 <div className="col-span-3">Status</div>

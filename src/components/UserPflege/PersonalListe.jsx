@@ -196,14 +196,14 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
           placeholder="🔍 Namen suchen"
           value={suche}
           onChange={(e) => setSuche(e.target.value)}
-          className="border px-2 py-1 rounded w-full bg-gray-200 dark:bg-gray-800"
+          className="border border-gray-300 dark:border-gray-700 px-2 py-1 rounded w-full bg-gray-200 dark:bg-gray-800"
         />
       </div>
 
       {/* Tabelle */}
       <div className="overflow-auto max-h-[60vh]">
         <table className="min-w-full table-auto">
-          <thead className="bg-gray-200 dark:bg-gray-700">
+          <thead className="bg-gray-300 dark:bg-gray-700">
             <tr>
               <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('name')}>
                 <div className="flex items-center gap-1">
