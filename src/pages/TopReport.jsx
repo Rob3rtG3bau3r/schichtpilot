@@ -33,7 +33,7 @@ const Card = ({ title, items, topN = 5 }) => {
   };
 
   return (
-    <div className="rounded-xl text-gray-900 dark:text-gray-200 border border-gray-400 dark:border-gray-700/40 bg-gray-300 dark:bg-gray-900 p-3">
+    <div className="rounded-xl text-gray-900 dark:text-gray-200 border border-gray-400 dark:border-gray-700/40 bg-gray-300/50 dark:bg-gray-900/50 p-3">
       <div className="flex items-center justify-between">
         <div className="font-medium">{title}</div>
         {items ? (
@@ -114,19 +114,19 @@ export default function TopReport() {
           <div className="text-md opacity-70">Zeitraum</div>
           <input
             type="date"
-            className="px-2 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm"
+            className="px-2 py-1 rounded bg-gray-300/50 dark:bg-gray-900/50 border border-gray-400 dark:border-gray-700 text-sm"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
           />
           <span>–</span>
           <input
             type="date"
-            className="px-2 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm"
+            className="px-2 py-1 rounded bg-gray-300/50 dark:bg-gray-900/50 border border-gray-400 dark:border-gray-700 text-sm"
             value={to}
             onChange={(e) => setTo(e.target.value)}
           />
           <select
-            className="px-2 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm"
+            className="px-2 py-1 rounded bg-gray-300/50 dark:bg-gray-900/50 border border-gray-400 dark:border-gray-700 text-sm"
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value))}
           >
@@ -136,7 +136,7 @@ export default function TopReport() {
           </select>
           <button
             onClick={load}
-            className="px-3 py-1 rounded bg-gray-300 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 text-sm flex items-center gap-1"
+            className="px-3 py-1 rounded bg-gray-300/50 dark:bg-gray-900/50 border border-gray-400 dark:border-gray-700 text-sm flex items-center gap-1"
           >
             <RotateCw size={14} /> Aktualisieren
           </button>
