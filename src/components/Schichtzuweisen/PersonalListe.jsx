@@ -175,7 +175,7 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
   });
 
   return (
-    <div className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className || ''}`}>
+    <div className={`bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className || ''}`}>
       <div className="flex justify-between items-center mb-2">
         <h2 className="text-lg font-semibold">Personal</h2>
         <Info
@@ -191,7 +191,7 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
           placeholder="🔍 Namen suchen"
           value={suche}
           onChange={(e) => setSuche(e.target.value)}
-          className="border px-2 py-1 rounded w-full md:w-1/2 bg-gray-200 dark:bg-gray-800"
+          className="border border-gray-300 dark:border-gray-700 px-2 py-1 rounded w-full md:w-1/2 bg-gray-200 dark:bg-gray-800"
         />
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -207,7 +207,7 @@ const PersonalListe = ({ onUserSelect, className, datumStart }) => {
       {/* Tabelle */}
       <div className="overflow-auto max-h-[calc(100vh-300px)]">
         <table className="min-w-full table-auto">
-          <thead className="bg-gray-200 dark:bg-gray-700 sticky top-0">
+          <thead className="bg-gray-300 dark:bg-gray-700 sticky top-0">
             <tr>
               <th className="p-2 text-left cursor-pointer" onClick={() => handleSortierung('name')}>
                 <div className="flex items-center gap-1">
