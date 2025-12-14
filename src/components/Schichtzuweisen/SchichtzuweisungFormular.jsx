@@ -391,7 +391,7 @@ const SchichtzuweisungFormular = ({
 
   return (
     <div
-      className={`bg-grey-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}
+      className={`bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white p-4 rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${className}`}
     >
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">Team zuweisen</h2>
@@ -401,7 +401,7 @@ const SchichtzuweisungFormular = ({
       </div>
 
       {kundenCheckInfo && (
-        <div className="bg-gray-100 dark:bg-gray-800 text-sm rounded p-2 mb-2">
+        <div className="bg-gray-200 dark:bg-gray-800 text-sm rounded p-2 mb-2">
           <p>
             <strong>Unternehmen:</strong>
           </p>
@@ -416,7 +416,7 @@ const SchichtzuweisungFormular = ({
           setTeam(e.target.value);
           onTeamSelect?.(e.target.value);
         }}
-        className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
+        className="bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-2 w-full rounded mb-4"
       >
         <option value="">Team wählen</option>
         {teams.map((t, i) => (
@@ -431,7 +431,7 @@ const SchichtzuweisungFormular = ({
         type="date"
         value={datumStart}
         onChange={(e) => setDatumStart(e.target.value)}
-        className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
+        className="bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-2 w-full rounded mb-4"
       />
 
       <div className="flex items-center mb-2">
@@ -457,7 +457,7 @@ const SchichtzuweisungFormular = ({
             onChange={(e) => setDatumEnde(e.target.value)}
             max={maxDatumEnde || undefined}
             min={datumStart || undefined}
-            className="bg-gray-100 dark:bg-gray-800 p-2 w-full rounded mb-4"
+            className="bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-2 w-full rounded mb-4"
           />
         </>
       )}
@@ -499,7 +499,7 @@ const SchichtzuweisungFormular = ({
                 setWechselInfo(null);
                 setIsLoading(false);
               }}
-              className="ml-auto px-3 py-1 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm"
+              className="ml-auto px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-sm"
             >
               Abbrechen
             </button>
@@ -555,7 +555,7 @@ const SchichtzuweisungFormular = ({
           onClick={() => setModalOffen(false)}
         >
           <div
-            className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg p-6 max-w-sm shadow-lg animate-fade-in"
+            className="bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg p-6 max-w-sm shadow-lg animate-fade-in"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-bold mb-2">Information zur Zuweisung</h2>
