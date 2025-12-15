@@ -7,10 +7,13 @@ import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-const Pill = ({ children, title }) => (
+const Pill = ({ children, title, stacked = false }) => (
   <span
     title={title}
-    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-300 dark:bg-gray-600 mr-2 mb-2"
+    className={[
+      "inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-300 dark:bg-gray-600",
+      stacked ? "w-full mr-0 mb-0" : "mr-2 mb-2",
+    ].join(" ")}
   >
     {children}
   </span>
@@ -504,27 +507,48 @@ const summiert = Array.from(summeMap.entries())
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Früh</div>
-                    <div className="flex flex-wrap">
-                      {schichten.frueh.map((n, i) => (
-                        <Pill key={i} title={n.endsWith('⦸') ? 'ausgegraut' : undefined}>{n}</Pill>
-                      ))}
-                    </div>
+                    <div className="flex flex-col gap-1">
+  {schichten.frueh.map((n, i) => (
+    <Pill
+      key={i}
+      stacked
+      title={n.endsWith('⦸') ? 'ausgegraut' : undefined}
+    >
+      {n}
+    </Pill>
+  ))}
+</div>
+
                   </div>
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Spät</div>
-                    <div className="flex flex-wrap">
-                      {schichten.spaet.map((n, i) => (
-                        <Pill key={i} title={n.endsWith('⦸') ? 'ausgegraut' : undefined}>{n}</Pill>
-                      ))}
-                    </div>
+                    <div className="flex flex-col gap-1">
+  {schichten.spaet.map((n, i) => (
+    <Pill
+      key={i}
+      stacked
+      title={n.endsWith('⦸') ? 'ausgegraut' : undefined}
+    >
+      {n}
+    </Pill>
+  ))}
+</div>
+
                   </div>
                   <div>
                     <div className="text-xs uppercase opacity-70 mb-1">Nacht</div>
-                    <div className="flex flex-wrap">
-                      {schichten.nacht.map((n, i) => (
-                        <Pill key={i} title={n.endsWith('⦸') ? 'ausgegraut' : undefined}>{n}</Pill>
-                      ))}
-                    </div>
+                    <div className="flex flex-col gap-1">
+  {schichten.nacht.map((n, i) => (
+    <Pill
+      key={i}
+      stacked
+      title={n.endsWith('⦸') ? 'ausgegraut' : undefined}
+    >
+      {n}
+    </Pill>
+  ))}
+</div>
+
                   </div>
                 </div>
               </Section>
