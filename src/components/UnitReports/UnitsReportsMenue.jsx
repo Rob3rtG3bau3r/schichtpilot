@@ -105,13 +105,10 @@ const ChartsMenu = ({ value, onChange }) => {
 
 // ---- Tiles ---------------------------------------------------------------
 export default function UnitsReportsMenue({
-  year, setYear, years,
-  onReload, onExport, exportDisabled,
-  loading, error,
-  readyMap, selectedMonth, setSelectedMonth,
-  showYear, setShowYear,
-  atLeastOneReady,
-  chartVis, setChartVis
+  year, setYear, years,   onReload, onExport, exportDisabled,
+  loading, error,   readyMap, selectedMonth, setSelectedMonth,
+  showYear, setShowYear,   atLeastOneReady,   chartVis, setChartVis, isCompanyViewer,
+  companyUnits,  unitId,  setUnitId,
 }) {
   const TILE_H = 'h-8';
 
@@ -170,6 +167,24 @@ export default function UnitsReportsMenue({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <SelectYear value={year} onChange={setYear} years={years} />
+                    {isCompanyViewer && (
+            <div className="relative inline-flex items-center gap-2">
+              <select
+                value={unitId ?? ''}
+                onChange={(e) => setUnitId?.(parseInt(e.target.value, 10))}
+                className="appearance-none rounded-2xl border border-gray-300 dark:border-gray-700 px-3 py-2 pr-8 bg-gray-200 dark:bg-gray-800"
+                title="Unit wählen"
+              >
+                {(companyUnits || []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.unitname}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 -ml-6 pointer-events-none text-gray-500" />
+            </div>
+          )}
+
           <Button onClick={onReload}><RefreshCw className="w-4 h-4" />Aktualisieren</Button>
           <Button onClick={onExport} disabled={exportDisabled}><Download className="w-4 h-4" />CSV Export</Button>
           <ChartsMenu value={chartVis} onChange={setChartVis} />

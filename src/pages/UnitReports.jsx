@@ -25,6 +25,8 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
   // Firma/Unit ermitteln
   const [firmaIdState, setFirmaIdState] = useState(firmaId ?? null);
   const [unitIdState, setUnitIdState] = useState(unitId ?? null);
+  const [isCompanyViewer, setIsCompanyViewer] = useState(false);
+  const [companyUnits, setCompanyUnits] = useState([]); // [{id, unitname}]
 
   useEffect(() => {
     if (firmaIdState && unitIdState) return;
@@ -38,6 +40,55 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
         .eq('user_id', uid)
         .maybeSingle();
       if (data) { setFirmaIdState(data.firma_id); setUnitIdState(data.unit_id); }
+    })();
+  }, [firmaIdState, unitIdState, supabase]);
+
+    useEffect(() => {
+    if (!firmaIdState) return;
+
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return;
+
+      // Rolle + Flag laden
+      const { data: me, error: meErr } = await supabase
+        .from('DB_User')
+        .select('rolle, can_see_company_page, firma_id, unit_id')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (meErr) {
+        console.error('DB_User Rollen-Check Fehler:', meErr);
+        return;
+      }
+
+      const canSeeCompany =
+        me?.rolle === 'Org_Admin' ||
+        (me?.rolle === 'Admin_Dev' && me?.can_see_company_page === true);
+
+      setIsCompanyViewer(!!canSeeCompany);
+
+      if (!canSeeCompany) return;
+
+      // Units der Firma laden (für Dropdown)
+      const { data: units, error: uErr } = await supabase
+        .from('DB_Unit')
+        .select('id, unitname')
+        .eq('firma', firmaIdState)
+        .order('unitname');
+
+      if (uErr) {
+        console.error('DB_Unit Laden Fehler:', uErr);
+        return;
+      }
+
+      setCompanyUnits(units || []);
+
+      // Wenn noch keine Unit gesetzt ist → erste Unit nehmen
+      if (!unitIdState && (units || []).length > 0) {
+        setUnitIdState(units[0].id);
+      }
     })();
   }, [firmaIdState, unitIdState, supabase]);
 
@@ -315,7 +366,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
 
   return (
     <div className="mx-auto p-4 md:p-6 space-y-4">
-      <UnitsReportsMenue
+            <UnitsReportsMenue
         year={year}
         setYear={setYear}
         years={years}
@@ -332,7 +383,12 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
         atLeastOneReady={atLeastOneReady}
         chartVis={chartVis}
         setChartVis={setChartVis}
+        isCompanyViewer={isCompanyViewer}
+        companyUnits={companyUnits}
+        unitId={unitIdState}
+        setUnitId={setUnitIdState}
       />
+
 
       {!showYear && (
         <MonthView

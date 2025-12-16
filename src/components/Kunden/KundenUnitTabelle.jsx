@@ -89,7 +89,7 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
               'finalized_at',
               'ytd_soll',
               'krank_stunden_ytd',
-              'year_diff',
+              'year_diff_incl',
               'year_urlaub',
               'year_urlaub_soll',
               'dauer10_ytd',
@@ -145,7 +145,7 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
           report_bis_monat: rep?.bis_monat ?? null,
           report_finalized_at: rep?.finalized_at ?? null,
 
-          year_diff: rep?.year_diff ?? null,
+          year_diff_incl: rep?.year_diff_incl ?? null,
           urlaub_uebrig: urlaubUebrig,
           krank_pct: krankPct,
 
@@ -225,7 +225,7 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
                   <td className="p-2">{unit.aktive_ma ?? 0}</td>
                   <td className="p-2">{unit.anzahl_schichten ?? '—'}</td>
 
-                  <td className="p-2">{fmtSigned(unit.year_diff, 0)}</td>
+                  <td className="p-2">{fmtSigned(unit.year_diff_incl, 0)}</td>
                   <td className="p-2">{fmtNum(unit.urlaub_uebrig, 1)}</td>
                   <td className="p-2">{fmtPct(unit.krank_pct, 1)}</td>
                   <td className="p-2">{unit.ueber10_ytd ?? 0}</td>
