@@ -12,10 +12,13 @@ export const deNumber = (n, digits = 2) => {
 
 export const dePercent = (n) => (n == null ? '–' : deNumber(n, 2) + ' %');
 
-export const colorBySign = (n) =>
-  n > 0 ? 'text-emerald-600 dark:text-emerald-400'
-: n < 0 ? 'text-red-600 dark:text-red-400'
-        : 'text-gray-900 dark:text-gray-100';
+export const colorBySign = (v) => {
+  const n = Number(v ?? 0);
+  if (n === 0) return 'text-gray-700 dark:text-gray-200';
+  return n < 0
+    ? 'text-green-600 dark:text-green-400'
+    : 'text-red-600 dark:text-red-400';
+};
 
 export const FALLBACK_COLORS = [
   '#60a5fa','#f472b6','#34d399','#f59e0b','#a78bfa','#f87171','#4ade80','#fb7185'

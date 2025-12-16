@@ -51,8 +51,8 @@ const Kundenverwaltung = () => {
   const { sichtFirma } = useRollen();
 
   return (
-    <div className="px-6 pb-3">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className=" pb-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         {/* LINKE SEITE: Unternehmen & Rechnungen */}
         <div>
           <Panel
@@ -70,14 +70,7 @@ const Kundenverwaltung = () => {
 
         {/* RECHTE SEITE: Unit / Features / Units-Tabelle */}
         <div>
-          <Panel
-            title="Feature-Übersicht (Plan)"
-            open={showFeatures}
-            setOpen={setShowFeatures}
-            right={<Badge>Nur Anzeige</Badge>}
-          >
-            <KundenFeatureUebersicht />
-          </Panel>
+          
 
           <Panel
             title="Vorhandene Units"
@@ -96,6 +89,14 @@ const Kundenverwaltung = () => {
             }
           >
             <KundenUnitTabelle />
+          </Panel>
+          <Panel
+            title="Feature-Übersicht (Plan)"
+            open={showFeatures}
+            setOpen={setShowFeatures}
+            right={<Badge>Nur Anzeige</Badge>}
+          >
+            <KundenFeatureUebersicht />
           </Panel>
         </div>
       </div>

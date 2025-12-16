@@ -148,7 +148,7 @@ export default function YearCharts({
                   <Legend />
                   <Bar dataKey="diff" name="Differenz (h)">
                     {monthlyDiffSeries.map((e, i) => (
-                      <Cell key={i} fill={e.diff >= 0 ? '#10b981' : '#ef4444'} />
+                      <Cell key={i} fill={e.diff < 0 ? '#10b981' : '#ef4444'} />
                     ))}
                   </Bar>
                 </BarChart>
