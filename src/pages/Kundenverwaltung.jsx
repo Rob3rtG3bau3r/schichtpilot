@@ -52,9 +52,10 @@ const Kundenverwaltung = () => {
 
   return (
     <div className=" pb-3">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-2">
         {/* LINKE SEITE: Unternehmen & Rechnungen */}
-        <div>
+        <div className="lg:col-span-5">
+
           <Panel
             title="Unternehmen"
             right={sichtFirma ? <Badge>Firma #{sichtFirma}</Badge> : null}
@@ -69,9 +70,7 @@ const Kundenverwaltung = () => {
         </div>
 
         {/* RECHTE SEITE: Unit / Features / Units-Tabelle */}
-        <div>
-          
-
+        <div className="lg:col-span-7">
           <Panel
             title="Vorhandene Units"
             open={showTabelle}
