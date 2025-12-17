@@ -7,10 +7,15 @@ import UnitsReportsMenue from '../components/UnitReports/UnitsReportsMenue';
 import MonthView from '../components/UnitReports/MonthView';
 import YearView from '../components/UnitReports/YearView';
 import { MONTHS, FALLBACK_COLORS } from '../components/UnitReports/unitReportsShared';
+import { useSearchParams } from 'react-router-dom';
 
 
 export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, defaultYear }) {
-  const supabase = supabaseProp ?? supabaseClient;
+const [searchParams] = useSearchParams();
+const urlFirmaId = searchParams.get('firma_id');
+const urlUnitId  = searchParams.get('unit_id');
+const urlYear    = searchParams.get('jahr');
+const supabase = supabaseProp ?? supabaseClient;
  
   // Scrollbar fix nur hier (keine globalen Änderungen)
   useEffect(() => {
@@ -23,8 +28,13 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
   }, []);
 
   // Firma/Unit ermitteln
-  const [firmaIdState, setFirmaIdState] = useState(firmaId ?? null);
-  const [unitIdState, setUnitIdState] = useState(unitId ?? null);
+  const [firmaIdState, setFirmaIdState] = useState(
+  firmaId ?? (urlFirmaId ? Number(urlFirmaId) : null)
+);
+const [unitIdState, setUnitIdState] = useState(
+  unitId ?? (urlUnitId ? Number(urlUnitId) : null)
+);
+
   const [isCompanyViewer, setIsCompanyViewer] = useState(false);
   const [companyUnits, setCompanyUnits] = useState([]); // [{id, unitname}]
 
@@ -95,7 +105,7 @@ export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, d
   // Jahr Auswahl
   const now = useMemo(() => new Date(), []);
   const thisYear = now.getFullYear();
-  const [year, setYear] = useState(defaultYear ?? thisYear);
+  const [year, setYear] = useState(  defaultYear ?? (urlYear ? Number(urlYear) : thisYear));
   const years = useMemo(() => [thisYear-2, thisYear-1, thisYear, thisYear+1].filter(y => y >= 2000), [thisYear]);
 
   // Daten

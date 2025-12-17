@@ -6,6 +6,7 @@ import KundenFeatureUebersicht from '../components/Kunden/KundenFeatureUebersich
 import KundenUnitTabelle from '../components/Kunden/KundenUnitTabelle';
 import KundenRechnungen from '../components/Kunden/KundenRechnungen';
 import { useRollen } from '../context/RollenContext';
+import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, RotateCw } from 'lucide-react';
 
 // ------------- kleine UI-Bausteine (wie im Systemtool) -------------------
@@ -49,6 +50,7 @@ const Kundenverwaltung = () => {
   const [showFeatures, setShowFeatures] = useState(false);
   const [showTabelle, setShowTabelle] = useState(true);
   const { sichtFirma } = useRollen();
+  const navigate = useNavigate();
 
   return (
     <div className=" pb-3">
@@ -87,7 +89,14 @@ const Kundenverwaltung = () => {
               </button>
             }
           >
-            <KundenUnitTabelle />
+            <KundenUnitTabelle
+  onOpenUnitReport={(unit) => {
+    navigate(
+      `/unit-reports?firma_id=${sichtFirma}&unit_id=${unit.id}&jahr=${new Date().getFullYear()}`
+    );
+  }}
+/>
+
           </Panel>
           <Panel
             title="Feature-Übersicht (Plan)"

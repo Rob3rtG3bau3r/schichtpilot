@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
+import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 
 const fmtNum = (v, digits = 0) => {
@@ -83,16 +84,17 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
           .from('db_report_ytd')
           .select(
             [
-              'unit_id',
-              'jahr',
-              'bis_monat',
-              'finalized_at',
-              'ytd_soll',
-              'krank_stunden_ytd',
-              'year_diff_incl',
-              'year_urlaub',
-              'year_urlaub_soll',
-              'dauer10_ytd',
+                  'unit_id',
+                  'jahr',
+                  'bis_monat',
+                  'finalized_at',
+                  'ytd_soll',
+                  'krank_stunden_ytd',
+                  'year_ist_incl',  
+                  'year_soll',
+                  'year_urlaub',
+                  'year_urlaub_soll',
+                  'dauer10_ytd',
               // optional, falls du lieber 11/12 zählen willst:
               // 'dauer11_ytd',
               // 'dauer12_ytd',
@@ -145,7 +147,12 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
           report_bis_monat: rep?.bis_monat ?? null,
           report_finalized_at: rep?.finalized_at ?? null,
 
-          year_diff_incl: rep?.year_diff_incl ?? null,
+          year_ist_incl: rep?.year_ist_incl ?? null,
+year_soll: rep?.year_soll ?? null,
+isOverYearSoll:
+  rep?.year_ist_incl != null &&
+  rep?.year_soll != null &&
+  Number(rep.year_ist_incl) > Number(rep.year_soll),
           urlaub_uebrig: urlaubUebrig,
           krank_pct: krankPct,
 
@@ -201,8 +208,8 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
                 <th className="p-2 text-left">Standort</th>
                 <th className="p-2 text-left">MA Ziel</th>
                 <th className="p-2 text-left">MA aktiv</th>
-                <th className="p-2 text-left"># Schichten</th>
-                <th className="p-2 text-left">Std.-Diff (Year)</th>
+                <th className="p-2 text-left"># Teams</th>
+                <th className="p-2 text-left">Std. (Year)</th>
                 <th className="p-2 text-left">Urlaub übrig</th>
                 <th className="p-2 text-left">Krank %</th>
                 <th className="p-2 text-left">&gt;10h Dienste</th>
@@ -225,25 +232,27 @@ const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
                   <td className="p-2">{unit.aktive_ma ?? 0}</td>
                   <td className="p-2">{unit.anzahl_schichten ?? '—'}</td>
 
-                  <td className="p-2">{fmtSigned(unit.year_diff_incl, 0)}</td>
+                  <td className={`p-2 font-semibold ${unit.isOverYearSoll ? 'text-red-500' : ''}`}>
+  {unit.year_ist_incl == null && unit.year_soll == null
+    ? '—'
+    : `${fmtNum(unit.year_ist_incl, 0)} / ${fmtNum(unit.year_soll, 0)}`
+  }
+</td>
+
                   <td className="p-2">{fmtNum(unit.urlaub_uebrig, 1)}</td>
                   <td className="p-2">{fmtPct(unit.krank_pct, 1)}</td>
                   <td className="p-2">{unit.ueber10_ytd ?? 0}</td>
 
                   <td className="p-2">
                     <button
-                      className="text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-700"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Variante A: Parent macht Navigation
-                        if (onOpenUnitReport) onOpenUnitReport(unit);
-
-                        // Variante B: oder du nutzt onSelectUnit + Navigation im Parent
-                        // onSelectUnit && onSelectUnit(unit);
-                      }}
-                    >
-                      Details
-                    </button>
+  className="text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-700"
+  onClick={(e) => {
+    e.stopPropagation();
+    onOpenUnitReport?.(unit);
+  }}
+>
+  Details
+</button>
                   </td>
                 </tr>
               ))}
