@@ -352,20 +352,23 @@ const { data: urlaub, error: urlaubError } = await supabase
   let stundenIst = 0;
   let stundenSoll = null;
 
-  if (stRow) {
-    if (isFullYear) {
-      // Hier nehmen wir weiterhin summe_jahr als "Ist im Jahr" für die Liste
-      stundenIst = stundenSummeJahr;
-      stundenSoll = stundenGesamt;
-    } else {
-      let sum = 0;
-      for (let m = effStartMonth; m <= effEndMonth; m++) {
-        const key = `m${m}`;
-        sum += Number(stRow[key] || 0);
-      }
-      stundenIst = sum;
+if (stRow) {
+  if (isFullYear) {
+    // ✅ Jahres-Ist = Summe Jahr + Übernahme Vorjahr
+    stundenIst = stundenSummeJahr + stundenUebernahme;
+
+    // Soll bleibt die Jahresvorgabe
+    stundenSoll = stundenGesamt;
+  } else {
+    let sum = 0;
+    for (let m = effStartMonth; m <= effEndMonth; m++) {
+      const key = `m${m}`;
+      sum += Number(stRow[key] || 0);
     }
+    // ✅ Bereich/Monat: NUR die Monatsstunden (keine Übernahme)
+    stundenIst = sum;
   }
+}
 
   const stundenText =
     isFullYear && stundenSoll != null
