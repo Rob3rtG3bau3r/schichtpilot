@@ -78,8 +78,12 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
   const [user, setUser] = useState(null);
 
   // Editierbar
-  const [vorname, setVorname] = useState('');           // NEU: vorname änderbar
+  const [vorname, setVorname] = useState('');       
   const [nachname, setNachname] = useState('');
+  const [tel1, setTel1] = useState('');
+  const [tel2, setTel2] = useState('');
+  const [personalNummer, setPersonalNummer] = useState('');
+
   const [rolle, setRolle] = useState('Employee');
   const [deaktiviertAb, setDeaktiviertAb] = useState('');
 
@@ -119,6 +123,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     // Reset
     setUser(null);
     setVorname(''); setNachname('');
+    setTel1(''); setTel2(''); setPersonalNummer('');
     setRolle('Employee');
     setAktiv(true);
     setWillLoeschenKampfliste(false);
@@ -129,6 +134,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     setAusgrauen([]);
     setNewVon(todayStr()); setNewBis('');
     setEditId(null); setEditVon(''); setEditBis('');
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
     setNotice(null);
 
     if (!userId) return;
@@ -136,7 +142,7 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     (async ()=>{
       let uQ = supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, aktiv, inaktiv_at, deaktiviert_ab, funktion, firma_id, unit_id')
+        .select('user_id, vorname, nachname, rolle, aktiv, inaktiv_at, deaktiviert_ab, funktion, firma_id, unit_id, tel_number1, tel_number2, personal_nummer')
         .eq('user_id', userId);
       uQ = addEq(addEq(uQ, 'firma_id', firma), 'unit_id', unit);
 
@@ -144,8 +150,11 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       if (uErr || !u) { console.error('DB_User:', uErr || 'not found'); return; }
 
       setUser(u);
-      setVorname(u.vorname || '');            // NEU
+      setVorname(u.vorname || '');          
       setNachname(u.nachname || '');
+      setTel1(u.tel_number1 || '');
+      setTel2(u.tel_number2 || '');
+      setPersonalNummer(u.personal_nummer || '');
       setRolle(u.rolle || 'Employee');
       setAktiv(u.aktiv ?? true);
       setDeaktiviertAb(u.deaktiviert_ab || '');
@@ -318,6 +327,25 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
     if(!user) return;
     setLoading(true);
     try{
+      // ✅ Mini-Check (Telefon-Format) – direkt am Anfang von save()
+      const phoneOk = (s) => {
+      const v = (s || '').trim();
+        if (!v) return true; // leer erlaubt
+        return /^[+0-9 ()/.-]{6,25}$/.test(v);
+      };
+
+        if (!phoneOk(tel1) || !phoneOk(tel2)) {
+          showNotice('warning', 'Telefonnummer bitte nur mit Ziffern, +, Leerzeichen oder ()-/. eingeben.', 6000);
+          setLoading(false);
+        return;
+      }
+
+  // Optional: Personalnummer trimmen, aber NICHT validieren (weil Firmen sehr unterschiedlich)
+        if (personalNummer && personalNummer.trim().length > 30) {
+          showNotice('warning', 'Personalnummer ist zu lang (max. 30 Zeichen empfohlen).', 6000);
+          setLoading(false);
+        return;
+      }
       if(!aktiv && willLoeschenKampfliste){
         const chosen = dayjs(loeschDatum, 'YYYY-MM-DD');
         if (chosen.isBefore(dayjs().startOf('day'))) {
@@ -330,6 +358,9 @@ export default function Stammdaten({ userId, onSaved, onCancel }) {
       const payload = {
         vorname,                 
         nachname,
+        tel_number1: tel1?.trim() || null,
+        tel_number2: tel2?.trim() || null,
+        personal_nummer: personalNummer?.trim() || null,
         rolle,
         aktiv,
         deaktiviert_ab: deaktiviertAb || null,           
@@ -488,20 +519,54 @@ if (start !== deaktiviertAb) {
       ) : (
         <div className="p-4 space-y-6">
           {/* BASISDATEN */}
-          <div>
-            <SectionTitle>Basisdaten</SectionTitle>
-            <Divider />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-              <div>
-                <Label>Vorname </Label>
-                <Input value={vorname} onChange={e=>setVorname(e.target.value)} disabled={disabled}/>
-              </div>
-              <div>
-                <Label>Nachname </Label>
-                <Input value={nachname} onChange={e=>setNachname(e.target.value)} disabled={disabled}/>
-              </div>
-            </div>
-          </div>
+<div>
+  <SectionTitle>Basisdaten</SectionTitle>
+  <Divider />
+
+  {/* EIN Grid für alles */}
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+
+    {/* Personalnummer links */}
+    <div>
+      <Label>Personalnummer</Label>
+      <Input
+        value={personalNummer}
+        onChange={(e) => setPersonalNummer(e.target.value)}
+        disabled={disabled}
+      />
+      <div className="text-xs text-gray-500 mt-1">
+        Textfeld, damit führende Nullen &amp; Buchstaben möglich sind.
+      </div>
+    </div>
+
+    {/* rechte Hälfte als Platzhalter (damit Personalnummer NICHT volle Breite ist) */}
+    <div />
+
+    {/* Vorname / Nachname wie gewohnt */}
+    <div>
+      <Label>Vorname</Label>
+      <Input value={vorname} onChange={(e) => setVorname(e.target.value)} disabled={disabled} />
+    </div>
+
+    <div>
+      <Label>Nachname</Label>
+      <Input value={nachname} onChange={(e) => setNachname(e.target.value)} disabled={disabled} />
+    </div>
+
+    {/* Telefon 1 / Telefon 2 wie die Namen */}
+    <div>
+      <Label>Telefon 1</Label>
+      <Input value={tel1} onChange={(e) => setTel1(e.target.value)} disabled={disabled} />
+    </div>
+
+    <div>
+      <Label>Telefon 2</Label>
+      <Input value={tel2} onChange={(e) => setTel2(e.target.value)} disabled={disabled} />
+    </div>
+
+  </div>
+</div>
+
 
           {/* FUNKTION & ROLLE */}
           <div>
