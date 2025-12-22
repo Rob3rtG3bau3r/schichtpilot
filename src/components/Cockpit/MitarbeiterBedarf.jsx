@@ -60,7 +60,13 @@ const groupByQualiSum = (items) => {
 const iconFor = (n) => (n === 1 ? '👤' : '👥');
 
 
-const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
+const MitarbeiterBedarf = ({
+  jahr,
+  monat,
+  refreshKey = 0,
+  onSavedForDay,        
+}) => {
+
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
   const [tage, setTage] = useState([]);
@@ -942,6 +948,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0 }) => {
           modalDatum={modalDatum}
           modalSchicht={modalSchicht}
           fehlendeQualis={fehlendeQualis}
+          onSaved={onSavedForDay}
         />
       )}
 

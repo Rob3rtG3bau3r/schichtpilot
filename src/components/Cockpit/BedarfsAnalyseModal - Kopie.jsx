@@ -4,16 +4,12 @@ import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
-import duration from 'dayjs/plugin/duration';
-dayjs.extend(duration);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
 import { useRollen } from '../../context/RollenContext';
-import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
 import { Info } from 'lucide-react';
 
-
-const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlendeQualis = [], onSaved }) => {
+const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlendeQualis = [] }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
 
   const [mitarbeiter, setMitarbeiter] = useState([]);         // im Dienst (sortiert nach höchster Quali)
@@ -23,16 +19,6 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const [notizByUser, setNotizByUser] = useState(new Map()); // uid -> { notiz, entscheidung, created_at }
   const [selected, setSelected] = useState(null); // { uid, name, tel1, tel2 }
   const [notizText, setNotizText] = useState('');
-  const [flags, setFlags] = useState({
-  macht_schicht: false,
-  kann_heute_nicht: false,
-  kann_keine_frueh: false,
-  kann_keine_spaet: false,
-  kann_keine_nacht: false,
-  kann_nur_frueh: false,
-  kann_nur_spaet: false,
-  kann_nur_nacht: false,
-});
   const [saving, setSaving] = useState(false);
 
   const maskForEmployee = (kuerzel) => {
@@ -335,32 +321,6 @@ if (kandidaten.length === 0) {
       });
 
       setFreieMitarbeiter(freieZeilen);
-      // (K) Gesprächsnotizen für HEUTE laden (nur Kandidaten + ggf. Dienst)
-try {
-  const idsForNotes = Array.from(new Set([...kandidaten, ...dienstUserIds]));
-  if (idsForNotes.length) {
-    const { data: nRows, error: nErr } = await supabase
-      .from('DB_Gespraechsnotiz')
-      .select('*')
-      .eq('firma_id', firma)
-      .eq('unit_id', unit)
-      .eq('datum', modalDatum)
-      .in('user_id', idsForNotes);
-
-    if (!nErr) {
-      const map = new Map();
-      (nRows || []).forEach(r => map.set(String(r.user_id), r));
-      setNotizByUser(map);
-    } else {
-      console.error('DB_Gespraechsnotiz:', nErr);
-    }
-  } else {
-    setNotizByUser(new Map());
-  }
-} catch (e) {
-  console.error('DB_Gespraechsnotiz load exception:', e);
-}
-
     };
 
     ladeDaten();
@@ -473,214 +433,6 @@ try {
 
   if (!offen) return null;
 
-const handleDecision = async () => {
-  if (!selected?.uid) return;
-  const uid = String(selected.uid);
-  setSaving(true);
-
-  try {
-    // 1) Notiz speichern (Upsert)
-    const payloadNotiz = {
-      firma_id: firma,
-      unit_id: unit,
-      user_id: selected.uid,
-      datum: modalDatum,
-      created_by: (await supabase.auth.getUser()).data?.user?.id ?? null,
-      notiz: notizText || null,
-      ...flags,
-    };
-
-    const { error: upErr } = await supabase
-      .from('DB_Gespraechsnotiz')
-      .upsert(payloadNotiz, { onConflict: 'firma_id,unit_id,user_id,datum' });
-
-    if (upErr) {
-      console.error(upErr);
-      alert('Notiz konnte nicht gespeichert werden.');
-      return;
-    }
-
-    // 2) Wenn "macht_schicht" aktiv => in Kampfliste schreiben (wie SchichtDienstAendernForm-Logik LIGHT)
-    if (flags.macht_schicht) {
-      // Schichtart-ID + Zeiten holen
-      const { data: sRow, error: sErr } = await supabase
-        .from('DB_SchichtArt')
-        .select('id, startzeit, endzeit, pause_aktiv')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('kuerzel', sch)      // sch ist F/S/N
-        .single();
-
-      if (sErr || !sRow?.id) {
-        console.error('DB_SchichtArt:', sErr);
-        alert('SchichtArt nicht gefunden (F/S/N).');
-        return;
-      }
-
-      const start = sRow.startzeit || null;
-      const ende  = sRow.endzeit  || null;
-
-      // Dauer berechnen (inkl. Mindestpause wie bei dir)
-      const rohDauer = (() => {
-        if (!start || !ende) return null;
-        const s = dayjs(`2024-01-01T${start}`);
-        let e = dayjs(`2024-01-01T${ende}`);
-        if (e.isBefore(s)) e = e.add(1, 'day');
-        return dayjs.duration(e.diff(s)).asHours();
-      })();
-
-      let pause = 0;
-      if (rohDauer != null && sRow.pause_aktiv) {
-        if (rohDauer >= 9) pause = 0.75;
-        else if (rohDauer >= 6) pause = 0.5;
-      }
-      const dauerIst = rohDauer != null ? Math.max(rohDauer - pause, 0) : null;
-
-      // alten Eintrag holen
-      const { data: oldRow } = await supabase
-        .from('DB_Kampfliste')
-        .select('*')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('datum', modalDatum)
-        .eq('user', selected.uid)
-        .maybeSingle();
-
-      const now = new Date().toISOString();
-      const createdBy = (await supabase.auth.getUser()).data?.user?.id ?? null;
-
-      // Verlauf schreiben (wenn alt da)
-      if (oldRow) {
-        await supabase.from('DB_KampflisteVerlauf').insert([{
-          user: oldRow.user,
-          datum: oldRow.datum,
-          firma_id: oldRow.firma_id,
-          unit_id: oldRow.unit_id,
-          ist_schicht: oldRow.ist_schicht,
-          soll_schicht: oldRow.soll_schicht,
-          startzeit_ist: oldRow.startzeit_ist,
-          endzeit_ist: oldRow.endzeit_ist,
-          dauer_ist: oldRow.dauer_ist,
-          dauer_soll: oldRow.dauer_soll,
-          kommentar: oldRow.kommentar,
-          pausen_dauer: oldRow.pausen_dauer ?? 0,
-          change_on: now,
-          created_by: oldRow.created_by,
-          change_by: createdBy,
-          created_at: oldRow.created_at,
-          schichtgruppe: oldRow.schichtgruppe,
-        }]);
-
-        // alten löschen (wie dein Batch-Pattern)
-        await supabase
-          .from('DB_Kampfliste')
-          .delete()
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .eq('datum', modalDatum)
-          .eq('user', selected.uid);
-      }
-
-      // neuen Eintrag schreiben
-      await supabase.from('DB_Kampfliste').insert([{
-        firma_id: firma,
-        unit_id: unit,
-        datum: modalDatum,
-        user: selected.uid,
-        ist_schicht: sRow.id,
-        startzeit_ist: start,
-        endzeit_ist: ende,
-        dauer_ist: dauerIst,
-        pausen_dauer: pause,
-        aenderung: false,
-        kommentar: 'BedarfsAnalyse: macht die Schicht',
-        created_at: now,
-        created_by: createdBy,
-      }]);
-
-      // Stunden neu berechnen (wie du willst)
-      await berechneUndSpeichereStunden(
-        selected.uid,
-        dayjs(modalDatum).year(),
-        dayjs(modalDatum).month() + 1,
-        firma,
-        unit
-      );
-    }
-if (typeof onSaved === 'function') {
-  await onSaved({
-    datum: modalDatum,
-    firma_id: firma,
-    unit_id: unit,
-    user_id: selected.uid,
-    macht_schicht: !!flags.macht_schicht,
-  });
-}
-
-    // UI aktualisieren (Notizen neu laden)
-    setSelected(null);
-    // Optional: ladeDaten nochmal oder Notiz-Map lokal updaten:
-    // -> simplest: Modal offen lassen und einmal "reload" triggern: setInfoOffen(false) reicht nicht
-    // -> wir machen quick update:
-    setNotizByUser(prev => {
-  const m = new Map(prev);
-  m.set(uid, { ...payloadNotiz, created_at: new Date().toISOString() });
-  return m;
-});
-
-  } finally {
-    setSaving(false);
-  }
-};
-
-  const ActionBtn = ({ label, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="rounded-xl px-3 py-2 text-sm bg-gray-800 text-white hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600"
-  >
-    {label}
-  </button>
-);
-const toggleFlag = (key) => {
-  setFlags(prev => {
-    const next = { ...prev, [key]: !prev[key] };
-
-    // Regel 1: "kann_heute_nicht" => setzt alle "kann_keine_*"
-    if (key === 'kann_heute_nicht') {
-      const v = !prev.kann_heute_nicht;
-      next.kann_heute_nicht = v;
-      next.kann_keine_frueh = v;
-      next.kann_keine_spaet = v;
-      next.kann_keine_nacht = v;
-    }
-
-    // Regel 2: "kann_nur_frueh" => impliziert keine Spät/Nacht (optional)
-    if (key === 'kann_nur_frueh' && !prev.kann_nur_frueh) {
-      next.kann_nur_spaet = false;
-      next.kann_nur_nacht = false;
-      next.kann_keine_spaet = true;
-      next.kann_keine_nacht = true;
-    }
-    if (key === 'kann_nur_spaet' && !prev.kann_nur_spaet) {
-      next.kann_nur_frueh = false;
-      next.kann_nur_nacht = false;
-      next.kann_keine_frueh = true;
-      next.kann_keine_nacht = true;
-    }
-    if (key === 'kann_nur_nacht' && !prev.kann_nur_nacht) {
-      next.kann_nur_frueh = false;
-      next.kann_nur_spaet = false;
-      next.kann_keine_frueh = true;
-      next.kann_keine_spaet = true;
-    }
-
-    return next;
-  });
-};
-
-
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -772,10 +524,10 @@ const toggleFlag = (key) => {
                     else if (bewertung === 'rot') rowStyle = 'bg-red-100 dark:bg-red-900/40';
 
                     return (
-                      <tr key={String(f.uid)} className={`text-center ${rowStyle}`}>
+                      <tr key={i} className={`text-center ${rowStyle}`}>
                         <td className="pl-2 text-left">
   {(() => {
-    const n = notizByUser.get(String(f.uid));
+    const n = notizByUser.get(f.uid);
     const tooltip =
       `${f.name}\n` +
       `Tel1: ${f.tel1 || '—'}\n` +
@@ -790,41 +542,14 @@ const toggleFlag = (key) => {
         onClick={() => {
           setSelected({ uid: f.uid, name: f.name, tel1: f.tel1, tel2: f.tel2 });
           setNotizText(n?.notiz || '');
-          setFlags({
-            macht_schicht: !!n?.macht_schicht,
-            kann_heute_nicht: !!n?.kann_heute_nicht,
-            kann_keine_frueh: !!n?.kann_keine_frueh,
-            kann_keine_spaet: !!n?.kann_keine_spaet,  
-            kann_keine_nacht: !!n?.kann_keine_nacht,
-            kann_nur_frueh: !!n?.kann_nur_frueh,
-            kann_nur_spaet: !!n?.kann_nur_spaet,
-            kann_nur_nacht: !!n?.kann_nur_nacht,
-          });
         }}
       >
         <span>{f.name}</span>
 
         {/* Info-Icon nur wenn Notiz vorhanden */}
-        {(() => {
-  const hasAny =
-    !!n &&
-    (
-      (n.notiz && String(n.notiz).trim().length > 0) ||
-      n.macht_schicht ||
-      n.kann_heute_nicht ||
-      n.kann_keine_frueh ||
-      n.kann_keine_spaet ||
-      n.kann_keine_nacht ||
-      n.kann_nur_frueh ||
-      n.kann_nur_spaet ||
-      n.kann_nur_nacht
-    );
-
-  return hasAny ? (
-    <Info size={14} className="text-blue-500 opacity-80" title="Gesprächsnotiz vorhanden" />
-  ) : null;
-})()}
-
+        {n?.notiz ? (
+          <Info size={14} className="text-blue-500 opacity-80" title="Gesprächsnotiz vorhanden" />
+        ) : null}
       </button>
     );
   })()}
@@ -877,87 +602,6 @@ const toggleFlag = (key) => {
             </div>
           </div>
         )}
-        {selected && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70]" onClick={() => setSelected(null)}>
-    <div
-      onClick={(e) => e.stopPropagation()}
-      className="bg-white dark:bg-gray-900 border border-gray-900 dark:border-gray-600 text-gray-900 dark:text-gray-100 rounded-xl p-5 w-full max-w-md shadow-xl "
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-semibold text-lg ">{selected.name}</div>
-          <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-            Tel1: <span className="font-medium">{selected.tel1 || '—'}</span><br/>
-            Tel2: <span className="font-medium">{selected.tel2 || '—'}</span>
-          </div>
-        </div>
-        <button className="text-xl opacity-70 hover:opacity-100" onClick={() => setSelected(null)}>×</button>
-      </div>
-
-      <div className="mt-4">
-        <label className="text-sm font-medium">Gesprächsnotiz</label>
-        <textarea
-          rows={3}
-          value={notizText}
-          onChange={(e) => setNotizText(e.target.value)}
-          className="w-full mt-1 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
-          placeholder="Kurze Notiz…"
-          maxLength={250}
-        />
-      </div>
-
-      <div className="mt-4 space-y-2 text-sm">
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={flags.macht_schicht} onChange={() => toggleFlag('macht_schicht')} />
-    Macht die Schicht ✅
-  </label>
-
-  <label className="flex items-center gap-2">
-    <input type="checkbox" checked={flags.kann_heute_nicht} onChange={() => toggleFlag('kann_heute_nicht')} />
-    Kann heute nicht
-  </label>
-
-  <div className="grid grid-cols-2 gap-2 mt-2">
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={flags.kann_keine_frueh} onChange={() => toggleFlag('kann_keine_frueh')} />
-      Kann keine Früh
-    </label>
-       <label className="flex items-center gap-2">
-      <input type="checkbox" checked={flags.kann_nur_frueh} onChange={() => toggleFlag('kann_nur_frueh')} />
-      Kann nur Früh
-    </label>
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={flags.kann_keine_spaet} onChange={() => toggleFlag('kann_keine_spaet')} />
-      Kann keine Spät
-    </label>
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={flags.kann_nur_spaet} onChange={() => toggleFlag('kann_nur_spaet')} />
-      Kann nur Spät
-    </label>
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={flags.kann_keine_nacht} onChange={() => toggleFlag('kann_keine_nacht')} />
-      Kann keine Nacht
-    </label>
-    <label className="flex items-center gap-2">
-      <input type="checkbox" checked={flags.kann_nur_nacht} onChange={() => toggleFlag('kann_nur_nacht')} />
-      Kann nur Nacht
-    </label>
-  </div>
-
-  <button
-    className="mt-3 w-full rounded-xl px-4 py-2 bg-green-700 text-white hover:bg-green-600 disabled:opacity-60"
-    disabled={saving}
-    onClick={handleDecision}
-  >
-    Speichern
-  </button>
-
-  {saving && <div className="text-xs text-gray-500">Speichere…</div>}
-</div>
-    </div>
-  </div>
-)}
-
       </div>
     </div>
   );

@@ -1,5 +1,4 @@
-// src/pages/SchichtCockpit.jsx
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import KalenderStruktur from '../components/Cockpit/KalenderStruktur';
 import Sollplan from '../components/Cockpit/Sollplan';
 import CockpitMenue from '../components/Cockpit/CockpitMenue';
@@ -43,23 +42,8 @@ const SchichtCockpit = () => {
   const [popupOffen, setPopupOffen] = useState(false);
   const [ausgewählterDienst, setAusgewählterDienst] = useState(null);
 
-  // ✅ Bisherige Keys bleiben (Fallback / kompatibel)
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshMitarbeiterKey, setRefreshMitarbeiterKey] = useState(0);
-
-  // ✅ NEU: Tages-Refresh (nur bestimmter Tag)
-  // { "2025-12-20": 3, "2025-12-21": 1, ... }
-  const [refreshByDate, setRefreshByDate] = useState({});
-
-  const bumpRefreshForDate = (datum) => {
-    const d = String(datum || '').slice(0, 10);
-    if (!d) return;
-
-    setRefreshByDate((prev) => ({
-      ...prev,
-      [d]: (prev[d] || 0) + 1,
-    }));
-  };
 
   const [modalDatum, setModalDatum] = useState('');
   const [modalSchicht, setModalSchicht] = useState('');
@@ -107,14 +91,14 @@ const SchichtCockpit = () => {
 
     const neuerEintrag = {
       user: userId,
-      name: ausgewählterDienst?.name,
+      name: ausgewählterDienst.name,
       datum: neuesDatum,
       ist_schicht: data.ist_schicht?.kuerzel,
       ist_schicht_id: data.ist_schicht?.id,
       beginn: data.startzeit_ist,
       ende: data.endzeit_ist,
       created_by: data.created_by,
-      created_by_name: ausgewählterDienst?.created_by_name,
+      created_by_name: ausgewählterDienst.created_by_name,
       created_at: data.created_at,
       soll_schicht: data.soll_schicht,
       schichtgruppe: data.schichtgruppe,
@@ -126,22 +110,6 @@ const SchichtCockpit = () => {
   const isMonatsAnsicht = ansichtModus === 'monat';
   const isWochenAnsicht = ansichtModus === 'woche';
 
-  // ✅ “aktueller Tages-Key” für das Datum, das zuletzt “betroffen” war
-  // Wenn du später aus BedarfsAnalyseModal ein datum reingibst: bumpRefreshForDate(datum)
-  const dayRefreshKey = useMemo(() => {
-    const d = String(modalDatum || '').slice(0, 10);
-    return d ? (refreshByDate[d] || 0) : 0;
-  }, [refreshByDate, modalDatum]);
-
-  // ✅ Callback, wenn irgendwo “am Tag” gespeichert wurde (z.B. BedarfsAnalyseModal)
-  const handleSavedForDay = ({ datum }) => {
-    bumpRefreshForDate(datum);
-
-    // Fallback: wenn Kinder noch nicht “tagesweise” können -> trotzdem alles refreshen
-    setReloadKey((p) => p + 1);
-    setRefreshMitarbeiterKey((p) => p + 1);
-  };
-
   return (
     <div className="min-h-screen bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white">
       <div className="px-6 pb-1 relative isolate">
@@ -151,6 +119,7 @@ const SchichtCockpit = () => {
           sichtbareGruppen={sichtbareGruppen}
           setSichtbareGruppen={setSichtbareGruppen}
           gruppenZähler={gruppenZähler}
+          // 🔁 NEU: Ansicht & Wochen durchreichen
           ansichtModus={ansichtModus}
           setAnsichtModus={setAnsichtModus}
           wochenAnzahl={wochenAnzahl}
@@ -165,6 +134,7 @@ const SchichtCockpit = () => {
           {/* 🔁 MONATSANSICHT */}
           {isMonatsAnsicht && (
             <>
+              {/* Kalenderstruktur Monat */}
               <KalenderStruktur
                 jahr={jahr}
                 setJahr={setJahr}
@@ -172,6 +142,7 @@ const SchichtCockpit = () => {
                 setMonat={setMonat}
               />
 
+              {/* Optionaler Sollplan */}
               {sollPlanAktiv && (
                 <Sollplan
                   jahr={jahr}
@@ -181,6 +152,7 @@ const SchichtCockpit = () => {
                 />
               )}
 
+              {/* MitarbeiterBedarf (Monat) */}
               {firma && unit && (
                 <MitarbeiterBedarf
                   firma={firma}
@@ -188,12 +160,10 @@ const SchichtCockpit = () => {
                   jahr={jahr}
                   monat={monat}
                   refreshKey={refreshMitarbeiterKey}
-                  dayRefreshDatum={modalDatum}
-                  dayRefreshKey={dayRefreshKey}
-                  onSavedForDay={handleSavedForDay}
                 />
               )}
 
+              {/* Kampfliste Monat */}
               <KampfListe
                 key={reloadKey}
                 reloadkey={reloadKey}
@@ -205,13 +175,6 @@ const SchichtCockpit = () => {
                 setAusgewählterDienst={setAusgewählterDienst}
                 sichtbareGruppen={sichtbareGruppen}
                 setGruppenZähler={setGruppenZähler}
-
-                // ✅ NEU (optional): Tages-Refresh
-                dayRefreshDatum={modalDatum}
-                dayRefreshKey={dayRefreshKey}
-
-                // ✅ wenn KampfListe irgendwo am Tag speichert, kann sie das nutzen
-                onSavedForDay={handleSavedForDay}
               />
             </>
           )}
@@ -219,6 +182,7 @@ const SchichtCockpit = () => {
           {/* 🔁 WOCHENANSICHT */}
           {isWochenAnsicht && (
             <>
+              {/* Wochen-Kalenderstruktur (KWs statt Monate) */}
               <Wochen_KalenderStruktur
                 jahr={jahr}
                 setJahr={setJahr}
@@ -227,6 +191,7 @@ const SchichtCockpit = () => {
                 wochenAnzahl={wochenAnzahl}
               />
 
+              {/* Wochen-MitarbeiterBedarf */}
               {firma && unit && (
                 <Wochen_MitarbeiterBedarf
                   firma={firma}
@@ -235,13 +200,10 @@ const SchichtCockpit = () => {
                   monat={monat}
                   wochenAnzahl={wochenAnzahl}
                   refreshKey={refreshMitarbeiterKey}
-
-                  // ✅ NEU (optional): Tages-Refresh
-                  dayRefreshDatum={modalDatum}
-                  dayRefreshKey={dayRefreshKey}
                 />
               )}
 
+              {/* Wochen-Kampfliste */}
               <Wochen_Kampfliste
                 key={reloadKey}
                 reloadkey={reloadKey}
@@ -254,42 +216,25 @@ const SchichtCockpit = () => {
                 setAusgewählterDienst={setAusgewählterDienst}
                 sichtbareGruppen={sichtbareGruppen}
                 setGruppenZähler={setGruppenZähler}
-
-                // ✅ NEU (optional): Tages-Refresh
-                dayRefreshDatum={modalDatum}
-                dayRefreshKey={dayRefreshKey}
-
-                onSavedForDay={handleSavedForDay}
               />
             </>
           )}
         </div>
 
-        {/* Popup zum Ändern eines Dienstes */}
+        {/* Popup zum Ändern eines Dienstes (gilt für beide Ansichten) */}
         <SchichtDienstAendernForm
           offen={popupOffen}
           onClose={() => setPopupOffen(false)}
           eintrag={ausgewählterDienst}
           firma={firma}
           unit={unit}
-          aktualisieren={(neuesDatum, userId) => ladeEintragFürDatum(neuesDatum, userId)}
-
-          // ✅ bisher: Gesamt-Refresh
+          aktualisieren={(neuesDatum, userId) => ladeEintragFürDatum(neuesDatum, userId)} // ← / →
           reloadListe={() => setReloadKey((prev) => prev + 1)}
-
-          // ✅ bisher: Bedarf-Refresh
-          onRefreshMitarbeiterBedarf={() => setRefreshMitarbeiterKey((prev) => prev + 1)}
-
-          // ✅ NEU: Wenn du im Form ein konkretes Datum kennst:
-          onSavedForDay={(datum) => {
-            bumpRefreshForDate(datum);
-            // fallback:
-            setReloadKey((p) => p + 1);
-            setRefreshMitarbeiterKey((p) => p + 1);
-          }}
+          onRefreshMitarbeiterBedarf={() =>
+            setRefreshMitarbeiterKey((prev) => prev + 1)
+          }
         />
       </div>
-
       <MobileBlocker />
     </div>
   );
