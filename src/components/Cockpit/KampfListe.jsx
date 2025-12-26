@@ -47,6 +47,7 @@ const KampfListe = ({
   sichtbareGruppen,
   setGruppenZähler,
   onRefreshMitarbeiterBedarf,
+  dayRefreshDatum, dayRefreshKey,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
@@ -184,6 +185,126 @@ const KampfListe = ({
       if (inRange) return true;
     }
     return false;
+  };
+  // ✅ Nur EINEN Tag nachladen und in die bestehende Tabelle "einpatchen"
+  const ladeNurTag = async (dateISO) => {
+    try {
+      if (!firma || !unit || !dateISO) return;
+
+      const d = String(dateISO).slice(0, 10);
+
+      // 1) Nur diesen Tag aus v_tagesplan
+      const selectCols =
+        'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
+        'hat_aenderung, kommentar, ist_created_at, ist_created_by';
+
+      const { data: viewRows, error: vErr } = await supabase
+        .from('v_tagesplan')
+        .select(selectCols)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('datum', d);
+
+      if (vErr) {
+        console.error('❌ Fehler v_tagesplan (Tag):', vErr.message || vErr);
+        return;
+      }
+
+      const rows = viewRows || [];
+
+      // 2) Schichtarten für diesen Tag (Farben/Kürzel)
+      const schichtIds = Array.from(
+        new Set(rows.map((r) => r.ist_schichtart_id).filter((x) => x != null))
+      );
+
+      let schichtMap = new Map();
+      if (schichtIds.length) {
+        const { data: schichten, error: sErr } = await supabase
+          .from('DB_SchichtArt')
+          .select('id, kuerzel, farbe_bg, farbe_text')
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .in('id', schichtIds);
+
+        if (sErr) {
+          console.error('❌ Fehler DB_SchichtArt (Tag):', sErr.message || sErr);
+        } else {
+          schichtMap = new Map((schichten || []).map((s) => [s.id, s]));
+        }
+      }
+
+      // 3) Userinfos (nur für user_id + created_by aus diesem Tag)
+      const userIds = rows.map((r) => r.user_id).filter(Boolean);
+      const createdByIds = rows.map((r) => r.ist_created_by).filter(Boolean);
+      const alleUserIds = Array.from(new Set([...userIds, ...createdByIds])).map(String);
+
+      let userById = new Map();
+      if (alleUserIds.length) {
+        const { data: userInfos, error: uErr } = await supabase
+          .from('DB_User')
+          .select('user_id, vorname, nachname, rolle')
+          .in('user_id', alleUserIds);
+
+        if (uErr) {
+          console.error('❌ Fehler DB_User (Tag):', uErr.message || uErr);
+        } else {
+          userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
+        }
+      }
+
+      // 4) Map für schnelle Updates: uid -> cellData
+      const cellByUser = new Map();
+      for (const r of rows) {
+        const uid = String(r.user_id);
+
+        const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
+        const creatorId = r.ist_created_by ? String(r.ist_created_by) : null;
+        const creatorInfo = creatorId ? userById.get(creatorId) : null;
+
+        cellByUser.set(uid, {
+          kuerzel: s?.kuerzel || '-',
+          bg: s?.farbe_bg || '',
+          text: s?.farbe_text || '',
+          created_by: creatorId,
+          created_by_name: creatorInfo
+            ? `${creatorInfo.vorname} ${creatorInfo.nachname} (${creatorInfo.rolle})`
+            : 'Unbekannt',
+          created_at: r.ist_created_at || null,
+          ist_schicht_id: s?.id || null,
+          beginn: r.ist_startzeit || '',
+          ende: r.ist_endzeit || '',
+          aenderung: !!r.hat_aenderung,
+          kommentar: r.kommentar || null,
+        });
+      }
+
+      // 5) PATCH in den bestehenden State:
+      //    - Erst diesen Tag bei allen sichtbaren Usern löschen
+      //    - Dann für User mit Daten neu setzen
+      setEintraege((prev) => {
+        if (!Array.isArray(prev) || prev.length === 0) return prev;
+
+        return prev.map(([uid, row]) => {
+          const userIdStr = String(uid);
+
+          // Kopie row + tage
+          const nextRow = { ...row, tage: { ...(row?.tage || {}) } };
+
+          // Tag erstmal leeren
+          delete nextRow.tage[d];
+
+          // falls es Daten für diesen user gibt → setzen
+          const cell = cellByUser.get(userIdStr);
+          if (cell) {
+            nextRow.tage[d] = cell;
+          }
+
+          return [uid, nextRow];
+        });
+      });
+    } catch (e) {
+      console.error('❌ ladeNurTag Exception:', e);
+    }
   };
 
   useEffect(() => {
@@ -489,6 +610,15 @@ const KampfListe = ({
     ladeKampfliste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, setGruppenZähler]);
+  // ✅ Tages-Refresh (nur ein Datum patchen)
+  useEffect(() => {
+    if (!firma || !unit) return;
+    if (!dayRefreshKey) return;         // nur wenn wirklich getriggert
+    if (!dayRefreshDatum) return;
+
+    ladeNurTag(dayRefreshDatum);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayRefreshKey]);
 
   return (
     <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
