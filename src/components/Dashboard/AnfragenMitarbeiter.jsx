@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import { Info, ChevronDown, ChevronRight, RefreshCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
+import AnfragenMitarbeiterAnalyseModal from '../Dashboard/AnfragenMitarbeiterAnalyseModal';
 
 const sortIcon = (activeKey, thisKey, dir) => {
   if (activeKey !== thisKey) return <ArrowUpDown className="w-3 h-3 inline-block opacity-60" />;
@@ -32,9 +33,7 @@ const AnfragenMitarbeiter = () => {
   const [nurAb3Tagen, setNurAb3Tagen] = useState(false);
   const [nurZukunft, setNurZukunft] = useState(true);
   const [modalAnfrage, setModalAnfrage] = useState(null);
-  const [kommentar, setKommentar] = useState('');
-  const [entscheidung, setEntscheidung] = useState(null);
-  const [bereichOffen, setBereichOffen] = useState(true);
+    const [bereichOffen, setBereichOffen] = useState(true);
   const [infoModalOffen, setInfoModalOffen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sort, setSort] = useState({ key: 'datum', dir: 'asc' }); // datum | schicht | created_at | datum_entscheid
@@ -229,7 +228,13 @@ const AnfragenMitarbeiter = () => {
                   return (
                     <tr
                       key={a.id}
-                      onClick={() => istOffen && setModalAnfrage(a)}
+                      onClick={() => {
+  if (!istOffen) return;
+  // Employee darf nicht entscheiden -> optional gar kein Modal
+  if (rolle === 'Employee') return; 
+  setModalAnfrage(a);
+}}
+
                       className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700 ${!istOffen ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
                       title={a.kommentar || ''}
                     >
@@ -255,35 +260,23 @@ const AnfragenMitarbeiter = () => {
         </div>
       )}
 
-      {/* Modal (nur offene anklickbar) */}
-      {modalAnfrage && (
-        <div className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-50 z-40 flex items-center justify-center">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl w-full max-w-md z-50">
-            <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-white">Genehmigung prüfen</h3>
-            <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
-              Ich habe überprüft, ob der Kollege am <b>{dayjs(modalAnfrage.datum).format('DD.MM.YYYY')}</b> die <b>{modalAnfrage.schicht}</b> entsprechend <b>{modalAnfrage.antrag}</b> genehmigt bekommt.
-            </p>
+      {/* Analyse Modal (nur Verantwortliche) */}
+{modalAnfrage && rolle !== 'Employee' && (
+  <AnfragenMitarbeiterAnalyseModal
+    offen={!!modalAnfrage}
+    anfrage={modalAnfrage}
+    firmaId={firma}
+    unitId={unit}
+    verantwortlicherUserId={userId}
+    onSaved={() => setRefreshKey(prev => prev + 1)}
+    onClose={() => {
+      setModalAnfrage(null);
+      setEntscheidung(null);
+      setKommentar('');
+    }}
+  />
+)}
 
-            <div className="flex gap-4 mb-4">
-              <button onClick={() => setEntscheidung(true)} className={`px-4 border border-gray-300 dark:border-gray-600 py-2 rounded ${entscheidung === true ? 'bg-green-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Ja</button>
-              <button onClick={() => setEntscheidung(false)} className={`px-4 border border-gray-300 dark:border-gray-600 py-2 rounded ${entscheidung === false ? 'bg-red-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>Nein</button>
-            </div>
-
-            <textarea
-              className="w-full p-2 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              rows="3"
-              placeholder="Kommentar"
-              value={kommentar}
-              onChange={(e) => setKommentar(e.target.value)}
-            />
-
-            <div className="flex justify-end mt-4 gap-2">
-              <button onClick={() => setModalAnfrage(null)} className="px-4 py-2 text-sm text-gray-500">Abbrechen</button>
-              <button onClick={handleSpeichern} className="bg-blue-600 text-white px-4 py-2 rounded text-sm">Speichern</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Info Modal */}
       {infoModalOffen && (
