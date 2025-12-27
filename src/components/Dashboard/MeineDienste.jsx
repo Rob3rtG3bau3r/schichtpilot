@@ -3,6 +3,10 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
+dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter);
 import { Info, ArrowLeft, Printer } from 'lucide-react';
 import DienstPlanDruckModal from './DienstPlanDruckModal';
 
@@ -147,6 +151,7 @@ const MeineDienste = () => {
         supabase
           .from('DB_TerminVerwaltung')
           .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ')
+
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
           .gte('datum', von)
@@ -154,13 +159,21 @@ const MeineDienste = () => {
         supabase
           .from('DB_TerminVerwaltung')
           .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ')
+
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
-          .eq('wiederholend', true),
+          .eq('wiederholend', true)
+          .lte('datum', bis),
       ]);
 
-      const fixRows = fix.error ? [] : (fix.data || []);
-      const repRows = rep.error ? [] : (rep.data || []);
+      if (fix.error) console.error('❌ Termine FIX Fehler:', fix.error.message || fix.error);
+if (rep.error) console.error('❌ Termine REP Fehler:', rep.error.message || rep.error);
+
+const fixRows = fix.error ? [] : (fix.data || []);
+const repRows = rep.error ? [] : (rep.data || []);
+
+console.log('REP ROWS COUNT', repRows.length);
+console.log('REP SAMPLE', repRows?.[0]);
 
       // Helper
       const asArray = (x) => Array.isArray(x)
@@ -168,6 +181,54 @@ const MeineDienste = () => {
         : (typeof x === 'string'
             ? x.split(',').map(s => s.trim()).filter(Boolean)
             : (x == null ? [] : [x]));
+const getRepeatTyp = (row) => (row?.wiederholung_typ || '').toString().trim().toLowerCase();
+const getRepeatEvery = (row) => {
+  const n = Number(row?.wiederholung_intervall);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+};
+
+const occursOnDate = (row, ds) => {
+  if (!row?.wiederholend) return row?.datum === ds;
+
+  const start = row?.datum ? dayjs(row.datum).startOf('day') : null;
+  const cur = dayjs(ds).startOf('day');
+  if (!start) return false;
+
+  // Wiederholung startet erst ab Startdatum
+  if (cur.isBefore(start, 'day')) return false;
+
+  const typ = getRepeatTyp(row);
+  const every = getRepeatEvery(row);
+
+  // Fallback: wenn typ fehlt, NICHT jeden Tag => wir bleiben bei deinem alten "monatlich gleicher Tag"
+  // (So gibt's keine Überraschungen bei alten Datensätzen.)
+  if (!typ) {
+  // Wenn Typ fehlt: sicherheitshalber NUR am Startdatum anzeigen
+  return cur.isSame(start, 'day');
+}
+
+  if (typ === 'taeglich' || typ === 'daily') {
+    const diffDays = cur.diff(start, 'day');
+    return diffDays % every === 0;
+  }
+
+  if (typ === 'woechentlich' || typ === 'weekly') {
+    // gleicher Wochentag + Wochenabstand
+    if (cur.day() !== start.day()) return false;
+    const diffWeeks = cur.diff(start, 'week');
+    return diffWeeks % every === 0;
+  }
+
+  if (typ === 'monatlich' || typ === 'monthly') {
+    // gleicher Tag im Monat + Monatsabstand
+    if (cur.date() !== start.date()) return false;
+    const diffMonths = cur.diff(start, 'month');
+    return diffMonths % every === 0;
+  }
+
+  // unbekannter typ => lieber NICHT anzeigen
+  return false;
+};
 
       // pro Tag bestimmen
       const map = {};
@@ -178,7 +239,7 @@ const MeineDienste = () => {
 
         // Kandidaten zusammenstellen
         const tagged  = fixRows.filter(r => r.datum === ds);
-        const repHits = repRows.filter(r => r.datum && dayjs(r.datum).date() === cur.date());
+        const repHits = repRows.filter(r => occursOnDate(r, ds));
 
         // Erstes Dedupe nach id (fix vs. rep)
         const byId = new Map();
