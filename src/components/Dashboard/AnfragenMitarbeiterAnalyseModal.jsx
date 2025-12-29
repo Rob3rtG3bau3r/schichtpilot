@@ -498,24 +498,31 @@ const schKey = useMemo(() => {
 
   // user_id -> [qualiIds...] gültig am Datum
   const dayUserQualiMap = useMemo(() => {
-    const map = {};
-    if (!datum) return map;
+  const map = {};
+  if (!datum) return map;
 
-    for (const q of dayQualis || []) {
-      if (!q?.user_id) continue;
-      if (!isBetweenQualiDate(q, datum)) continue;
+  for (const q of dayQualis || []) {
+    if (!q?.user_id) continue;
+    if (!isBetweenQualiDate(q, datum)) continue;
 
-      const mid = q.quali;
-      const mm = qualiMatrixMap[mid];
-      if (!mm) continue;
-      if (mm.aktiv === false) continue;
-      if (!mm.relevant) continue;
+    const mid = q.quali;
+    const mm = qualiMatrixMap[mid];
+    if (!mm) continue;
+    if (mm.aktiv === false) continue;
+    if (!mm.relevant) continue;
 
-      if (!map[q.user_id]) map[q.user_id] = [];
-      map[q.user_id].push(mid);
-    }
-    return map;
-  }, [dayQualis, datum, qualiMatrixMap]);
+    if (!map[q.user_id]) map[q.user_id] = new Set();
+    map[q.user_id].add(mid);
+  }
+
+  // ✅ Sets in Arrays umwandeln (stabil, uniq)
+  const out = {};
+  Object.keys(map).forEach((uid) => {
+    out[uid] = Array.from(map[uid]);
+  });
+  return out;
+}, [dayQualis, datum, qualiMatrixMap]);
+
   // ✅ QualiMap für Simulation ("Wenn Ja"):
 // - Basis: IST-Qualis (dayUserQualiMap)
 // - Wenn "angebot": Qualis vom Antragsteller hinzufügen (auch wenn er vorher nicht eingeteilt war)
@@ -597,12 +604,16 @@ const dayUserQualiMapAfter = useMemo(() => {
 
     // User Reihenfolge (wenige Qualis zuerst)
     const userOrder = [...activeUserIds]
-      .map((uid) => {
-        const qs = (qualiMap?.[uid] || []);
-        return { uid, anzahl: qs.length };
-      })
-      .sort((a, b) => a.anzahl - b.anzahl)
-      .map((x) => x.uid);
+  .map((uid) => {
+    const qs = (qualiMap?.[uid] || []);
+    return { uid: String(uid), anzahl: qs.length };
+  })
+  .sort((a, b) => {
+    if (a.anzahl !== b.anzahl) return a.anzahl - b.anzahl;
+    // ✅ stabiler Tie-Breaker
+    return a.uid.localeCompare(b.uid);
+  })
+  .map((x) => x.uid);
 
     for (const b of bedarfSortiert) {
       const qid = b.quali_id;
@@ -680,6 +691,22 @@ const dayUserQualiMapAfter = useMemo(() => {
     }
     return base;
   }, [dayAssignments, anfrage?.created_by, antragInfo.type, schichtKuerzel]);
+// ✅ Ampel nur anzeigen, wenn die wichtigen Daten geladen sind
+const ampelReady = useMemo(() => {
+  if (loading) return false;      // solange load() läuft -> keine Ampel zeigen
+  if (!datum || !schKey) return false;
+
+  // Bedarf + QualiMatrix müssen geladen sein
+  if (!Array.isArray(bedarfRows) || bedarfRows.length === 0) return false;
+  if (!Array.isArray(qualiMatrix) || qualiMatrix.length === 0) return false;
+
+  // Qualis müssen geladen sein (kann leer sein, aber muss "geladen" sein)
+  // Wir nehmen dafür: dayQualis !== null (bei dir ist es ein Array, also immer ok)
+  // Optional: dayAssignments prüfen
+  if (!dayAssignments) return false;
+
+  return true;
+}, [loading, datum, schKey, bedarfRows, qualiMatrix, dayAssignments]);
 
   const ampelNow = useMemo(() => {
   if (!datum || !schKey) return null;
@@ -690,10 +717,8 @@ const dayUserQualiMapAfter = useMemo(() => {
 const ampelAfter = useMemo(() => {
   if (!datum || !schKey) return null;
   return evaluateShift(datum, schKey, simulatedAssignments?.[schKey] || [], dayUserQualiMapAfter);
-}, [datum, schKey, simulatedAssignments, bedarfRows, dayUserQualiMap, qualiMatrixMap]);
-
+}, [datum, schKey, simulatedAssignments, bedarfRows, dayUserQualiMapAfter, qualiMatrixMap]);
   /* --------------------------- SAVE --------------------------- */
-
   const handleSpeichern = async () => {
     if (!anfrage || entscheidung === null) return;
 
@@ -827,7 +852,7 @@ const ampelAfter = useMemo(() => {
             <div className="mt-2 flex flex-wrap gap-3 items-center">
               <div className="text-xs text-gray-600 dark:text-gray-300 font-semibold">
                 Ampel (Ist/Bedarfs-Abgleich)           </div>
-              {ampelNow && ampelAfter && schKey ? (
+              {ampelReady && ampelNow && ampelAfter && schKey ? (
   <div className="flex flex-wrap gap-3 items-center">
     {/* Jetzt */}
     <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 px-2 py-1">

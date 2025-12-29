@@ -151,7 +151,6 @@ const MeineDienste = () => {
         supabase
           .from('DB_TerminVerwaltung')
           .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ')
-
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
           .gte('datum', von)
@@ -159,7 +158,6 @@ const MeineDienste = () => {
         supabase
           .from('DB_TerminVerwaltung')
           .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ')
-
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
           .eq('wiederholend', true)
