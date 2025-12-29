@@ -18,6 +18,11 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
   const [infoOffen, setInfoOffen] = useState(false);
   const [sortierung, setSortierung] = useState({ feld: 'name', richtung: 'asc' });
 
+  // ✅ NEU: Filter
+  const [filterTeam, setFilterTeam] = useState('alle');
+  const [filterRolle, setFilterRolle] = useState('alle');
+  const [filterWochenstunden, setFilterWochenstunden] = useState(''); // Text
+
   const handleSortierung = (feld) => {
     setSortierung((aktuell) =>
       aktuell.feld === feld
@@ -33,10 +38,10 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         return;
       }
 
-      // 1) Mitarbeitende laden
+      // 1) Mitarbeitende laden  (✅ aktiv mit selektieren!)
       let mitarbeiterRes = supabase
         .from('DB_User')
-        .select('user_id, vorname, nachname, rolle, firma_id, unit_id');
+        .select('user_id, vorname, nachname, rolle, aktiv, firma_id, unit_id');
 
       if (!isSuperAdmin) {
         mitarbeiterRes = mitarbeiterRes.eq('firma_id', firma).eq('unit_id', unit);
@@ -56,9 +61,9 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         return;
       }
 
-      // 2) HEUTE gültige Qualifikationen (neue Felder)
       const heute = new Date().toISOString().slice(0, 10);
 
+      // 2) HEUTE gültige Qualifikationen
       const { data: qualiRaw, error: errQuali } = await supabase
         .from('DB_Qualifikation')
         .select('user_id, quali, quali_start, quali_endet')
@@ -78,7 +83,11 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
       const qualiIds = Array.from(new Set(qualiHeute.map((q) => q.quali)));
       let matrixById = new Map();
       if (qualiIds.length > 0) {
-        let matrixRes = supabase.from('DB_Qualifikationsmatrix').select('id, qualifikation, position').in('id', qualiIds);
+        let matrixRes = supabase
+          .from('DB_Qualifikationsmatrix')
+          .select('id, qualifikation, position')
+          .in('id', qualiIds);
+
         if (!isSuperAdmin) matrixRes = matrixRes.eq('firma_id', firma).eq('unit_id', unit);
 
         const { data: matrix, error: errMatrix } = await matrixRes;
@@ -121,7 +130,33 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         }
       });
 
-      // 5) Aggregieren: höchste (positionsbeste) heute gültige Quali + Team
+      // ✅ 4b) Wochenarbeitszeit (heute gültiger Eintrag: letzter gueltig_ab <= heute)
+      const { data: waRaw, error: errWA } = await supabase
+        .from('DB_WochenArbeitsZeit')
+        .select('user_id, gueltig_ab, wochenstunden, firma_id, unit_id')
+        .in('user_id', userIds)
+        .lte('gueltig_ab', heute);
+
+      if (errWA) console.error('Fehler beim Laden der Wochenarbeitszeit:', errWA);
+
+      const waByUser = new Map(); // user_id -> wochenstunden
+      (aktive || []).forEach((u) => {
+        const rows = (waRaw || []).filter(
+          (w) =>
+            w.user_id === u.user_id &&
+            w.firma_id === u.firma_id &&
+            w.unit_id === u.unit_id
+        );
+        if (rows.length > 0) {
+          const last = rows.reduce(
+            (acc, curr) => (!acc || curr.gueltig_ab > acc.gueltig_ab ? curr : acc),
+            null
+          );
+          if (last) waByUser.set(u.user_id, Number(last.wochenstunden));
+        }
+      });
+
+      // 5) Aggregieren: höchste (positionsbeste) heute gültige Quali + Team + Wochenstunden
       const qualisByUser = new Map();
       qualiHeute.forEach((q) => {
         const arr = qualisByUser.get(q.user_id) || [];
@@ -145,12 +180,15 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         const zuw = zuwByUser.get(person.user_id);
         const aktuelleSchichtgruppe = zuw?.schichtgruppe ?? '–';
 
+        const wochenstunden = waByUser.get(person.user_id);
+
         return {
           user_id: person.user_id,
           name: `${person.vorname} ${person.nachname}`,
           rolle: person.rolle,
           schichtgruppe: aktuelleSchichtgruppe,
           hoechste_quali: besteBezeichnung,
+          wochenstunden: wochenstunden ?? null,
           firma_id: person.firma_id,
           unit_id: person.unit_id,
         };
@@ -162,22 +200,68 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
     ladeDaten();
   }, [firma, unit, refreshKey, isSuperAdmin]);
 
-  // Suche + Sort
+  // ✅ Dropdown-Optionen
+  const teamOptions = useMemo(() => {
+    return Array.from(new Set((personen || []).map((p) => p.schichtgruppe).filter((v) => v && v !== '–')))
+      .sort((a, b) => String(a).localeCompare(String(b), 'de'));
+  }, [personen]);
+
+  const rollenOptions = useMemo(() => {
+    return Array.from(new Set((personen || []).map((p) => p.rolle).filter(Boolean)))
+      .sort((a, b) => String(a).localeCompare(String(b), 'de'));
+  }, [personen]);
+
+  // ✅ Suche + Filter + Sort
   const gefiltertePersonen = useMemo(() => {
-    const s = (suche || '').toLowerCase();
-    const arr = personen.filter((p) => p.name?.toLowerCase().includes(s));
+    const s = (suche || '').toLowerCase().trim();
+
+    // Wochenstunden-Filter: wenn Eingabe da, muss sie Zahl sein
+    const rawWs = (filterWochenstunden || '').trim();
+    const wsNum = rawWs === '' ? null : Number(rawWs.replace(',', '.'));
+    const wsInvalid = rawWs !== '' && Number.isNaN(wsNum);
+
+    // ❗ Ungültig => alles leer
+    if (wsInvalid) return [];
+
+    const arr = (personen || []).filter((p) => {
+      if (s && !p.name?.toLowerCase().includes(s)) return false;
+      if (filterTeam !== 'alle' && p.schichtgruppe !== filterTeam) return false;
+      if (filterRolle !== 'alle' && p.rolle !== filterRolle) return false;
+
+      if (wsNum != null) {
+        const v = p.wochenstunden;
+        if (v == null) return false;
+        if (Number(v) !== wsNum) return false; // exakter Match
+      }
+
+      return true;
+    });
 
     const { feld, richtung } = sortierung;
     const dir = richtung === 'asc' ? 1 : -1;
 
     return [...arr].sort((a, b) => {
-      const aWert = feld === 'name' ? a.name.split(' ').slice(-1)[0].toLowerCase() : a[feld]?.toLowerCase?.() || '';
-      const bWert = feld === 'name' ? b.name.split(' ').slice(-1)[0].toLowerCase() : b[feld]?.toLowerCase?.() || '';
+      if (feld === 'wochenstunden') {
+        const av = a.wochenstunden ?? -999999;
+        const bv = b.wochenstunden ?? -999999;
+        return (av - bv) * dir;
+      }
+
+      const aWert =
+        feld === 'name'
+          ? a.name.split(' ').slice(-1)[0].toLowerCase()
+          : (a[feld] || '').toString().toLowerCase();
+
+      const bWert =
+        feld === 'name'
+          ? b.name.split(' ').slice(-1)[0].toLowerCase()
+          : (b[feld] || '').toString().toLowerCase();
+
       if (aWert < bWert) return -1 * dir;
       if (aWert > bWert) return 1 * dir;
       return 0;
     });
-  }, [personen, suche, sortierung]);
+  }, [personen, suche, sortierung, filterTeam, filterRolle, filterWochenstunden]);
 
   return (
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
@@ -190,7 +274,7 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
       </div>
 
       {/* Suche */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-3">
         <input
           type="text"
           placeholder="🔍 Namen suchen"
@@ -200,8 +284,40 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         />
       </div>
 
+      {/* ✅ Filter */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+        <select
+          value={filterTeam}
+          onChange={(e) => setFilterTeam(e.target.value)}
+          className="border border-gray-300 dark:border-gray-700 px-2 py-1 rounded w-full bg-gray-200 dark:bg-gray-800"
+        >
+          <option value="alle">Alle Teams</option>
+          {teamOptions.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+
+        <select
+          value={filterRolle}
+          onChange={(e) => setFilterRolle(e.target.value)}
+          className="border border-gray-300 dark:border-gray-700 px-2 py-1 rounded w-full bg-gray-200 dark:bg-gray-800"
+        >
+          <option value="alle">Alle Rollen</option>
+          {rollenOptions.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+
+        <input
+          value={filterWochenstunden}
+          onChange={(e) => setFilterWochenstunden(e.target.value)}
+          placeholder="Wochenstunden (z.B. 37,5)"
+          className="border border-gray-300 dark:border-gray-700 px-2 py-1 rounded w-full bg-gray-200 dark:bg-gray-800"
+        />
+      </div>
+
       {/* Tabelle */}
-      <div className="overflow-auto max-h-[60vh]">
+      <div className="overflow-auto max-h-[100vh]">
         <table className="min-w-full table-auto">
           <thead className="bg-gray-300 dark:bg-gray-700">
             <tr>
@@ -211,26 +327,37 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
                   <SortIcon aktiv={sortierung.feld === 'name'} richtung={sortierung.richtung} />
                 </div>
               </th>
+
               <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('rolle')}>
                 <div className="flex items-center gap-1">
                   Rolle
                   <SortIcon aktiv={sortierung.feld === 'rolle'} richtung={sortierung.richtung} />
                 </div>
               </th>
-              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('hoechste_quali')}>
-                <div className="flex items-center gap-1">
-                  Qualifikation
-                  <SortIcon aktiv={sortierung.feld === 'hoechste_quali'} richtung={sortierung.richtung} />
-                </div>
-              </th>
+
               <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('schichtgruppe')}>
                 <div className="flex items-center gap-1">
                   Team
                   <SortIcon aktiv={sortierung.feld === 'schichtgruppe'} richtung={sortierung.richtung} />
                 </div>
               </th>
+
+              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('hoechste_quali')}>
+                <div className="flex items-center gap-1">
+                  Qualifikation
+                  <SortIcon aktiv={sortierung.feld === 'hoechste_quali'} richtung={sortierung.richtung} />
+                </div>
+              </th>
+
+              <th className="p-2 text-left cursor-pointer select-none" onClick={() => handleSortierung('wochenstunden')}>
+                <div className="flex items-center justify-end gap-1">
+                  WAZ in (h)
+                  <SortIcon aktiv={sortierung.feld === 'wochenstunden'} richtung={sortierung.richtung} />
+                </div>
+              </th>
             </tr>
           </thead>
+
           <tbody>
             {gefiltertePersonen.map((p) => (
               <tr
@@ -240,13 +367,21 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
               >
                 <td className="py-2 px-2">{p.name}</td>
                 <td className="px-2 text-xs">{p.rolle}</td>
-                <td className="px-2 text-xs">{p.hoechste_quali}</td>
                 <td className="px-2 text-xs">{p.schichtgruppe}</td>
+                <td className="px-2 text-xs">{p.hoechste_quali}</td>
+                <td className="px-2 text-xs text-center">
+                  {p.wochenstunden == null ? '–' : String(p.wochenstunden).replace('.', ',')}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {gefiltertePersonen.length === 0 && <p className="text-sm mt-2">Keine Ergebnisse gefunden.</p>}
+
+        {gefiltertePersonen.length === 0 && (
+          <p className="text-sm mt-2">
+            Keine Ergebnisse gefunden.
+          </p>
+        )}
       </div>
 
       {/* Info-Modal */}
@@ -265,9 +400,15 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
               <li>Als <strong>SuperAdmin</strong> siehst du alle Firmen & Units.</li>
               <li>Qualifikationen zählen nur, wenn sie <b>heute</b> gültig sind (Start ≤ heute, Ende leer/≥ heute).</li>
               <li>Team wird aus <strong>DB_SchichtZuweisung</strong> (gültig heute) ermittelt.</li>
+              <li>Wochenstunden kommen aus <strong>DB_WochenArbeitsZeit</strong>: letzter Eintrag mit <code>gueltig_ab ≤ heute</code>.</li>
+              <li>Filter „Wochenstunden“: ungültige Eingabe (z.B. Buchstaben) ⇒ Liste bleibt leer.</li>
             </ul>
+
             <div className="mt-4 text-right">
-              <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded">
+              <button
+                onClick={() => setInfoOffen(false)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded"
+              >
                 Schließen
               </button>
             </div>
