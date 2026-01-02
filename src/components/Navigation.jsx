@@ -23,30 +23,31 @@ const Navigation = ({ darkMode, setDarkMode }) => {
 
   // ---------- Feature Gate: top_report (nur für Linkanzeige) ----------
   const [canSeeTopReport, setCanSeeTopReport] = useState(false);
-useEffect(() => {
-  if (!unit) {
-    setCanSeeWochenplaner(false);
-    return;
-  }
-  (async () => {
-    try {
-      const { data, error } = await supabase
-        .from('DB_Unit')
-        .select('wochenplanung_aktiv')
-        .eq('id', unit)
-        .maybeSingle();
 
-      if (error || !data) {
-        setCanSeeWochenplaner(false);
-      } else {
-        setCanSeeWochenplaner(!!data.wochenplanung_aktiv);
-      }
-    } catch (e) {
-      console.error('wochenplanung_aktiv check error:', e);
+  useEffect(() => {
+    if (!unit) {
       setCanSeeWochenplaner(false);
+      return;
     }
-  })();
-}, [unit]);
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('DB_Unit')
+          .select('wochenplanung_aktiv')
+          .eq('id', unit)
+          .maybeSingle();
+
+        if (error || !data) {
+          setCanSeeWochenplaner(false);
+        } else {
+          setCanSeeWochenplaner(!!data.wochenplanung_aktiv);
+        }
+      } catch (e) {
+        console.error('wochenplanung_aktiv check error:', e);
+        setCanSeeWochenplaner(false);
+      }
+    })();
+  }, [unit]);
 
   useEffect(() => {
     // Nur für Rollen mit Reports-Menü prüfen
@@ -79,7 +80,9 @@ useEffect(() => {
   useEffect(() => {
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (!user) {
           setCanSeeCompanyPage(false);
           return;
@@ -103,17 +106,37 @@ useEffect(() => {
     })();
   }, []);
 
-  const openVerwaltung = () => { clearTimeout(verwaltungTimeout.current); setVerwaltungOpen(true); };
-  const closeVerwaltung = () => { verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay); };
+  const openVerwaltung = () => {
+    clearTimeout(verwaltungTimeout.current);
+    setVerwaltungOpen(true);
+  };
+  const closeVerwaltung = () => {
+    verwaltungTimeout.current = setTimeout(() => setVerwaltungOpen(false), delay);
+  };
 
-  const openPlanung = () => { clearTimeout(PlanungTimeout.current); setPlanungOpen(true); };
-  const closePlanung = () => { PlanungTimeout.current = setTimeout(() => setPlanungOpen(false), delay); };
+  const openPlanung = () => {
+    clearTimeout(PlanungTimeout.current);
+    setPlanungOpen(true);
+  };
+  const closePlanung = () => {
+    PlanungTimeout.current = setTimeout(() => setPlanungOpen(false), delay);
+  };
 
-  const openReport = () => { clearTimeout(reportTimeout.current); setReportOpen(true); };
-  const closeReport = () => { reportTimeout.current = setTimeout(() => setReportOpen(false), delay); };
+  const openReport = () => {
+    clearTimeout(reportTimeout.current);
+    setReportOpen(true);
+  };
+  const closeReport = () => {
+    reportTimeout.current = setTimeout(() => setReportOpen(false), delay);
+  };
 
-  const openAdmin = () => { clearTimeout(adminTimeout.current); setAdminOpen(true); };
-  const closeAdmin = () => { adminTimeout.current = setTimeout(() => setAdminOpen(false), delay); };
+  const openAdmin = () => {
+    clearTimeout(adminTimeout.current);
+    setAdminOpen(true);
+  };
+  const closeAdmin = () => {
+    adminTimeout.current = setTimeout(() => setAdminOpen(false), delay);
+  };
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
@@ -130,15 +153,16 @@ useEffect(() => {
     '/qualifikationsmatrix': 'Qualifikationen pflegen',
     '/ferienundfeiertage': 'Ferien & Feiertage',
     '/termineverwaltung': 'Termine',
+    '/stunden-pflege': 'Stunden Pflege', // ✅ NEU
     '/system-tools': 'System-Tools',
     '/unit-reports': 'Unit bericht',
     '/userpflege': 'UserPflege',
     '/top-report': 'Top bericht',
-    '/wochenplaner': 'Wochenplaner', 
-    '/user-report': 'Mitarbeiter-Report',  
+    '/wochenplaner': 'Wochenplaner',
+    '/user-report': 'Mitarbeiter-Report',
   };
 
-    const aktuellerTitel = pfadZuTitel[location.pathname] || '';
+  const aktuellerTitel = pfadZuTitel[location.pathname] || '';
 
   return (
     <nav className="relative flex items-center justify-between text-sm font-semibold text-white dark:text-white px-2">
@@ -146,31 +170,40 @@ useEffect(() => {
       <div className="flex gap-8 items-center">
         {/* Übersicht: Alle außer Org_Admin */}
         {rolle !== 'Org_Admin' && (
-          <Link to="/dashboard" className="hover:underline">Übersicht</Link>
+          <Link to="/dashboard" className="hover:underline">
+            Übersicht
+          </Link>
         )}
 
         {/* Cockpit: Alle außer Org_Admin */}
         {rolle !== 'Org_Admin' && (
-          <Link to="/schichtcockpit" className="hover:underline">Cockpit</Link>
+          <Link to="/schichtcockpit" className="hover:underline">
+            Cockpit
+          </Link>
         )}
 
         {/* Planner-Menü: Nur SuperAdmin, Admin_Dev, Planner */}
         {['SuperAdmin', 'Admin_Dev', 'Planner'].includes(rolle) && (
-  <div className="relative" onMouseEnter={openPlanung} onMouseLeave={closePlanung}>
-    <span className="cursor-pointer">Planung ▾</span>
-    {PlanungOpen && (
-      <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-        <Link to="/bedarfsverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">Bedarf Verwalten</Link>
-        <Link to="/termineverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">Termine</Link>
-        { (rolle === 'SuperAdmin' || canSeeWochenplaner) && (
-          <Link to="/wochenplaner" className="hover:bg-gray-700 rounded px-2 py-1">
-            Wochenplaner
-          </Link>
+          <div className="relative" onMouseEnter={openPlanung} onMouseLeave={closePlanung}>
+            <span className="cursor-pointer">Planung ▾</span>
+            {PlanungOpen && (
+              <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
+                <Link to="/bedarfsverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Bedarf Verwalten
+                </Link>
+                <Link to="/termineverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Termine
+                </Link>
+
+                {(rolle === 'SuperAdmin' || canSeeWochenplaner) && (
+                  <Link to="/wochenplaner" className="hover:bg-gray-700 rounded px-2 py-1">
+                    Wochenplaner
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
         )}
-      </div>
-    )}
-  </div>
-)}
 
         {/* Verwaltung-Menü: Nur SuperAdmin, Admin_Dev */}
         {['SuperAdmin', 'Admin_Dev'].includes(rolle) && (
@@ -178,11 +211,24 @@ useEffect(() => {
             <span className="cursor-pointer">Verwaltung ▾</span>
             {verwaltungOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-                <Link to="/schichtart-pflegen" className="hover:bg-gray-700 rounded px-2 py-1">Schichtarten pflegen</Link>
-                <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikation pflegen</Link>
-                <Link to="/qualifikationenverwalten" className="hover:bg-gray-700 rounded px-2 py-1">Qualifikationen zuweisen</Link>
-                <Link to="/schichtzuweisen" className="hover:bg-gray-700 rounded px-2 py-1">Schicht zuweisen</Link>
-                <Link to="/userpflege" className="hover:bg-gray-700 rounded px-2 py-1">User Pflegen</Link>
+                <Link to="/schichtart-pflegen" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Schichtarten pflegen
+                </Link>
+                <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Qualifikation pflegen
+                </Link>
+                <Link to="/qualifikationenverwalten" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Qualifikationen zuweisen
+                </Link>
+                <Link to="/schichtzuweisen" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Schicht zuweisen
+                </Link>
+                <Link to="/userpflege" className="hover:bg-gray-700 rounded px-2 py-1">
+                  User Pflegen
+                </Link>
+                <Link to="/stunden-pflege" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Stunden Pflege
+                </Link>
               </div>
             )}
           </div>
@@ -194,32 +240,47 @@ useEffect(() => {
             <span className="cursor-pointer">Berichte ▾</span>
             {reportOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-                <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">Unit bericht</Link>
-                {/* 🔽 NEU: Mitarbeiter-Report */}
+                <Link to="/unit-reports" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Unit bericht
+                </Link>
                 <Link to="/user-report" className="hover:bg-gray-700 rounded px-2 py-1">
                   Mitarbeiter-Report
                 </Link>
                 {canSeeTopReport && (
-                  <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">Top bericht</Link>
+                  <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">
+                    Top bericht
+                  </Link>
                 )}
               </div>
             )}
           </div>
         )}
+
         {/* Kundenverwaltung: Org_Admin, SuperAdmin oder User mit Flag */}
-        {( ['SuperAdmin', 'Org_Admin'].includes(rolle) || canSeeCompanyPage ) && (
-          <Link to="/kundenverwaltung" className="hover:underline">Unternehmen</Link>
+        {(['SuperAdmin', 'Org_Admin'].includes(rolle) || canSeeCompanyPage) && (
+          <Link to="/kundenverwaltung" className="hover:underline">
+            Unternehmen
+          </Link>
         )}
+
         {/* Admin-Menü: Nur SuperAdmin */}
         {rolle === 'SuperAdmin' && (
           <div className="relative" onMouseEnter={openAdmin} onMouseLeave={closeAdmin}>
             <span className="cursor-pointer">Admin ▾</span>
             {adminOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
-                <Link to="/sollplan-editor" className="hover:bg-gray-700 rounded px-2 py-1">Sollplan erstellen</Link>
-                <Link to="/user-anlegen" className="hover:bg-gray-700 rounded px-2 py-1">User verwalten</Link>
-                <Link to="/ferienundfeiertage" className="hover:bg-gray-700 rounded px-2 py-1">Ferien & Feiertage</Link>
-                <Link to="/system-tools" className="hover:bg-gray-700 rounded px-2 py-1">System-Tools</Link>
+                <Link to="/sollplan-editor" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Sollplan erstellen
+                </Link>
+                <Link to="/user-anlegen" className="hover:bg-gray-700 rounded px-2 py-1">
+                  User verwalten
+                </Link>
+                <Link to="/ferienundfeiertage" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Ferien & Feiertage
+                </Link>
+                <Link to="/system-tools" className="hover:bg-gray-700 rounded px-2 py-1">
+                  System-Tools
+                </Link>
               </div>
             )}
           </div>

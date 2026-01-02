@@ -28,6 +28,7 @@ import UserPflege from './pages/UserPflege';
 import WochenPlaner from './pages/WochenPlaner';
 import DesktopOnlyRoute from './routes/DesktopOnlyRoute';
 import UserReport from './pages/UserReport.jsx';
+import UnitUserStundenPflege from './pages/UnitUserStundenPflege';
 import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 
 
@@ -131,7 +132,7 @@ if (
           }
           />
           <Route 
-            path="/qualifikationsmatrix"
+            path="qualifikationsmatrix"
             element={
               <RollenCheckRoute erlaubteRollen={['Admin_Dev','Planner', 'SuperAdmin']}>
                 <QualifikationsMatrix />
@@ -187,13 +188,21 @@ if (
         }
        />
        <Route
-      path="/user-report"
+      path="user-report"
        element={
        <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
          <UserReport />
        </RollenCheckRoute>
         }
        />
+       <Route
+  path="stunden-pflege"
+  element={
+    <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
+      <UnitUserStundenPflege />
+    </RollenCheckRoute>
+  }
+/>
         <Route
       path="top-report"
        element={
