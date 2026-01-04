@@ -3,9 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/de';
-import {
-  Search, RefreshCw, ChevronLeft, ChevronRight, Download,
-} from 'lucide-react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
 dayjs.locale('de');
@@ -18,13 +16,12 @@ const LS_KEY_RANGE = 'sp_aenderungscheck_range_days';
 const LS_KEY_YEAR = 'sp_aenderungscheck_year';
 const LS_KEY_END = 'sp_aenderungscheck_end_date'; // YYYY-MM-DD
 
-/* ---------------- UI Mini-Components ---------------- */
+/* ---------------- UI Helpers ---------------- */
 const Card = ({ className = '', children }) => (
   <div className={`rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm ${className}`}>
     {children}
   </div>
 );
-
 const Btn = ({ className = '', children, ...props }) => (
   <button
     {...props}
@@ -36,7 +33,6 @@ const Btn = ({ className = '', children, ...props }) => (
     {children}
   </button>
 );
-
 const Input = ({ className = '', ...props }) => (
   <input
     {...props}
@@ -45,7 +41,6 @@ const Input = ({ className = '', ...props }) => (
       focus:ring-2 focus:ring-gray-400/40 ${className}`}
   />
 );
-
 const Select = ({ className = '', ...props }) => (
   <select
     {...props}
@@ -73,7 +68,6 @@ function downloadTextFile(filename, text) {
   a.remove();
   URL.revokeObjectURL(url);
 }
-
 function csvEscape(v) {
   const s = String(v ?? '');
   if (s.includes(';') || s.includes(',') || s.includes('\n') || s.includes('"')) {
@@ -81,12 +75,10 @@ function csvEscape(v) {
   }
   return s;
 }
-
 const yearOptions = () => {
   const now = dayjs().year();
   return [now - 1, now, now + 1];
 };
-
 const buildName = (u) => {
   if (!u) return '—';
   const vn = (u.vorname || '').trim();
@@ -95,22 +87,17 @@ const buildName = (u) => {
   return s || u.email || u.user_id || u.id || '—';
 };
 
-export default function AenderungscheckTab({
-  firma_id,
-  unit_id,
-  // optional: falls Parent eine zentrale Message-Anzeige hat
-  setMsg,
-}) {
+export default function AenderungscheckTab({ firma_id, unit_id }) {
   const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
 
-  // ---- Zeitraum (created_at) ----
+  // Zeitraum
   const [rangeDays, setRangeDays] = useState(() => {
     const raw = localStorage.getItem(LS_KEY_RANGE);
     const v = Number(raw);
-    return Number.isFinite(v) && v >= 1 && v <= 30 ? v : 7; // Default 7
+    return Number.isFinite(v) && v >= 1 && v <= 30 ? v : 7;
   });
 
-  // Enddatum (bis) – Default: heute
   const [endDate, setEndDate] = useState(() => {
     const raw = localStorage.getItem(LS_KEY_END);
     const d = raw ? dayjs(raw) : dayjs();
@@ -118,41 +105,32 @@ export default function AenderungscheckTab({
   });
 
   const [jahr, setJahr] = useState(() => {
-  const raw = localStorage.getItem(LS_KEY_YEAR);
-  const v = raw ? Number(raw) : NaN;
+    const raw = localStorage.getItem(LS_KEY_YEAR);
+    const v = raw ? Number(raw) : NaN;
+    if (Number.isFinite(v) && v >= 2000 && v <= 2100) return v;
+    return dayjs().year();
+  });
 
-  // nur echte Jahreszahlen zulassen
-  if (Number.isFinite(v) && v >= 2000 && v <= 2100) return v;
-
-  return dayjs().year();
-});
-
-
+  useEffect(() => localStorage.setItem(LS_KEY_RANGE, String(rangeDays)), [rangeDays]);
+  useEffect(() => localStorage.setItem(LS_KEY_END, String(endDate)), [endDate]);
   useEffect(() => {
-    localStorage.setItem(LS_KEY_RANGE, String(rangeDays));
-  }, [rangeDays]);
-
-  useEffect(() => {
-    localStorage.setItem(LS_KEY_END, String(endDate));
-  }, [endDate]);
-
-  useEffect(() => {
-    localStorage.setItem(LS_KEY_YEAR, String(jahr));
+    if (Number.isFinite(jahr) && jahr >= 2000 && jahr <= 2100) {
+      localStorage.setItem(LS_KEY_YEAR, String(jahr));
+    }
   }, [jahr]);
 
   const startDate = useMemo(() => {
-    // inclusive: endDate - (rangeDays - 1)
     return dayjs(endDate).subtract(Math.max(1, rangeDays) - 1, 'day').format('YYYY-MM-DD');
   }, [endDate, rangeDays]);
 
-  // ---- Filter / Suche ----
-  const [searchUser, setSearchUser] = useState('');
-  const [searchCreator, setSearchCreator] = useState('');
+  // Suche / Filter
+  const [searchUser, setSearchUser] = useState('');       // Name vom "User" (r.user)
+  const [searchCreator, setSearchCreator] = useState(''); // Name von "geändert durch"
   const [filterUserId, setFilterUserId] = useState('ALL');
   const [filterCreatorId, setFilterCreatorId] = useState('ALL');
-  const [filterDatum, setFilterDatum] = useState(''); // YYYY-MM-DD oder leer
+  const [filterDatum, setFilterDatum] = useState('');
 
-  // ---- Sorting ----
+  // Sort
   const [sortBy, setSortBy] = useState({ key: 'created_at', dir: 'desc' });
   const toggleSort = (key) => {
     setSortBy((prev) => {
@@ -161,23 +139,21 @@ export default function AenderungscheckTab({
     });
   };
 
-  // ---- Data ----
+  // Data
   const [rowsRaw, setRowsRaw] = useState([]);
-  const [userMap, setUserMap] = useState(new Map()); // uuid-> user
-  const [creatorMap, setCreatorMap] = useState(new Map()); // uuid-> user
-  const [schichtMap, setSchichtMap] = useState(new Map()); // id-> {kuerzel, beschreibung}
+  const [userMap, setUserMap] = useState(new Map());
+  const [creatorMap, setCreatorMap] = useState(new Map());
+  const [schichtMap, setSchichtMap] = useState(new Map());
 
   const loadData = async () => {
     if (!firma_id || !unit_id) return;
     setLoading(true);
-    setMsg?.(null);
+    setMsg(null);
 
     try {
-      // Year filter via "datum"
       const yStart = `${jahr}-01-01`;
       const yEnd = `${jahr}-12-31`;
 
-      // created_at range (ganze Tage)
       const caFrom = dayjs(startDate).startOf('day').toISOString();
       const caTo = dayjs(endDate).endOf('day').toISOString();
 
@@ -216,7 +192,7 @@ export default function AenderungscheckTab({
         if (r.ist_schicht != null) schichtIds.add(String(r.ist_schicht));
       });
 
-      // Users holen (alle ids in einem Rutsch)
+      // Users holen
       if (ids.size) {
         const { data: uData, error: uErr } = await supabase
           .from(T_USERS)
@@ -228,7 +204,7 @@ export default function AenderungscheckTab({
         const m = new Map();
         (uData || []).forEach((u) => m.set(String(u.user_id), u));
         setUserMap(m);
-        setCreatorMap(m); // gleiche Quelle, nur andere Anzeige
+        setCreatorMap(m);
       } else {
         setUserMap(new Map());
         setCreatorMap(new Map());
@@ -252,7 +228,7 @@ export default function AenderungscheckTab({
         setSchichtMap(new Map());
       }
     } catch (e) {
-      setMsg?.({ type: 'err', text: e?.message || 'Fehler beim Laden.' });
+      setMsg({ type: 'err', text: e?.message || 'Fehler beim Laden.' });
     } finally {
       setLoading(false);
     }
@@ -263,7 +239,6 @@ export default function AenderungscheckTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma_id, unit_id, jahr, startDate, endDate]);
 
-  // Dropdown-Optionen aus geladenen Rows
   const userOptions = useMemo(() => {
     const set = new Set();
     (rowsRaw || []).forEach((r) => r.user && set.add(String(r.user)));
@@ -280,7 +255,6 @@ export default function AenderungscheckTab({
       .sort((a, b) => (a.label || '').localeCompare(b.label || '', 'de'));
   }, [rowsRaw, creatorMap]);
 
-  // Sichtbare Rows (Filter + Suche + Datum)
   const filtered = useMemo(() => {
     const qU = searchUser.trim().toLowerCase();
     const qC = searchCreator.trim().toLowerCase();
@@ -338,7 +312,7 @@ export default function AenderungscheckTab({
 
   const exportCsvVisible = () => {
     const header = [
-      'geaendert_am',          // created_at
+      'geaendert_am',
       'user_name',
       'datum',
       'schicht',
@@ -348,7 +322,6 @@ export default function AenderungscheckTab({
       'pause',
       'geaendert_durch',
     ];
-
     const lines = [header.join(';')];
 
     sorted.forEach((r) => {
@@ -377,17 +350,14 @@ export default function AenderungscheckTab({
     downloadTextFile(filename, lines.join('\n'));
   };
 
-  // Zeitraum springen (1 Tag zurück/vor) – gleiche Spanne bleibt
   const shiftWindow = (days) => {
     const newEnd = dayjs(endDate).add(days, 'day');
     setEndDate(newEnd.format('YYYY-MM-DD'));
   };
-
   const resetToday = () => setEndDate(dayjs().format('YYYY-MM-DD'));
 
   return (
     <div className="space-y-3">
-
       {/* Controls */}
       <Card className="p-3 space-y-3">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
@@ -434,9 +404,19 @@ export default function AenderungscheckTab({
         </div>
 
         <div className="text-xs text-gray-600 dark:text-gray-300">
-          Zeitraum: <b>{dayjs(startDate).format('DD.MM.YYYY')}</b> bis <b>{dayjs(endDate).format('DD.MM.YYYY')}</b> ·
-          Treffer: <b>{sorted.length}</b>
+          Zeitraum: <b>{dayjs(startDate).format('DD.MM.YYYY')}</b> bis <b>{dayjs(endDate).format('DD.MM.YYYY')}</b> · Treffer: <b>{sorted.length}</b>
         </div>
+
+        {msg && (
+          <div className={`rounded-xl border p-2 text-sm
+            ${msg.type === 'ok'
+              ? 'border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100'
+              : 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100'
+            }`}
+          >
+            {msg.text}
+          </div>
+        )}
       </Card>
 
       {/* Filters */}
@@ -462,9 +442,7 @@ export default function AenderungscheckTab({
             <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Filter User</div>
             <Select value={filterUserId} onChange={(e) => setFilterUserId(e.target.value)}>
               <option value="ALL">Alle</option>
-              {userOptions.map((o) => (
-                <option key={o.id} value={o.id}>{o.label}</option>
-              ))}
+              {userOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </Select>
           </div>
 
@@ -472,9 +450,7 @@ export default function AenderungscheckTab({
             <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Filter geändert durch</div>
             <Select value={filterCreatorId} onChange={(e) => setFilterCreatorId(e.target.value)}>
               <option value="ALL">Alle</option>
-              {creatorOptions.map((o) => (
-                <option key={o.id} value={o.id}>{o.label}</option>
-              ))}
+              {creatorOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </Select>
           </div>
         </div>
@@ -536,9 +512,7 @@ export default function AenderungscheckTab({
 
                 return (
                   <tr key={r.id} className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30">
-                    <td className="p-2 tabular-nums">
-                      {dayjs(r.created_at).format('DD.MM.YYYY HH:mm')}
-                    </td>
+                    <td className="p-2 tabular-nums">{dayjs(r.created_at).format('DD.MM.YYYY HH:mm')}</td>
                     <td className="p-2">{userName}</td>
                     <td className="p-2 tabular-nums">{r.datum ? dayjs(r.datum).format('DD.MM.YYYY') : '—'}</td>
                     <td className="p-2">{schicht}</td>
