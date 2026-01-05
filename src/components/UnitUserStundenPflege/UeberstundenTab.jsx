@@ -429,7 +429,6 @@ export default function UeberstundenTab({ firma_id, unit_id }) {
         if (!row) throw new Error(`Kein Datensatz/Row für user_id=${uid} gefunden.`);
         const rest = Number(row.rest ?? 0); // ✅ kann positiv ODER negativ sein
 
-
         const { data: existing, error: exErr } = await supabase
           .from(T_STUNDEN)
           .select('id')

@@ -1,4 +1,3 @@
-// src/components/Dashboard/StatistikModal.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../supabaseClient";
 import {
@@ -9,6 +8,8 @@ import { GripVertical, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 const StatistikModal = ({ user, onClose }) => {
   const [stunden, setStunden] = useState({});
   const [urlaub, setUrlaub] = useState({});
+  const [abzuege, setAbzuege] = useState([]); // ✅ neu
+
   const jahr = new Date().getFullYear();
   const monate = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 
@@ -16,44 +17,68 @@ const StatistikModal = ({ user, onClose }) => {
   useEffect(() => {
     const ladeDaten = async () => {
       if (!user?.user_id) return;
+
       const { data: stundenData } = await supabase
         .from("DB_Stunden").select("*")
         .eq("user_id", user.user_id).eq("jahr", jahr).maybeSingle();
+
       const { data: urlaubData } = await supabase
         .from("DB_Urlaub").select("*")
         .eq("user_id", user.user_id).eq("jahr", jahr).maybeSingle();
+
+      const { data: abzugData } = await supabase
+        .from("DB_StundenAbzug")
+        .select("id, datum, stunden, kommentar")
+        .eq("user_id", user.user_id)
+        .eq("jahr", jahr)
+        .order("datum", { ascending: false });
+
       setStunden(stundenData || {});
       setUrlaub(urlaubData || {});
+      setAbzuege(abzugData || []);
     };
     ladeDaten();
   }, [user, jahr]);
 
+  /* Abzug-Summe */
+  const abzugSumme = useMemo(
+    () => (abzuege || []).reduce((acc, r) => acc + (Number(r?.stunden) || 0), 0),
+    [abzuege]
+  );
+
   /* Kennzahlen */
   const uebernahmeVorjahr = Number(stunden?.uebernahme_vorjahr) || 0;
 
-  const summeIstJahr = useMemo(
+  const summeIstJahrRaw = useMemo(
     () => Array.from({ length: 12 }, (_, i) => Number(stunden[`m${i + 1}`]) || 0)
-              .reduce((a, b) => a + b, 0),
+      .reduce((a, b) => a + b, 0),
     [stunden]
   );
 
-  // Ist-Stunden inkl. Vorjahr
+  // ✅ Ist im Jahr minus Abzug
+  const summeIstJahr = summeIstJahrRaw - abzugSumme;
+
+  // ✅ Ist-Stunden inkl. Vorjahr (und nach Abzug)
   const summeIst = summeIstJahr + uebernahmeVorjahr;
 
-  // Rest bis Jahresende (Ziel minus Ist inkl. Vorjahr)
-  const restStd = (Number(stunden.stunden_gesamt) || 0) - summeIst;
+  // ✅ Vorgabe statt stunden_gesamt
+  const vorgabe = Number(stunden.vorgabe_stunden) || 0;
+
+  // ✅ Rest bis Jahresende = Ist - Vorgabe
+  const restStd = summeIst - vorgabe;
 
   const urlaubSumme = useMemo(
     () => Array.from({ length: 12 }, (_, i) => Number(urlaub[`m${i + 1}`]) || 0)
-              .reduce((a, b) => a + b, 0),
+      .reduce((a, b) => a + b, 0),
     [urlaub]
   );
   const urlaubUebrig = (Number(urlaub.urlaub_gesamt) || 0) - urlaubSumme;
 
-  // Chart-Daten: Ist startet bei uebernahme_vorjahr
-  let kumIst = uebernahmeVorjahr;
+  // Chart-Daten: Ist startet bei uebernahme_vorjahr - abzugSumme (Abzug wirkt wie Startkorrektur)
+  let kumIst = uebernahmeVorjahr - abzugSumme;
   let kumSoll = 0;
   let kumUrlaub = 0;
+
   const chartData = monate.map((name, i) => {
     const ist = Number(stunden[`m${i + 1}`]) || 0;
     const soll = Number(stunden[`soll_m${i + 1}`]) || 0;
@@ -61,11 +86,12 @@ const StatistikModal = ({ user, onClose }) => {
     kumIst += ist;
     kumSoll += soll;
     kumUrlaub += urlaubM;
-    const ziel = ((Number(stunden.stunden_gesamt) || 0) / 12) * (i + 1);
+
+    const ziel = (vorgabe / 12) * (i + 1);
     return { name, ist: kumIst, soll: kumSoll, ziel, urlaub: kumUrlaub };
   });
 
-  /* Drag & Dock – wie SDAO */
+  /* Drag & Dock */
   const modalRef = useRef(null);
   const [dock, setDock] = useState(null); // 'left' | 'right' | null
   const [dragging, setDragging] = useState(false);
@@ -105,19 +131,20 @@ const StatistikModal = ({ user, onClose }) => {
     setPos({ left, top });
   };
   const stopDrag = () => setDragging(false);
+
   useEffect(() => {
     if (!dragging) return;
     const mv = (ev) => onDrag(ev);
     const up = () => stopDrag();
-    window.addEventListener('mousemove', mv);
-    window.addEventListener('mouseup', up);
-    window.addEventListener('touchmove', mv, { passive: false });
-    window.addEventListener('touchend', up);
+    window.addEventListener("mousemove", mv);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv, { passive: false });
+    window.addEventListener("touchend", up);
     return () => {
-      window.removeEventListener('mousemove', mv);
-      window.removeEventListener('mouseup', up);
-      window.removeEventListener('touchmove', mv);
-      window.removeEventListener('touchend', up);
+      window.removeEventListener("mousemove", mv);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", mv);
+      window.removeEventListener("touchend", up);
     };
   }, [dragging, dock, dragOffset]);
 
@@ -126,12 +153,12 @@ const StatistikModal = ({ user, onClose }) => {
       <div
         ref={modalRef}
         className={`absolute bg-white text-gray-800 dark:bg-gray-900 dark:text-white border border-gray-500 p-6 rounded-xl w-[700px] shadow-lg ${
-          dragging ? 'select-none cursor-grabbing' : ''
-        } ${dock ? 'h-screen rounded-none' : ''}`}
+          dragging ? "select-none cursor-grabbing" : ""
+        } ${dock ? "h-screen rounded-none" : ""}`}
         style={
-          dock === 'left'
+          dock === "left"
             ? { left: 0, top: 0 }
-            : dock === 'right'
+            : dock === "right"
             ? { right: 0, top: 0 }
             : { left: `${pos.left}px`, top: `${pos.top}px` }
         }
@@ -155,20 +182,22 @@ const StatistikModal = ({ user, onClose }) => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setDock((d) => (d === 'left' ? null : 'left'))}
-              title={dock === 'left' ? 'Andocken lösen' : 'Links andocken'}
-              className={`p-1 rounded ${dock === 'left' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+              onClick={() => setDock((d) => (d === "left" ? null : "left"))}
+              title={dock === "left" ? "Andocken lösen" : "Links andocken"}
+              className={`p-1 rounded ${dock === "left" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}
             >
               <PanelLeftOpen className="w-5 h-5" />
             </button>
             <button
-              onClick={() => setDock((d) => (d === 'right' ? null : 'right'))}
-              title={dock === 'right' ? 'Andocken lösen' : 'Rechts andocken'}
-              className={`p-1 rounded ${dock === 'right' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+              onClick={() => setDock((d) => (d === "right" ? null : "right"))}
+              title={dock === "right" ? "Andocken lösen" : "Rechts andocken"}
+              className={`p-1 rounded ${dock === "right" ? "bg-blue-600 text-white" : "hover:bg-gray-100 dark:hover:bg-gray-800"}`}
             >
               <PanelRightOpen className="w-5 h-5" />
             </button>
-            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800" title="Schließen">✕</button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800" title="Schließen">
+              ✕
+            </button>
           </div>
         </div>
 
@@ -177,11 +206,15 @@ const StatistikModal = ({ user, onClose }) => {
           <div className="flex flex-wrap gap-4 mb-2 items-center">
             <span className="flex items-center gap-1">
               <span>Vorgabe Jahresstunden:</span>
-              <b>{(Number(stunden.stunden_gesamt) || 0).toLocaleString("de-DE")}</b>
+              <b>{vorgabe.toLocaleString("de-DE")}</b>
             </span>
             <span className="flex items-center gap-1">
-              <span>Ist-Stunden (inkl. Vorjahr):</span>
+              <span>Ist-Stunden (inkl. Vorjahr, −Abzug):</span>
               <b>{summeIst.toLocaleString("de-DE")}</b>
+            </span>
+            <span className="flex items-center gap-1">
+              <span>Abzug (Jahr):</span>
+              <b>{abzugSumme.toLocaleString("de-DE")}</b>
             </span>
             <span className="flex items-center gap-1">
               <span>Stunden zum Jahresende:</span>
@@ -193,6 +226,7 @@ const StatistikModal = ({ user, onClose }) => {
               </b>
             </span>
           </div>
+
           <div className="flex flex-wrap gap-4 items-center">
             <span className="flex items-center gap-1">
               <span>Urlaub übrig:</span> <b>{urlaubUebrig}</b>
@@ -212,7 +246,7 @@ const StatistikModal = ({ user, onClose }) => {
               <YAxis yAxisId="right" orientation="right" />
               <Tooltip />
               <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="ist" stroke="#10B981" name="Ist-Stunden (inkl. Vorjahr)" />
+              <Line yAxisId="left" type="monotone" dataKey="ist" stroke="#10B981" name="Ist-Stunden (inkl. Vorjahr, −Abzug)" />
               <Line yAxisId="left" type="monotone" dataKey="soll" stroke="#3B82F6" name="Stunden laut Sollplan" />
               <Line yAxisId="left" type="monotone" dataKey="ziel" stroke="#EF4444" name="Vorgabe Jahresstunden" strokeDasharray="5 5" />
               <Line yAxisId="right" type="monotone" dataKey="urlaub" stroke="#F59E0B" name="Urlaub (Tage)" />
