@@ -144,19 +144,19 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/dashboard': 'Übersicht',
     '/schichtcockpit': 'Cockpit',
     '/kundenverwaltung': 'Unternehmen',
-    '/schichtart-pflegen': 'Schichtarten pflegen',
+    '/schichtart-pflegen': 'Schichtarten bearbeiten',
     '/schichtzuweisen': 'Schicht zuweisen',
     '/user-anlegen': 'Benutzerverwaltung',
     '/sollplan-editor': 'Sollplan erstellen',
     '/bedarfsverwaltung': 'Bedarf Verwalten',
     '/qualifikationenverwalten': 'Qualifikationen zuweisen',
-    '/qualifikationsmatrix': 'Qualifikationen pflegen',
+    '/qualifikationsmatrix': 'Qualifikationen bearbeiten',
     '/ferienundfeiertage': 'Ferien & Feiertage',
     '/termineverwaltung': 'Termine',
-    '/stunden-pflege': 'Stunden Pflege', // ✅ NEU
+    '/stunden-pflege': 'Zeitkonten bearbeiten', 
     '/system-tools': 'System-Tools',
     '/unit-reports': 'Unit bericht',
-    '/userpflege': 'UserPflege',
+    '/userpflege': 'User bearbeiten',
     '/top-report': 'Top bericht',
     '/wochenplaner': 'Wochenplaner',
     '/user-report': 'Mitarbeiter-Report',
@@ -212,10 +212,10 @@ const Navigation = ({ darkMode, setDarkMode }) => {
             {verwaltungOpen && (
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
                 <Link to="/schichtart-pflegen" className="hover:bg-gray-700 rounded px-2 py-1">
-                  Schichtarten pflegen
+                  Schichtarten bearbeiten
                 </Link>
                 <Link to="/qualifikationsmatrix" className="hover:bg-gray-700 rounded px-2 py-1">
-                  Qualifikation pflegen
+                  Qualifikation bearbeiten
                 </Link>
                 <Link to="/qualifikationenverwalten" className="hover:bg-gray-700 rounded px-2 py-1">
                   Qualifikationen zuweisen
@@ -224,10 +224,10 @@ const Navigation = ({ darkMode, setDarkMode }) => {
                   Schicht zuweisen
                 </Link>
                 <Link to="/userpflege" className="hover:bg-gray-700 rounded px-2 py-1">
-                  User Pflegen
+                  User bearbeiten
                 </Link>
                 <Link to="/stunden-pflege" className="hover:bg-gray-700 rounded px-2 py-1">
-                  Stunden Pflege
+                  Zeitkonten bearbeiten
                 </Link>
               </div>
             )}
