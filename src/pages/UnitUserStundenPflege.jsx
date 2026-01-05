@@ -3,10 +3,10 @@
 import React, { useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { useRollen } from '../context/RollenContext';
-
 import AenderungscheckTab from '../components/UnitUserStundenPflege/AenderungscheckTab';
 import UeberstundenTab from '../components/UnitUserStundenPflege/UeberstundenTab';
 import VorgabestundenTab from '../components/UnitUserStundenPflege/VorgabestundenTab';
+import AbzugstundenTab from '../components/UnitUserStundenPflege/AbzugstundenTab';
 
 const ALLOWED_ROLES = ['Admin_Dev', 'Planner', 'Org_Admin', 'SuperAdmin'];
 
@@ -22,7 +22,7 @@ export default function UnitUserStundenPflege() {
   const roleOk = ALLOWED_ROLES.includes(rolle);
 
   // Parent nur Struktur: Tabwahl ist ok
-  const [tab, setTab] = useState('ueberstunden'); // 'aenderungscheck' | 'ueberstunden' | 'vorgabe'
+  const [tab, setTab] = useState('aenderungscheck');
 
   if (!roleOk) {
     return (
@@ -60,7 +60,16 @@ export default function UnitUserStundenPflege() {
           >
             Änderungscheck
           </button>
-
+<button
+            onClick={() => setTab('vorgabe')}
+            className={`px-3 py-2 rounded-xl text-sm font-semibold border
+              ${tab === 'vorgabe'
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
+              }`}
+          >
+            Vorgabestunden
+          </button>
           <button
             onClick={() => setTab('ueberstunden')}
             className={`px-3 py-2 rounded-xl text-sm font-semibold border
@@ -72,27 +81,31 @@ export default function UnitUserStundenPflege() {
             Überstunden
           </button>
 
+          
           <button
-            onClick={() => setTab('vorgabe')}
+            onClick={() => setTab('abzugstunden')}
             className={`px-3 py-2 rounded-xl text-sm font-semibold border
-              ${tab === 'vorgabe'
+              ${tab === 'abzugstunden'
                 ? 'bg-gray-900 text-white border-gray-900'
                 : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
               }`}
           >
-            Vorgabestunden
+            Abzugstunden
           </button>
         </div>
       </Card>
 
       {/* Content: jedes Tab macht seine komplette Logik selbst */}
       {tab === 'ueberstunden' ? (
-        <UeberstundenTab firma_id={firma_id} unit_id={unit_id} />
-      ) : tab === 'vorgabe' ? (
-        <VorgabestundenTab firma_id={firma_id} unit_id={unit_id} />
-      ) : (
-        <AenderungscheckTab firma_id={firma_id} unit_id={unit_id} />
-      )}
+  <UeberstundenTab firma_id={firma_id} unit_id={unit_id} />
+) : tab === 'vorgabe' ? (
+  <VorgabestundenTab firma_id={firma_id} unit_id={unit_id} />
+) : tab === 'abzugstunden' ? (
+  <AbzugstundenTab firma_id={firma_id} unit_id={unit_id} />
+) : tab === 'aenderungscheck' ? (
+  <AenderungscheckTab firma_id={firma_id} unit_id={unit_id} />
+) : null}
+
     </div>
   );
 }
