@@ -9,12 +9,14 @@ import { supabase } from '../../supabaseClient';
 dayjs.locale('de');
 
 const T_KAMPF = 'DB_Kampfliste';
+const T_VERLAUF = 'DB_KampflisteVerlauf';
 const T_USERS = 'DB_User';
 const T_SCHICHTART = 'DB_SchichtArt';
 
 const LS_KEY_RANGE = 'sp_aenderungscheck_range_days';
 const LS_KEY_YEAR = 'sp_aenderungscheck_year';
 const LS_KEY_END = 'sp_aenderungscheck_end_date'; // YYYY-MM-DD
+const LS_KEY_SHOW = 'sp_aenderungscheck_show_verlauf'; // 0/1
 
 /* ---------------- UI Helpers ---------------- */
 const Card = ({ className = '', children }) => (
@@ -22,6 +24,7 @@ const Card = ({ className = '', children }) => (
     {children}
   </div>
 );
+
 const Btn = ({ className = '', children, ...props }) => (
   <button
     {...props}
@@ -33,6 +36,7 @@ const Btn = ({ className = '', children, ...props }) => (
     {children}
   </button>
 );
+
 const Input = ({ className = '', ...props }) => (
   <input
     {...props}
@@ -41,6 +45,7 @@ const Input = ({ className = '', ...props }) => (
       focus:ring-2 focus:ring-gray-400/40 ${className}`}
   />
 );
+
 const Select = ({ className = '', ...props }) => (
   <select
     {...props}
@@ -68,6 +73,7 @@ function downloadTextFile(filename, text) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
 function csvEscape(v) {
   const s = String(v ?? '');
   if (s.includes(';') || s.includes(',') || s.includes('\n') || s.includes('"')) {
@@ -75,21 +81,32 @@ function csvEscape(v) {
   }
   return s;
 }
+
 const yearOptions = () => {
   const now = dayjs().year();
   return [now - 1, now, now + 1];
 };
+
 const buildName = (u) => {
   if (!u) return '—';
   const vn = (u.vorname || '').trim();
   const nn = (u.nachname || '').trim();
-  const s = `${nn}, ${vn}`.replace(/^,\s*/,'').trim();
+  const s = `${nn}, ${vn}`.replace(/^,\s*/, '').trim();
   return s || u.email || u.user_id || u.id || '—';
 };
 
 export default function AenderungscheckTab({ firma_id, unit_id }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+
+  // Anzeige: Verlauf an/aus
+  const [showVerlauf, setShowVerlauf] = useState(() => {
+    const raw = localStorage.getItem(LS_KEY_SHOW);
+    return raw === '1';
+  });
+  useEffect(() => {
+    localStorage.setItem(LS_KEY_SHOW, showVerlauf ? '1' : '0');
+  }, [showVerlauf]);
 
   // Zeitraum
   const [rangeDays, setRangeDays] = useState(() => {
@@ -124,14 +141,14 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
   }, [endDate, rangeDays]);
 
   // Suche / Filter
-  const [searchUser, setSearchUser] = useState('');       // Name vom "User" (r.user)
-  const [searchCreator, setSearchCreator] = useState(''); // Name von "geändert durch"
+  const [searchUser, setSearchUser] = useState('');
+  const [searchCreator, setSearchCreator] = useState('');
   const [filterUserId, setFilterUserId] = useState('ALL');
   const [filterCreatorId, setFilterCreatorId] = useState('ALL');
   const [filterDatum, setFilterDatum] = useState('');
 
   // Sort
-  const [sortBy, setSortBy] = useState({ key: 'created_at', dir: 'desc' });
+  const [sortBy, setSortBy] = useState({ key: 'changed_at', dir: 'desc' });
   const toggleSort = (key) => {
     setSortBy((prev) => {
       if (prev.key !== key) return { key, dir: 'asc' };
@@ -140,10 +157,31 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
   };
 
   // Data
-  const [rowsRaw, setRowsRaw] = useState([]);
+  const [kampfRaw, setKampfRaw] = useState([]);
+  const [verlaufRaw, setVerlaufRaw] = useState([]);
+
   const [userMap, setUserMap] = useState(new Map());
   const [creatorMap, setCreatorMap] = useState(new Map());
   const [schichtMap, setSchichtMap] = useState(new Map());
+
+  // Vereinheitlichen: wir haben IMMER changed_at + changed_by
+  const rowsUnified = useMemo(() => {
+    const k = (kampfRaw || []).map((r) => ({
+      ...r,
+      __src: 'kampf',
+      changed_at: r.created_at,
+      changed_by: r.created_by,
+    }));
+
+    const v = (verlaufRaw || []).map((r) => ({
+      ...r,
+      __src: 'verlauf',
+      changed_at: r.created_at,          // ✅ Verlauf: change_on (fallback created_at)
+      changed_by: r.change_by || r.created_by,          // ✅ Verlauf: change_by (fallback created_by)
+    }));
+
+    return showVerlauf ? [...k, ...v] : k;
+  }, [kampfRaw, verlaufRaw, showVerlauf]);
 
   const loadData = async () => {
     if (!firma_id || !unit_id) return;
@@ -157,10 +195,11 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       const caFrom = dayjs(startDate).startOf('day').toISOString();
       const caTo = dayjs(endDate).endOf('day').toISOString();
 
+      // 1) Aktive Kampfliste (Filter über created_at)
       const { data: kData, error: kErr } = await supabase
         .from(T_KAMPF)
         .select(`
-          id, created_at, created_by, aenderung,
+          id, created_at, created_by,
           startzeit_ist, endzeit_ist, datum, dauer_ist,
           ist_schicht, kommentar, schichtgruppe,
           user, firma_id, unit_id, pausen_dauer
@@ -175,20 +214,49 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
         .limit(5000);
 
       if (kErr) throw kErr;
+      const kList = kData || [];
+      setKampfRaw(kList);
 
-      const list = kData || [];
-      setRowsRaw(list);
+      // 2) Verlauf optional (Filter über change_on, weil das dein echtes Änderungsdatum ist)
+      let vList = [];
+      if (showVerlauf) {
+        const { data: vData, error: vErr } = await supabase
+          .from(T_VERLAUF)
+          .select(`
+            id, change_on, created_at, created_by, change_by,
+            startzeit_ist, endzeit_ist, datum, dauer_ist,
+            ist_schicht, soll_schicht, kommentar, schichtgruppe,
+            user, firma_id, unit_id, pausen_dauer, dauer_soll
+          `)
+          .eq('firma_id', firma_id)
+          .eq('unit_id', unit_id)
+          .gte('datum', yStart)
+          .lte('datum', yEnd)
+          .gte('change_on', caFrom)
+          .lte('change_on', caTo)
+          .order('change_on', { ascending: false })
+          .limit(5000);
 
-      // IDs sammeln (user + created_by)
+        if (vErr) throw vErr;
+        vList = vData || [];
+      }
+      setVerlaufRaw(vList);
+
+      // IDs sammeln (user + changed_by + created_by) aus beiden Quellen
       const ids = new Set();
-      list.forEach((r) => {
+      kList.forEach((r) => {
         if (r.user) ids.add(String(r.user));
         if (r.created_by) ids.add(String(r.created_by));
       });
+      vList.forEach((r) => {
+        if (r.user) ids.add(String(r.user));
+        if (r.created_by) ids.add(String(r.created_by));
+        if (r.change_by) ids.add(String(r.change_by));
+      });
 
-      // SchichtArt IDs sammeln
+      // SchichtArt IDs
       const schichtIds = new Set();
-      list.forEach((r) => {
+      [...kList, ...vList].forEach((r) => {
         if (r.ist_schicht != null) schichtIds.add(String(r.ist_schicht));
       });
 
@@ -212,18 +280,26 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
 
       // Schichtarten holen
       if (schichtIds.size) {
-        const { data: sData, error: sErr } = await supabase
-          .from(T_SCHICHTART)
-          .select('id, kuerzel, beschreibung')
-          .eq('firma_id', firma_id)
-          .eq('unit_id', unit_id)
-          .in('id', Array.from(schichtIds).map((x) => Number(x)));
+        const numericIds = Array.from(schichtIds)
+          .map((x) => Number(x))
+          .filter((n) => Number.isFinite(n));
 
-        if (sErr) throw sErr;
+        if (numericIds.length) {
+          const { data: sData, error: sErr } = await supabase
+            .from(T_SCHICHTART)
+            .select('id, kuerzel, beschreibung')
+            .eq('firma_id', firma_id)
+            .eq('unit_id', unit_id)
+            .in('id', numericIds);
 
-        const sm = new Map();
-        (sData || []).forEach((s) => sm.set(String(s.id), s));
-        setSchichtMap(sm);
+          if (sErr) throw sErr;
+
+          const sm = new Map();
+          (sData || []).forEach((s) => sm.set(String(s.id), s));
+          setSchichtMap(sm);
+        } else {
+          setSchichtMap(new Map());
+        }
       } else {
         setSchichtMap(new Map());
       }
@@ -237,31 +313,31 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firma_id, unit_id, jahr, startDate, endDate]);
+  }, [firma_id, unit_id, jahr, startDate, endDate, showVerlauf]);
 
   const userOptions = useMemo(() => {
     const set = new Set();
-    (rowsRaw || []).forEach((r) => r.user && set.add(String(r.user)));
+    (rowsUnified || []).forEach((r) => r.user && set.add(String(r.user)));
     return Array.from(set)
       .map((id) => ({ id, label: buildName(userMap.get(id)) || id }))
       .sort((a, b) => (a.label || '').localeCompare(b.label || '', 'de'));
-  }, [rowsRaw, userMap]);
+  }, [rowsUnified, userMap]);
 
   const creatorOptions = useMemo(() => {
     const set = new Set();
-    (rowsRaw || []).forEach((r) => r.created_by && set.add(String(r.created_by)));
+    (rowsUnified || []).forEach((r) => r.changed_by && set.add(String(r.changed_by)));
     return Array.from(set)
       .map((id) => ({ id, label: buildName(creatorMap.get(id)) || id }))
       .sort((a, b) => (a.label || '').localeCompare(b.label || '', 'de'));
-  }, [rowsRaw, creatorMap]);
+  }, [rowsUnified, creatorMap]);
 
   const filtered = useMemo(() => {
     const qU = searchUser.trim().toLowerCase();
     const qC = searchCreator.trim().toLowerCase();
 
-    return (rowsRaw || []).filter((r) => {
+    return (rowsUnified || []).filter((r) => {
       if (filterUserId !== 'ALL' && String(r.user) !== String(filterUserId)) return false;
-      if (filterCreatorId !== 'ALL' && String(r.created_by) !== String(filterCreatorId)) return false;
+      if (filterCreatorId !== 'ALL' && String(r.changed_by) !== String(filterCreatorId)) return false;
       if (filterDatum && dayjs(r.datum).format('YYYY-MM-DD') !== filterDatum) return false;
 
       if (qU) {
@@ -270,13 +346,13 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       }
 
       if (qC) {
-        const name = (buildName(creatorMap.get(String(r.created_by))) || '').toLowerCase();
+        const name = (buildName(creatorMap.get(String(r.changed_by))) || '').toLowerCase();
         if (!name.includes(qC)) return false;
       }
 
       return true;
     });
-  }, [rowsRaw, filterUserId, filterCreatorId, filterDatum, searchUser, searchCreator, userMap, creatorMap]);
+  }, [rowsUnified, filterUserId, filterCreatorId, filterDatum, searchUser, searchCreator, userMap, creatorMap]);
 
   const sorted = useMemo(() => {
     const dir = sortBy.dir === 'asc' ? 1 : -1;
@@ -284,7 +360,8 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
 
     const getVal = (r) => {
       switch (key) {
-        case 'created_at': return dayjs(r.created_at).valueOf();
+        case 'changed_at': return dayjs(r.changed_at).valueOf();
+        case 'status': return (r.__src || '').toLowerCase();
         case 'user': return (buildName(userMap.get(String(r.user))) || '').toLowerCase();
         case 'datum': return dayjs(r.datum).valueOf();
         case 'schicht': {
@@ -295,7 +372,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
         case 'ende': return (r.endzeit_ist || '');
         case 'dauer': return Number(r.dauer_ist ?? -Infinity);
         case 'pause': return Number(r.pausen_dauer ?? -Infinity);
-        case 'created_by': return (buildName(creatorMap.get(String(r.created_by))) || '').toLowerCase();
+        case 'changed_by': return (buildName(creatorMap.get(String(r.changed_by))) || '').toLowerCase();
         default:
           return (r[key] ?? '');
       }
@@ -313,6 +390,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
   const exportCsvVisible = () => {
     const header = [
       'geaendert_am',
+      'status',
       'user_name',
       'datum',
       'schicht',
@@ -322,17 +400,21 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       'pause',
       'geaendert_durch',
     ];
+
     const lines = [header.join(';')];
 
     sorted.forEach((r) => {
       const userName = buildName(userMap.get(String(r.user)));
-      const creatorName = buildName(creatorMap.get(String(r.created_by)));
+      const creatorName = buildName(creatorMap.get(String(r.changed_by)));
 
       const s = schichtMap.get(String(r.ist_schicht));
       const schicht = s ? `${s.kuerzel || ''}`.trim() : (r.ist_schicht != null ? String(r.ist_schicht) : '');
 
+      const statusLabel = r.__src === 'verlauf' ? 'Verlauf' : 'Aktiv';
+
       const row = [
-        dayjs(r.created_at).format('DD.MM.YYYY HH:mm'),
+        dayjs(r.changed_at).format('DD.MM.YYYY HH:mm'),
+        statusLabel,
         userName,
         dayjs(r.datum).format('DD.MM.YYYY'),
         schicht,
@@ -346,7 +428,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       lines.push(row.join(';'));
     });
 
-    const filename = `schichtpilot_aenderungscheck_${unit_id}_${jahr}_${startDate}_bis_${endDate}.csv`;
+    const filename = `schichtpilot_aenderungscheck_${unit_id}_${jahr}_${startDate}_bis_${endDate}${showVerlauf ? '_mitVerlauf' : ''}.csv`;
     downloadTextFile(filename, lines.join('\n'));
   };
 
@@ -354,13 +436,14 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
     const newEnd = dayjs(endDate).add(days, 'day');
     setEndDate(newEnd.format('YYYY-MM-DD'));
   };
+
   const resetToday = () => setEndDate(dayjs().format('YYYY-MM-DD'));
 
   return (
     <div className="space-y-3">
       {/* Controls */}
       <Card className="p-3 space-y-3">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 items-end">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-2 items-end">
           <div>
             <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Kampflisten-Jahr (Datum)</div>
             <Select value={jahr} onChange={(e) => setJahr(Number(e.target.value))}>
@@ -369,7 +452,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
           </div>
 
           <div>
-            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Änderungszeitraum (created_at): Ende</div>
+            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Änderungszeitraum: Ende</div>
             <div className="flex gap-2">
               <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               <Btn onClick={resetToday} title="Ende auf heute setzen">Heute</Btn>
@@ -382,6 +465,14 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
               {Array.from({ length: 30 }, (_, i) => i + 1).map((d) => (
                 <option key={d} value={String(d)}>{d} Tage</option>
               ))}
+            </Select>
+          </div>
+
+          <div>
+            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Anzeige</div>
+            <Select value={showVerlauf ? '1' : '0'} onChange={(e) => setShowVerlauf(e.target.value === '1')}>
+              <option value="0">Ohne Verlauf</option>
+              <option value="1">Mit Verlauf</option>
             </Select>
           </div>
 
@@ -405,6 +496,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
 
         <div className="text-xs text-gray-600 dark:text-gray-300">
           Zeitraum: <b>{dayjs(startDate).format('DD.MM.YYYY')}</b> bis <b>{dayjs(endDate).format('DD.MM.YYYY')}</b> · Treffer: <b>{sorted.length}</b>
+          {showVerlauf ? <span> · inkl. Verlauf</span> : <span> · nur aktiv</span>}
         </div>
 
         {msg && (
@@ -426,7 +518,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
             <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Suche User (Name)</div>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <Input value={searchUser} onChange={(e) => setSearchUser(e.target.value)} placeholder="z.B. Müller" className="pl-9" />
+              <Input value={searchUser} onChange={(e) => setSearchUser(e.target.value)} placeholder="z.B. Müller" style={{ paddingLeft: 34 }} />
             </div>
           </div>
 
@@ -434,7 +526,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
             <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Suche geändert durch (Name)</div>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <Input value={searchCreator} onChange={(e) => setSearchCreator(e.target.value)} placeholder="z.B. Admin" className="pl-9" />
+              <Input value={searchCreator} onChange={(e) => setSearchCreator(e.target.value)} placeholder="z.B. Admin" style={{ paddingLeft: 34 }} />
             </div>
           </div>
 
@@ -469,35 +561,47 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       {/* Table */}
       <Card className="p-0 overflow-hidden">
         <div className="overflow-auto">
-          <table className="min-w-[1400px] w-full text-sm">
+          <table className="min-w-[1550px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-gray-900/40">
               <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('created_at')}>
-                  geändert (created_at) {sortBy.key === 'created_at' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')}>
+                  geändert {sortBy.key === 'changed_at' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('status')}>
+                  status {sortBy.key === 'status' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                </th>
+
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('user')}>
                   user {sortBy.key === 'user' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('datum')}>
                   datum {sortBy.key === 'datum' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('schicht')}>
                   schicht {sortBy.key === 'schicht' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('start')}>
                   start {sortBy.key === 'start' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('ende')}>
                   ende {sortBy.key === 'ende' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
                 <th className="p-2 text-right cursor-pointer select-none" onClick={() => toggleSort('dauer')}>
                   std. {sortBy.key === 'dauer' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
+
                 <th className="p-2 text-right cursor-pointer select-none" onClick={() => toggleSort('pause')}>
                   pause {sortBy.key === 'pause' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('created_by')}>
-                  geändert durch {sortBy.key === 'created_by' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_by')}>
+                  geändert durch {sortBy.key === 'changed_by' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
               </tr>
             </thead>
@@ -505,14 +609,29 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
             <tbody>
               {sorted.map((r) => {
                 const userName = buildName(userMap.get(String(r.user)));
-                const creatorName = buildName(creatorMap.get(String(r.created_by)));
+                const creatorName = buildName(creatorMap.get(String(r.changed_by)));
 
                 const s = schichtMap.get(String(r.ist_schicht));
                 const schicht = s ? (s.kuerzel || s.beschreibung || '—') : (r.ist_schicht != null ? String(r.ist_schicht) : '—');
 
+                const statusLabel = r.__src === 'verlauf' ? 'Verlauf' : 'Aktiv';
+
                 return (
-                  <tr key={r.id} className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30">
-                    <td className="p-2 tabular-nums">{dayjs(r.created_at).format('DD.MM.YYYY HH:mm')}</td>
+                  <tr key={`${r.__src}-${r.id}`} className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                    <td className="p-2 tabular-nums">{dayjs(r.changed_at).format('DD.MM.YYYY HH:mm')}</td>
+
+                    <td className="p-2">
+                      <span
+                        className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-semibold
+                          ${r.__src === 'verlauf'
+                            ? 'bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100'
+                            : 'bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-100'
+                          }`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </td>
+
                     <td className="p-2">{userName}</td>
                     <td className="p-2 tabular-nums">{r.datum ? dayjs(r.datum).format('DD.MM.YYYY') : '—'}</td>
                     <td className="p-2">{schicht}</td>
@@ -527,7 +646,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
 
               {!sorted.length && (
                 <tr>
-                  <td colSpan={9} className="p-4 text-center text-gray-600 dark:text-gray-300">
+                  <td colSpan={10} className="p-4 text-center text-gray-600 dark:text-gray-300">
                     Keine Einträge gefunden.
                   </td>
                 </tr>
