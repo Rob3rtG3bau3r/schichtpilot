@@ -7,7 +7,7 @@ import AenderungscheckTab from '../components/UnitUserStundenPflege/Aenderungsch
 import UeberstundenTab from '../components/UnitUserStundenPflege/UeberstundenTab';
 import VorgabestundenTab from '../components/UnitUserStundenPflege/VorgabestundenTab';
 import AbzugstundenTab from '../components/UnitUserStundenPflege/AbzugstundenTab';
-
+import VorgabeurlaubTab from '../components/UnitUserStundenPflege/VorgabeurlaubTab';
 const ALLOWED_ROLES = ['Admin_Dev', 'Planner', 'Org_Admin', 'SuperAdmin'];
 
 /* ---------------- UI Helpers (nur Style) ---------------- */
@@ -60,7 +60,7 @@ export default function UnitUserStundenPflege() {
           >
             Änderungscheck
           </button>
-<button
+          <button
             onClick={() => setTab('vorgabe')}
             className={`px-3 py-2 rounded-xl text-sm font-semibold border
               ${tab === 'vorgabe'
@@ -70,7 +70,7 @@ export default function UnitUserStundenPflege() {
           >
             Vorgabestunden
           </button>
-          <button
+                   <button
             onClick={() => setTab('ueberstunden')}
             className={`px-3 py-2 rounded-xl text-sm font-semibold border
               ${tab === 'ueberstunden'
@@ -92,6 +92,16 @@ export default function UnitUserStundenPflege() {
           >
             Abzugstunden
           </button>
+          <button
+            onClick={() => setTab('vorgabeurlaub')}
+            className={`px-3 py-2 rounded-xl text-sm font-semibold border
+              ${tab === 'vorgabeurlaub'
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
+              }`}
+          >
+            Vorgabeurlaub
+          </button>
         </div>
       </Card>
 
@@ -100,7 +110,9 @@ export default function UnitUserStundenPflege() {
   <UeberstundenTab firma_id={firma_id} unit_id={unit_id} />
 ) : tab === 'vorgabe' ? (
   <VorgabestundenTab firma_id={firma_id} unit_id={unit_id} />
-) : tab === 'abzugstunden' ? (
+) : tab === 'vorgabeurlaub' ? (
+  <VorgabeurlaubTab firma_id={firma_id} unit_id={unit_id} />
+) : tab === 'abzugstunden' ? (  
   <AbzugstundenTab firma_id={firma_id} unit_id={unit_id} />
 ) : tab === 'aenderungscheck' ? (
   <AenderungscheckTab firma_id={firma_id} unit_id={unit_id} />
