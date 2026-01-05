@@ -201,7 +201,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
         .select(`
           id, created_at, created_by,
           startzeit_ist, endzeit_ist, datum, dauer_ist,
-          ist_schicht, kommentar, schichtgruppe,
+          ist_schicht, soll_schicht, kommentar, schichtgruppe,
           user, firma_id, unit_id, pausen_dauer
         `)
         .eq('firma_id', firma_id)
@@ -564,40 +564,45 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
           <table className="min-w-[1550px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-gray-900/40">
               <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')}>
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')}title="Das ist das Datum der Änderung">
                   geändert {sortBy.key === 'changed_at' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('status')}>
-                  status {sortBy.key === 'status' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('status')}title="Im Status zeigt -AKTIV- an ob dieser eintrag der aktuellste ist -Verlauf bedeutet dieser Eintrag wurde bereits durch einen neuen Eintrag abgelöst.">
+                  Status {sortBy.key === 'status' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('user')}>
-                  user {sortBy.key === 'user' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                  User {sortBy.key === 'user' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('datum')}>
-                  datum {sortBy.key === 'datum' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('datum')}title="Datum, ist der Tag des Dienstes">
+                  Datum {sortBy.key === 'datum' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('schicht')}>
-                  schicht {sortBy.key === 'schicht' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
-                </th>
+                <th
+  className="p-2 cursor-pointer select-none"
+  onClick={() => toggleSort('schicht')}
+  title="In Klammern steht immer die ursprüngliche Schicht"
+>
+  Schicht {sortBy.key === 'schicht' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+</th>
 
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('start')}>
-                  start {sortBy.key === 'start' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('start')}title="Beginn ist die Startzeit wan der Dienst angetreten wurde.">
+                  Beginn {sortBy.key === 'start' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('ende')}>
-                  ende {sortBy.key === 'ende' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                  Ende {sortBy.key === 'ende' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
                 <th className="p-2 text-right cursor-pointer select-none" onClick={() => toggleSort('dauer')}>
-                  std. {sortBy.key === 'dauer' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                  Dauer in Std. {sortBy.key === 'dauer' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
                 <th className="p-2 text-right cursor-pointer select-none" onClick={() => toggleSort('pause')}>
-                  pause {sortBy.key === 'pause' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                  Pause {sortBy.key === 'pause' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
                 <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_by')}>
@@ -612,7 +617,20 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
                 const creatorName = buildName(creatorMap.get(String(r.changed_by)));
 
                 const s = schichtMap.get(String(r.ist_schicht));
-                const schicht = s ? (s.kuerzel || s.beschreibung || '—') : (r.ist_schicht != null ? String(r.ist_schicht) : '—');
+
+const istLabel = s
+  ? (s.kuerzel || s.beschreibung || '—')
+  : (r.ist_schicht != null ? String(r.ist_schicht) : '—');
+
+  const sollLabel =
+  r.__src === 'verlauf' || r.__src === 'kampf'
+    ? (r.soll_schicht == null ? '-' : String(r.soll_schicht))
+    : null;
+
+const schicht = sollLabel
+  ? `${istLabel} (${sollLabel})`
+  : istLabel;
+
 
                 const statusLabel = r.__src === 'verlauf' ? 'Verlauf' : 'Aktiv';
 
