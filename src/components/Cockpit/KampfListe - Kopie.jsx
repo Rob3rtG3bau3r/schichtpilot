@@ -186,7 +186,6 @@ const KampfListe = ({
     }
     return false;
   };
-
   // ✅ Nur EINEN Tag nachladen und in die bestehende Tabelle "einpatchen"
   const ladeNurTag = async (dateISO) => {
     try {
@@ -280,12 +279,15 @@ const KampfListe = ({
       }
 
       // 5) PATCH in den bestehenden State:
+      //    - Erst diesen Tag bei allen sichtbaren Usern löschen
+      //    - Dann für User mit Daten neu setzen
       setEintraege((prev) => {
         if (!Array.isArray(prev) || prev.length === 0) return prev;
 
         return prev.map(([uid, row]) => {
           const userIdStr = String(uid);
 
+          // Kopie row + tage
           const nextRow = { ...row, tage: { ...(row?.tage || {}) } };
 
           // Tag erstmal leeren
@@ -313,7 +315,7 @@ const KampfListe = ({
       const monthStart = `${prefix}-01`;
       const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
-      // ---- v_tagesplan laden: immer Monatsansicht in 4 Chunks ----
+      // ---- v_tagesplan laden: immer Monatsansicht in 4 Chunks (gegen 999-Limit) ----
       let viewRows = [];
       const selectCols =
         'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
@@ -417,7 +419,7 @@ const KampfListe = ({
       }
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
 
-      // ---- Ausgrauen-Fenster laden ----
+      // ---- Ausgrauen-Fenster laden (alle, die mit dem Zeitraum überlappen) ----
       const { data: ausRows, error: ausErr } = await supabase
         .from('DB_Ausgrauen')
         .select('user_id, von, bis')
@@ -451,8 +453,7 @@ const KampfListe = ({
 
       // ---- Urlaub & Stunden ----
       const jahrNum = Number(jahr) || new Date().getFullYear();
-
-      const [urlaubRes, stundenRes, abzugRes] = await Promise.all([
+      const [urlaubRes, stundenRes] = await Promise.all([
         supabase
           .from('DB_Urlaub')
           .select('user_id, jahr, urlaub_gesamt, summe_jahr')
@@ -460,26 +461,14 @@ const KampfListe = ({
           .eq('firma_id', firma)
           .eq('unit_id', unit)
           .in('user_id', alleUserIds),
-
-        // ✅ STUNDEN: stunden_gesamt -> vorgabe_stunden
         supabase
           .from('DB_Stunden')
-          .select('user_id, jahr, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
-          .eq('jahr', jahrNum)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', alleUserIds),
-
-        // ✅ Abzüge pro User/Jahr
-        supabase
-          .from('DB_StundenAbzug')
-          .select('user_id, stunden')
+          .select('user_id, jahr, stunden_gesamt, summe_jahr, uebernahme_vorjahr')
           .eq('jahr', jahrNum)
           .eq('firma_id', firma)
           .eq('unit_id', unit)
           .in('user_id', alleUserIds),
       ]);
-
       if (urlaubRes.error)
         console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
 
@@ -495,42 +484,16 @@ const KampfListe = ({
 
       if (stundenRes.error)
         console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
-
-      if (abzugRes.error)
-        console.error('❌ DB_StundenAbzug Fehler:', abzugRes.error.message || abzugRes.error);
-
-      // ✅ Abzug-Summen Map: user_id -> sum(stunden)
-      const abzugSumByUser = {};
-      for (const r of abzugRes.data || []) {
-        const uid = String(r.user_id);
-        abzugSumByUser[uid] = (abzugSumByUser[uid] || 0) + (Number(r.stunden) || 0);
-      }
-
-      // ✅ StundenInfoMap bauen:
-      //   summeEffektiv = (summe_jahr - abzugSummeUser)
-      //   summeInklVorjahr = summeEffektiv + uebernahme_vorjahr
-      //   gesamt = vorgabe_stunden
-      //   rest = summeInklVorjahr - vorgabe_stunden
       const stundenInfo = {};
       for (const r of stundenRes.data || []) {
         const uid = String(r.user_id);
         if (!idsSet.has(uid)) continue;
-
-        const vorgabe = Number(r.vorgabe_stunden) || 0;
-        const summeJahrRaw = Number(r.summe_jahr) || 0;
+        const gesamt = Number(r.stunden_gesamt) || 0;
+        const summeJahr = Number(r.summe_jahr) || 0;
         const uebernahme = Number(r.uebernahme_vorjahr) || 0;
-        const abzug = Number(abzugSumByUser[uid]) || 0;
-
-        const summeEffektiv = summeJahrRaw - abzug;          // ✅ Abzug berücksichtigen
-        const istInklVorjahr = summeEffektiv + uebernahme;   // ✅ erst dann Vorjahr addieren
-        const rest = istInklVorjahr - vorgabe;
-
-        stundenInfo[uid] = {
-          summe: istInklVorjahr,
-          gesamt: vorgabe,
-          rest,
-          abzug, // optional (falls du später noch anzeigen willst)
-        };
+        const istInklVorjahr = summeJahr + uebernahme;
+        const rest = istInklVorjahr - gesamt;
+        stundenInfo[uid] = { summe: istInklVorjahr, gesamt, rest };
       }
       setStundenInfoMap(stundenInfo);
 
@@ -572,7 +535,7 @@ const KampfListe = ({
         return best;
       };
 
-      // ---- Gruppieren ----
+      // ---- Gruppieren: Key = datumIso ----
       const gruppiert = {};
       for (const k of kampfData) {
         const datumIso = k.datum;
@@ -647,11 +610,10 @@ const KampfListe = ({
     ladeKampfliste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, setGruppenZähler]);
-
   // ✅ Tages-Refresh (nur ein Datum patchen)
   useEffect(() => {
     if (!firma || !unit) return;
-    if (!dayRefreshKey) return;
+    if (!dayRefreshKey) return;         // nur wenn wirklich getriggert
     if (!dayRefreshDatum) return;
 
     ladeNurTag(dayRefreshDatum);
