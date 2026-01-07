@@ -734,7 +734,7 @@ const KampfListe = ({
 
                             <div className="font-sans text-gray-500 dark:text-gray-400">Stunden</div>
                             <div className="text-right text-gray-500 dark:text-gray-400">
-                              [{fmt2(stunden.gesamt)} – {fmt2(stunden.summe)}]
+                              [ {fmt2(stunden.summe)}– {fmt2(stunden.gesamt)}]
                             </div>
                             <div
                               className={`text-right font-semibold ${

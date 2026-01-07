@@ -375,24 +375,36 @@ const Wochen_Kampfliste = ({
 
       // ---- Urlaub & Stunden (Jahresdaten) ----
       const jahrNum = Number(jahr) || new Date().getFullYear();
-      const [urlaubRes, stundenRes] = await Promise.all([
-        supabase
-          .from('DB_Urlaub')
-          .select('user_id, jahr, urlaub_gesamt, summe_jahr')
-          .eq('jahr', jahrNum)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', alleUserIds),
-        supabase
-          .from('DB_Stunden')
-          .select('user_id, jahr, stunden_gesamt, summe_jahr, uebernahme_vorjahr')
-          .eq('jahr', jahrNum)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', alleUserIds),
-      ]);
+      const [urlaubRes, stundenRes, abzugRes] = await Promise.all([
+  supabase
+    .from('DB_Urlaub')
+    .select('user_id, jahr, urlaub_gesamt, summe_jahr')
+    .eq('jahr', jahrNum)
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .in('user_id', alleUserIds),
+
+  supabase
+    .from('DB_Stunden')
+    .select('user_id, jahr, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
+    .eq('jahr', jahrNum)
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .in('user_id', alleUserIds),
+
+  supabase
+    .from('DB_StundenAbzug')
+    .select('user_id, stunden')
+    .eq('jahr', jahrNum)
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .in('user_id', alleUserIds),
+]);
+
       if (urlaubRes.error)
         console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
+
+      if (abzugRes.error) {console.error('❌ DB_StundenAbzug Fehler:', abzugRes.error.message || abzugRes.error);}
 
       const urlaubInfo = {};
       for (const r of urlaubRes.data || []) {
@@ -404,20 +416,43 @@ const Wochen_Kampfliste = ({
       }
       setUrlaubInfoMap(urlaubInfo);
 
+      const abzugSumByUser = {};
+        for (const r of abzugRes.data || []) {
+          const uid = String(r.user_id);
+          const st = Number(r.stunden) || 0;
+          abzugSumByUser[uid] = (abzugSumByUser[uid] || 0) + st;
+        }
+
       if (stundenRes.error)
         console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
       const stundenInfo = {};
-      for (const r of stundenRes.data || []) {
-        const uid = String(r.user_id);
-        if (!idsSet.has(uid)) continue;
-        const gesamt = Number(r.stunden_gesamt) || 0;
-        const summeJahr = Number(r.summe_jahr) || 0;
-        const uebernahme = Number(r.uebernahme_vorjahr) || 0;
-        const istInklVorjahr = summeJahr + uebernahme;
-        const rest = istInklVorjahr - gesamt;
-        stundenInfo[uid] = { summe: istInklVorjahr, gesamt, rest };
-      }
-      setStundenInfoMap(stundenInfo);
+for (const r of stundenRes.data || []) {
+  const uid = String(r.user_id);
+  if (!idsSet.has(uid)) continue;
+
+  const vorgabe = Number(r.vorgabe_stunden) || 0;
+  const summeJahrBrutto = Number(r.summe_jahr) || 0;
+  const abzug = Number(abzugSumByUser[uid]) || 0;
+
+  // ✅ Netto-Ist: summe_jahr minus Abzug
+  const summeJahrNetto = summeJahrBrutto - abzug;
+
+  const uebernahme = Number(r.uebernahme_vorjahr) || 0;
+
+  // ✅ Ist inkl. Vorjahr (aber nach Abzug)
+  const istInklVorjahr = summeJahrNetto + uebernahme;
+
+  // wie bisher (positiv = über Vorgabe)
+  const rest = istInklVorjahr - vorgabe;
+
+  stundenInfo[uid] = {
+    summe: istInklVorjahr,
+    vorgabe,
+    abzug,
+    rest,
+  };
+}
+setStundenInfoMap(stundenInfo);
 
       // ---- Schichtzuweisungen (für Schichtgruppe/Position) ----
       const { data: zuwRaw, error: zuwErr } = await supabase
@@ -554,7 +589,7 @@ const Wochen_Kampfliste = ({
               const roman = toRoman(count);
 
               const urlaub = urlaubInfoMap[userId] || { gesamt: null, summe: null, rest: null };
-              const stunden = stundenInfoMap[userId] || { gesamt: null, summe: null, rest: null };
+              const stunden = stundenInfoMap[userId] || { vorgabe: null, summe: null, abzug: null, rest: null };
 
               const darfTooltipSehen = rolle !== 'Employee' || String(userId) === String(currentUserId);
               const showTip = darfTooltipSehen && hoveredUserId === userId;
@@ -609,7 +644,7 @@ const Wochen_Kampfliste = ({
 
                             <div className="font-sans text-gray-500 dark:text-gray-400">Stunden</div>
                             <div className="text-right text-gray-500 dark:text-gray-400">
-                              [{fmt2(stunden.gesamt)} – {fmt2(stunden.summe)}]
+                              [{fmt2(stunden.summe)} – {fmt2(stunden.vorgabe)}]
                             </div>
                             <div
                               className={`text-right font-semibold ${
