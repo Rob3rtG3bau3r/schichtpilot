@@ -2,7 +2,7 @@
 import { getBewertungsStufe_Roehm5 } from './Roehm_BMA_5Schicht_Logik.jsx';
 import { getBewertungsStufe_Jokon3 } from './Jokon_3Schicht_Logik.jsx';
 
-export function resolveBmaLogik(logikKey) {
+export function resolveBamLogik(logikKey) {
   switch (String(logikKey || '').toUpperCase()) {
     case 'JOKON_3SCHICHT':
       return getBewertungsStufe_Jokon3;
