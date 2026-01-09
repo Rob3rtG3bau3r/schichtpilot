@@ -1,6 +1,6 @@
-// src/bmaLogik/index.js
+// src/bamLogik/index.js
 import { getBewertungsStufe_Roehm5 } from './Roehm_BMA_5Schicht_Logik.jsx';
-import { getBewertungsStufe_Jokon3 } from './Jokon_BMA_3Schicht_Logik.jsx';
+import { getBewertungsStufe_Jokon3 } from './Jokon_3Schicht_Logik.jsx';
 
 export function resolveBmaLogik(logikKey) {
   switch (String(logikKey || '').toUpperCase()) {

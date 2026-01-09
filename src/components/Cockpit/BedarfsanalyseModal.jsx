@@ -1,6 +1,7 @@
 // src/components/Dashboard/BedarfsAnalyseModal.jsx
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
+import { resolveBamLogik } from '../../bamLogik';
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -11,7 +12,6 @@ dayjs.extend(isSameOrAfter);
 
 import { useRollen } from '../../context/RollenContext';
 import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
-
 import { BAM_UI, BAM_InfoModal } from './BAM_UI';
 import BAM_MitarbeiterimDienst from './BAM_MitarbeiterimDienst';
 import BAM_SchichtTausch from './BAM_SchichtTausch';
@@ -59,6 +59,9 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
     kann_nur_spaet: false,
     kann_nur_nacht: false,
   });
+
+  const [bamLogikKey, setBamLogikKey] = useState('ROEHM_5SCHICHT');
+  const [getBewertungsStufeFn, setGetBewertungsStufeFn] = useState(() => () => null);
 
   const [saving, setSaving] = useState(false);
 
@@ -356,107 +359,30 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   };
 
   // ===== Bewertungs-Logik (bestehend) =====
-  const getBewertungsStufe = (f) => {
-    const frei = (v) => v === '-';
-    const freiOderF = (v) => v === '-' || v === 'F';
-    const nichtFrei = (v) => v !== '-';
+const getBewertungsStufe = (f) => getBewertungsStufeFn(f, modalSchicht);
 
-    if (
-      f.vorvortag === 'U' &&
-      f.folgetagplus === 'U' &&
-      (
-        (frei(f.vorher) && frei(f.heute)) ||
-        (frei(f.vorher) && frei(f.nachher)) ||
-        (frei(f.heute) && frei(f.nachher))
-      )
-    ) return 'rot';
+useEffect(() => {
+  if (!offen || !firma || !unit) return;
 
-    if (modalSchicht === 'F') {
-      if (f.nachher === 'U' || f.vorvortag === 'U' || f.vorher === 'N' || f.vorher === 'U') return 'rot';
-      if (
-        (f.vorher === '-' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
-        (f.vorher === 'F' && f.vorvortag === '-' && freiOderF(f.nachher) && f.folgetagplus === 'F') ||
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
-        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'S') ||
-        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === '-') ||
-        (f.vorvortag === 'K' && f.vorher === 'K' && f.nachher === '-' && f.folgetagplus === 'S') ||
-        (f.vorvortag === 'K' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === 'S' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F')
-      ) return 'grün';
+  let alive = true;
 
-      if (f.vorher === '-' && f.vorvortag === 'N') return 'gelb';
-      if (
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'S' && f.folgetagplus === 'F')
-      ) return 'gelb';
+  (async () => {
+    const { data, error } = await supabase
+      .from('DB_Unit')
+      .select('bam_logik_key') 
+      .eq('firma_id', firma)
+      .eq('id', unit)
+      .maybeSingle();
 
-      if (f.vorher === 'S') return 'amber';
-      if (nichtFrei(f.vorvortag) && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') return 'amber';
-    }
+    const key = (!error && data?.bam_logik_key) ? data.bam_logik_key : 'ROEHM_5SCHICHT';
 
-    if (modalSchicht === 'N') {
-      if (f.vorher === 'U') return 'rot';
-      if (['KO', 'K', 'U', 'F'].includes(f.nachher)) return 'rot';
-      if (
-        (f.vorvortag === 'N' && f.vorher === 'N' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
-        (f.vorvortag === '-' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
-        (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && nichtFrei(f.folgetagplus)) ||
-        (f.vorvortag === 'N' && f.vorher === '-' && nichtFrei(f.nachher) && frei(f.folgetagplus))
-      ) return 'rot';
+    if (!alive) return;
+    setBamLogikKey(key);
+    setGetBewertungsStufeFn(() => resolveBamLogik(key));
+  })();
 
-      if (
-        (f.vorher === 'N' && f.nachher === 'N') ||
-        (f.vorher === 'N' && frei(f.nachher) && frei(f.folgetagplus)) ||
-        (f.vorvortag === 'N' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
-      ) return 'grün';
-
-      if (
-        f.nachher === 'S' ||
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === 'U') ||
-        (f.vorvortag === 'U' && f.vorher === '-' && f.nachher === '-' && f.folgetagplus === '-')
-      ) return 'amber';
-
-      if (
-        (frei(f.nachher) && f.folgetagplus === 'F') ||
-        (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && f.folgetagplus === 'S') ||
-        (f.vorvortag === 'K' && f.vorher === 'K' && frei(f.nachher) && f.folgetagplus === 'S') ||
-        (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && nichtFrei(f.folgetagplus))
-      ) return 'gelb';
-    }
-
-    if (modalSchicht === 'S') {
-      if (f.vorvortag === 'S' && frei(f.vorher) && frei(f.heute) && f.nachher === 'F' && f.folgetagplus === 'F') {
-        return 'amber';
-      }
-      if (f.vorher === 'U') return 'rot';
-
-      if (
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === '-') ||
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === '-' && f.folgetagplus === '-') ||
-        (f.vorvortag === '-' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === 'N' && f.vorher === 'N' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === 'N' && f.vorher === 'N' && frei(f.nachher) && frei(f.folgetagplus)) ||
-        (f.vorvortag === '-' && nichtFrei(f.vorher) && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === 'S' && f.vorher === 'S' && f.nachher === 'F' && f.folgetagplus === 'F') ||
-        (f.vorvortag === '-' && frei(f.vorher) && f.nachher === 'U' && f.folgetagplus === 'U')
-      ) return 'amber';
-
-      if (
-        (f.vorher === '-' && f.vorvortag === 'U') ||
-        (f.vorvortag === '-' && f.vorher === '-' && f.nachher === 'U' && f.folgetagplus === 'F') ||
-        (frei(f.nachher) && f.folgetagplus === 'F')
-      ) return 'gelb';
-
-      if (
-        (f.vorher === '-' && f.vorvortag === 'N') ||
-        (f.vorher === '-' && frei(f.nachher)) ||
-        (f.vorvortag === 'F' && f.vorher === 'F' && f.nachher === 'S' && f.folgetagplus === 'N')
-      ) return 'grün';
-    }
-
-    return null;
-  };
+  return () => { alive = false; };
+}, [offen, firma, unit]);
 
   // ===== Daten laden =====
   useEffect(() => {
