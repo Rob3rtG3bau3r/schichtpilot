@@ -361,7 +361,8 @@ const screens = [
           className="underline text-blue-400 hover:text-white"
         >
           Datenschutz
-        </Link>
+        </Link>{" "}
+  · <span className="text-gray-500">Version {__APP_VERSION__}</span>
       </footer>
 
       {/* Modal */}
