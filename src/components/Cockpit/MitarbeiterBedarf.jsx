@@ -18,6 +18,8 @@ const FEATURE_ANALYSE = 'bedarf_analyse';
 const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
 const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
 
+const isPastDay = (datum) => dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
+
 const appliesToBarItem = (it, datumISO, schLabel) => {
   if (it.von && datumISO < it.von) return false;
   if (it.bis && datumISO > it.bis) return false;
@@ -803,13 +805,18 @@ const MitarbeiterBedarf = ({
   };
 
   const handleModalOeffnen = (datum, kuerzel) => {
-    if (!allowAnalyse) return;
-    const cell = bedarfStatus[kuerzel]?.[datum];
-    setModalDatum(datum);
-    setModalSchicht(kuerzel);
-    setFehlendeQualis(cell?.fehlend || []);
-    setModalOffen(true);
-  };
+  if (!allowAnalyse) return;
+  // ❗ Vergangenheit sperren (heute ist erlaubt)
+  const istVergangenheit = dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
+  if (istVergangenheit) return;
+
+  const cell = bedarfStatus[kuerzel]?.[datum];
+  setModalDatum(datum);
+  setModalSchicht(kuerzel);
+  setFehlendeQualis(cell?.fehlend || []);
+  setModalOffen(true);
+};
+
 
   return (
     <div
@@ -858,6 +865,7 @@ const MitarbeiterBedarf = ({
           <div className="flex gap-[2px] min-w-fit">
             {tage.map((datum) => {
               const cell = bedarfStatus[kuerzel]?.[datum];
+              const past = isPastDay(datum);
               const key = `${kuerzel}|${datum}`;
               const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${
                 kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'
@@ -881,7 +889,8 @@ const MitarbeiterBedarf = ({
                   onMouseLeave={allowTooltip ? scheduleHide : undefined}
                   className={`relative ${
                     allowAnalyse ? 'cursor-pointer' : 'cursor-default'
-                  } w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 hover:opacity-80 ${
+                  } w-[48px] min-w-[48px] text-center text-xs py-[2px] rounded border border-gray-300 dark:border-gray-700 ${past ? '' : 'hover:opacity-80'}
+ ${
                     cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'
                   } ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''} ${
                     selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''
@@ -973,7 +982,7 @@ const MitarbeiterBedarf = ({
               <li>
                 <span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung
                 (qualifikationsunabhängig)
-              </li>
+              </li><li>Bedarfsanalyse Modal öffnet sich nicht in der Vergangenheit.</li>
               <li>Hover zeigt fehlende/erfüllte Qualifikationen sowie eingesetzte Personen.</li>
             </ul>
             <div className="text-right mt-4">
