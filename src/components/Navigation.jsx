@@ -160,6 +160,8 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/top-report': 'Top bericht',
     '/wochenplaner': 'Wochenplaner',
     '/user-report': 'Mitarbeiter-Report',
+    '/aenderungsprotokoll': 'Änderungsprotokoll',
+
   };
 
   const aktuellerTitel = pfadZuTitel[location.pathname] || '';
@@ -246,11 +248,15 @@ const Navigation = ({ darkMode, setDarkMode }) => {
                 <Link to="/user-report" className="hover:bg-gray-700 rounded px-2 py-1">
                   Mitarbeiter-Report
                 </Link>
+                
                 {canSeeTopReport && (
                   <Link to="/top-report" className="hover:bg-gray-700 rounded px-2 py-1">
                     Top bericht
                   </Link>
                 )}
+                <Link to="/aenderungsprotokoll" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Änderungsprotokoll
+                </Link>
               </div>
             )}
           </div>

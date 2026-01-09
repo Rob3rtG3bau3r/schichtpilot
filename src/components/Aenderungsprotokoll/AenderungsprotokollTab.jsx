@@ -1,4 +1,4 @@
-// src/components/UnitUserStundenPflege/AenderungscheckTab.jsx
+// src/components/Aenderungsprotokoll/AenderungsprotokollTab.jsx
 'use client';
 import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
@@ -95,7 +95,7 @@ const buildName = (u) => {
   return s || u.email || u.user_id || u.id || '—';
 };
 
-export default function AenderungscheckTab({ firma_id, unit_id }) {
+export default function AenderungsprotokollTab({ firma_id, unit_id }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -176,8 +176,8 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
     const v = (verlaufRaw || []).map((r) => ({
       ...r,
       __src: 'verlauf',
-      changed_at: r.created_at,          // ✅ Verlauf: change_on (fallback created_at)
-      changed_by: r.change_by || r.created_by,          // ✅ Verlauf: change_by (fallback created_by)
+      changed_at: r.change_on || r.created_at,
+      changed_by: r.change_by || r.created_by,
     }));
 
     return showVerlauf ? [...k, ...v] : k;
@@ -217,7 +217,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       const kList = kData || [];
       setKampfRaw(kList);
 
-      // 2) Verlauf optional (Filter über change_on, weil das dein echtes Änderungsdatum ist)
+      // 2) Verlauf optional (Filter über change_on)
       let vList = [];
       if (showVerlauf) {
         const { data: vData, error: vErr } = await supabase
@@ -242,7 +242,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       }
       setVerlaufRaw(vList);
 
-      // IDs sammeln (user + changed_by + created_by) aus beiden Quellen
+      // IDs sammeln
       const ids = new Set();
       kList.forEach((r) => {
         if (r.user) ids.add(String(r.user));
@@ -428,7 +428,7 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
       lines.push(row.join(';'));
     });
 
-    const filename = `schichtpilot_aenderungscheck_${unit_id}_${jahr}_${startDate}_bis_${endDate}${showVerlauf ? '_mitVerlauf' : ''}.csv`;
+    const filename = `schichtpilot_aenderungsprotokoll_${unit_id}_${jahr}_${startDate}_bis_${endDate}${showVerlauf ? '_mitVerlauf' : ''}.csv`;
     downloadTextFile(filename, lines.join('\n'));
   };
 
@@ -564,11 +564,11 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
           <table className="min-w-[1550px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-gray-900/40">
               <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')}title="Das ist das Datum der Änderung">
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')} title="Das ist das Datum der Änderung">
                   geändert {sortBy.key === 'changed_at' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('status')}title="Im Status zeigt -AKTIV- an ob dieser eintrag der aktuellste ist -Verlauf bedeutet dieser Eintrag wurde bereits durch einen neuen Eintrag abgelöst.">
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('status')} title="AKTIV = aktuellster Eintrag. Verlauf = wurde durch neueren ersetzt.">
                   Status {sortBy.key === 'status' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
@@ -576,20 +576,15 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
                   User {sortBy.key === 'user' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('datum')}title="Datum, ist der Tag des Dienstes">
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('datum')} title="Datum = Tag des Dienstes">
                   Datum {sortBy.key === 'datum' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
-                <th
-  className="p-2 cursor-pointer select-none"
-  onClick={() => toggleSort('schicht')}
-  title="In Klammern steht immer die ursprüngliche Schicht"
->
-  Schicht {sortBy.key === 'schicht' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
-</th>
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('schicht')} title="In Klammern steht die ursprüngliche Soll-Schicht">
+                  Schicht {sortBy.key === 'schicht' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
+                </th>
 
-
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('start')}title="Beginn ist die Startzeit wan der Dienst angetreten wurde.">
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('start')} title="Beginn = Startzeit">
                   Beginn {sortBy.key === 'start' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
@@ -617,27 +612,19 @@ export default function AenderungscheckTab({ firma_id, unit_id }) {
                 const creatorName = buildName(creatorMap.get(String(r.changed_by)));
 
                 const s = schichtMap.get(String(r.ist_schicht));
+                const istLabel = s ? (s.kuerzel || s.beschreibung || '—') : (r.ist_schicht != null ? String(r.ist_schicht) : '—');
 
-const istLabel = s
-  ? (s.kuerzel || s.beschreibung || '—')
-  : (r.ist_schicht != null ? String(r.ist_schicht) : '—');
+                const sollLabel =
+                  r.__src === 'verlauf' || r.__src === 'kampf'
+                    ? (r.soll_schicht == null ? '-' : String(r.soll_schicht))
+                    : null;
 
-  const sollLabel =
-  r.__src === 'verlauf' || r.__src === 'kampf'
-    ? (r.soll_schicht == null ? '-' : String(r.soll_schicht))
-    : null;
-
-const schicht = sollLabel
-  ? `${istLabel} (${sollLabel})`
-  : istLabel;
-
-
+                const schicht = sollLabel ? `${istLabel} (${sollLabel})` : istLabel;
                 const statusLabel = r.__src === 'verlauf' ? 'Verlauf' : 'Aktiv';
 
                 return (
                   <tr key={`${r.__src}-${r.id}`} className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30">
                     <td className="p-2 tabular-nums">{dayjs(r.changed_at).format('DD.MM.YYYY HH:mm')}</td>
-
                     <td className="p-2">
                       <span
                         className={`inline-flex items-center rounded-lg px-2 py-1 text-xs font-semibold
@@ -649,7 +636,6 @@ const schicht = sollLabel
                         {statusLabel}
                       </span>
                     </td>
-
                     <td className="p-2">{userName}</td>
                     <td className="p-2 tabular-nums">{r.datum ? dayjs(r.datum).format('DD.MM.YYYY') : '—'}</td>
                     <td className="p-2">{schicht}</td>

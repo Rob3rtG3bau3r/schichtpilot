@@ -30,6 +30,7 @@ import DesktopOnlyRoute from './routes/DesktopOnlyRoute';
 import UserReport from './pages/UserReport.jsx';
 import UnitUserStundenPflege from './pages/UnitUserStundenPflege';
 import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
+import Aenderungsprotokoll from './pages/Aenderungsprotokoll';
 
 
 const App = () => {
@@ -211,6 +212,14 @@ if (
        </RollenCheckRoute>
         }
        />
+       <Route
+  path="aenderungsprotokoll"
+  element={
+    <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
+      <Aenderungsprotokoll />
+    </RollenCheckRoute>
+  }
+/>
         <Route
   path="system-tools"
   element={

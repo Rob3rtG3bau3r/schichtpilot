@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { useRollen } from '../context/RollenContext';
-import AenderungscheckTab from '../components/UnitUserStundenPflege/AenderungscheckTab';
 import UeberstundenTab from '../components/UnitUserStundenPflege/UeberstundenTab';
 import VorgabestundenTab from '../components/UnitUserStundenPflege/VorgabestundenTab';
 import AbzugstundenTab from '../components/UnitUserStundenPflege/AbzugstundenTab';
@@ -22,7 +21,7 @@ export default function UnitUserStundenPflege() {
   const roleOk = ALLOWED_ROLES.includes(rolle);
 
   // Parent nur Struktur: Tabwahl ist ok
-  const [tab, setTab] = useState('aenderungscheck');
+  const [tab, setTab] = useState('vorgabe');
 
   if (!roleOk) {
     return (
@@ -40,7 +39,7 @@ export default function UnitUserStundenPflege() {
           <div className="flex items-center gap-2">
             <Wallet className="w-5 h-5 text-gray-700 dark:text-gray-200" />
             <div>
-              <div className="text-base font-semibold text-gray-900 dark:text-gray-100">Stunden Pflege</div>
+              <div className="text-base font-semibold text-gray-900 dark:text-gray-100">Stunden bearbeiten</div>
               <div className="text-xs text-gray-600 dark:text-gray-300">
                 Unit: {unit_id} · Firma: {firma_id}
               </div>
@@ -50,16 +49,6 @@ export default function UnitUserStundenPflege() {
 
         {/* Tabs */}
         <div className="mt-3 flex items-center gap-2">
-          <button
-            onClick={() => setTab('aenderungscheck')}
-            className={`px-3 py-2 rounded-xl text-sm font-semibold border
-              ${tab === 'aenderungscheck'
-                ? 'bg-gray-900 text-white border-gray-900'
-                : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
-              }`}
-          >
-            Änderungscheck
-          </button>
           <button
             onClick={() => setTab('vorgabe')}
             className={`px-3 py-2 rounded-xl text-sm font-semibold border
@@ -114,8 +103,6 @@ export default function UnitUserStundenPflege() {
   <VorgabeurlaubTab firma_id={firma_id} unit_id={unit_id} />
 ) : tab === 'abzugstunden' ? (  
   <AbzugstundenTab firma_id={firma_id} unit_id={unit_id} />
-) : tab === 'aenderungscheck' ? (
-  <AenderungscheckTab firma_id={firma_id} unit_id={unit_id} />
 ) : null}
 
     </div>
