@@ -6,6 +6,7 @@ export function resolveBamLogik(logikKey) {
   switch (String(logikKey || '').toUpperCase()) {
     case 'JOKON_3SCHICHT':
       return getBewertungsStufe_Jokon3;
+
     case 'ROEHM_5SCHICHT':
     default:
       return getBewertungsStufe_Roehm5;

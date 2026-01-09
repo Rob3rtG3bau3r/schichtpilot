@@ -370,7 +370,7 @@ useEffect(() => {
     const { data, error } = await supabase
       .from('DB_Unit')
       .select('bam_logik_key') 
-      .eq('firma_id', firma)
+      .eq('firma', firma)
       .eq('id', unit)
       .maybeSingle();
 
