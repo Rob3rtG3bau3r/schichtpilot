@@ -3,7 +3,7 @@
 import React from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useRollen } from '../context/RollenContext';
-import AenderungscheckTab from '../components/UnitUserStundenPflege/AenderungscheckTab';
+import AenderungsprotokollTab from '../components/Aenderungsprotokoll/AenderungsprotokollTab';
 
 /* --- gleiche Card wie du sie oft nutzt (nur Style) --- */
 const Card = ({ className = '', children }) => (
@@ -47,7 +47,7 @@ export default function Aenderungsprotokoll() {
       </Card>
 
       {/* Inhalt: deine bestehende Logik 1:1 */}
-      <AenderungscheckTab firma_id={firma_id} unit_id={unit_id} />
+      <AenderungsprotokollTab firma_id={firma_id} unit_id={unit_id} />
     </div>
   );
 }

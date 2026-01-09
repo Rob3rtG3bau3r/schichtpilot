@@ -271,6 +271,40 @@ const screens = [
         </div>
       </section>
 
+{/* Compliance / Trust */}
+<section className="mt-12 px-6 max-w-6xl w-full">
+  <div className="bg-gray-900 rounded-2xl p-6 shadow">
+    <h2 className="text-xl md:text-2xl font-bold mb-2 text-center">
+      Compliance & Sicherheit
+    </h2>
+
+    <p className="text-gray-300 text-center mb-6 text-sm md:text-base">
+      SchichtPilot ist für den professionellen Einsatz in der Schichtplanung gebaut – transparent, nachvollziehbar und datenschutzkonform.
+    </p>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+      {[
+        { title: "DSGVO-konform", text: "Auftragsverarbeitung (AVV) verfügbar, Datensparsamkeit & klare Prozesse." },
+        { title: "EU-Hosting & TLS", text: "Datenübertragung verschlüsselt (TLS) und Hosting in der EU." },
+        { title: "Rollen & Rechte", text: "Granulare Zugriffe nach Rollen (z. B. Employee, Team Leader, Planner)." },
+        { title: "Nachvollziehbarkeit", text: "Plan/Ist-Änderungen können protokolliert und nachvollzogen werden." },
+        { title: "Export & Audit", text: "Daten lassen sich für Prüfungen/Reports strukturiert ausgeben." },
+        { title: "Löschkonzept", text: "Daten werden nur so lange gespeichert, wie es für den jeweiligen Zweck erforderlich ist." },
+
+      ].map((it, i) => (
+        <div key={i} className="bg-gray-800 rounded-xl p-4 border border-gray-700/40">
+          <div className="font-semibold text-white mb-1">{it.title}</div>
+          <div className="text-gray-400">{it.text}</div>
+        </div>
+      ))}
+    </div>
+
+    <div className="mt-5 text-center text-xs text-gray-400">
+      Hinweis: SchichtPilot ist kein Zeiterfassungssystem, sondern eine Planungs- und Transparenzlösung für Teams im Schichtbetrieb.
+    </div>
+  </div>
+</section>
+
       {/* Zielgruppen-Infos */}
       <section className="mt-16 px-6 max-w-4xl text-center">
         <h2 className="text-3xl font-bold mb-6">Wofür ist SchichtPilot ideal?</h2>

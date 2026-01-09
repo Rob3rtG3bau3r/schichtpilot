@@ -104,7 +104,6 @@ export default function UnitUserStundenPflege() {
 ) : tab === 'abzugstunden' ? (  
   <AbzugstundenTab firma_id={firma_id} unit_id={unit_id} />
 ) : null}
-
     </div>
   );
 }
