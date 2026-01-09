@@ -62,7 +62,13 @@ const SubSectionTitle = ({ children }) => (
   </div>
 );
 
-
+// --- BAM Logik Optionen (Code-only, keine extra DB) ---
+const BAM_LOGIK_OPTIONS = [
+  { key: 'ROEHM_5SCHICHT', label: 'Röhm – 5-Schicht (Standard)' },
+  { key: 'JOKON_3SCHICHT', label: 'Jokon – 3-Schicht' },
+  // später easy erweitern:
+  // { key: 'ALPLA_4SCHICHT', label: 'ALPLA – 4-Schicht' },
+];
 export default function KundenTab() {
   // Shared refs
   const [plaene, setPlaene] = useState([]);
@@ -182,7 +188,8 @@ useEffect(()=> {
     rabatt_unit_prozent,
     rabatt_unit_fix,
     abrechnung_notiz,
-    wochenplanung_aktiv 
+    wochenplanung_aktiv, 
+    bam_logik_key
   `)
   .eq('firma', firma.id)
   .order('unitname', { ascending: true });
@@ -296,6 +303,7 @@ useEffect(()=> {
     rabatt_unit_fix: selUnit.rabatt_unit_fix ?? '',
     abrechnung_notiz: selUnit.abrechnung_notiz || '',
     wochenplanung_aktiv: !!selUnit.wochenplanung_aktiv,
+    bam_logik_key: selUnit.bam_logik_key || 'ROEHM_5SCHICHT',
   });
 }, [selUnit]);
 
@@ -340,6 +348,7 @@ const saveUnit = async () => {
     rabatt_unit_fix: toNumOrNull(unitEdit.rabatt_unit_fix),
     abrechnung_notiz: unitEdit.abrechnung_notiz || null,
     wochenplanung_aktiv: !!unitEdit.wochenplanung_aktiv,
+    bam_logik_key: unitEdit.bam_logik_key || 'ROEHM_5SCHICHT',
   };
 
   await supabase.from('DB_Unit').update(payload).eq('id', selUnit.id);
@@ -360,7 +369,8 @@ const saveUnit = async () => {
       rabatt_unit_prozent,
       rabatt_unit_fix,
       abrechnung_notiz,
-      wochenplanung_aktiv  
+      wochenplanung_aktiv,
+      bam_logik_key  
     `)
     .eq('id', selUnit.id).maybeSingle()).data;
   setSelUnit(updated);
@@ -811,6 +821,40 @@ const saveUnit = async () => {
         </div>
       </div>
     </div>
+{/* --- BedarfsModal-Logik --- */}
+<div>
+  <SubSectionTitle>Bedarfsanalysemodal Logik</SubSectionTitle>
+
+  <div className="mt-2 grid grid-cols-12 gap-3 items-end">
+    <div className="col-span-12 md:col-span-7">
+      <div className="text-xs opacity-70 mb-1">bam_logik_key</div>
+
+      <select
+        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700"
+        value={unitEdit.bam_logik_key || 'ROEHM_5SCHICHT'}
+        onChange={(e) =>
+          setUnitEdit((s) => ({ ...s, bam_logik_key: e.target.value }))
+        }
+      >
+        {BAM_LOGIK_OPTIONS.map((o) => (
+          <option key={o.key} value={o.key}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div className="col-span-12 md:col-span-5">
+      <div className="text-xs opacity-70 mb-1">Aktueller Key</div>
+      <Badge tone="info">{unitEdit.bam_logik_key || 'ROEHM_5SCHICHT'}</Badge>
+    </div>
+  </div>
+
+  <p className="mt-2 text-xs text-gray-400">
+    Dieser Key wird in DB_Unit gespeichert und bestimmt, welche Bewertungslogik im BedarfsAnalyseModal genutzt wird.
+  </p>
+</div>
+
     {/* --- SECTION: Wochen-Planung Flag --- */}
     <div>
       <SubSectionTitle>Wochen-Planung</SubSectionTitle>
