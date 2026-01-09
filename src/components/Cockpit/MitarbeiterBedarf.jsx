@@ -1144,9 +1144,11 @@ const splitBg = timeIssue && baseIsGreen;
               <li>
                 <span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung (qualifikationsunabhängig)
               </li>
+              <li>Ein <span className="font-bold text-green-400">Halb Grünes</span> und ein <span className="font-bold text-red-500">halb Rotes</span> Feld zeigt eine Zeitliche Unterdeckung.</li>
               <li>Bedarfsanalyse Modal öffnet sich nicht in der Vergangenheit.</li>
               <li>Hover zeigt fehlende/erfüllte Qualifikationen sowie eingesetzte Personen.</li>
               <li>⏱ Wenn in der Kampfliste <b>aenderung = true</b>, wird zusätzlich eine Zeit-Unterdeckung geprüft.</li>
+              <li>Ein Halb Grünes und Halb Rotes Feld zeigt eine Zeitliche Unterdeckung.</li>
             </ul>
             <div className="text-right mt-4">
               <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
