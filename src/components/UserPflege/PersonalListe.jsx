@@ -12,13 +12,15 @@ const SortIcon = ({ aktiv, richtung }) => {
 const Personalliste = ({ onUserClick, refreshKey }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle: eigeneRolle } = useRollen();
   const isSuperAdmin = eigeneRolle === 'SuperAdmin';
+  const canCsvDownload = ['SuperAdmin', 'Admin_Dev', 'Planner'].includes(eigeneRolle);
+  const canCsvUpload   = ['SuperAdmin', 'Admin_Dev'].includes(eigeneRolle);
 
   const [personen, setPersonen] = useState([]);
   const [suche, setSuche] = useState('');
   const [infoOffen, setInfoOffen] = useState(false);
   const [sortierung, setSortierung] = useState({ feld: 'name', richtung: 'asc' });
-
-  // ✅ NEU: Filter
+  const [csvInfo, setCsvInfo] = useState(null); // { type: 'success'|'error'|'info', text: string }
+  const fileRef = React.useRef(null);
   const [filterTeam, setFilterTeam] = useState('alle');
   const [filterRolle, setFilterRolle] = useState('alle');
   const [filterWochenstunden, setFilterWochenstunden] = useState(''); // Text
@@ -30,6 +32,269 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
         : { feld, richtung: 'asc' }
     );
   };
+const safeCsv = (v, forceText = false) => {
+  const s = (v ?? '').toString();
+
+  if (forceText && s !== '') {
+    // Excel-Text-Formel: ="01234"
+    const esc = s.replaceAll('"', '""');
+    return `="${esc}"`;
+  }
+
+  if (/[",;\n\r]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+};
+
+
+const downloadTelefonCSV = async () => {
+  try {
+    setCsvInfo({ type: 'info', text: 'CSV wird erstellt…' });
+
+    // Wir nehmen die aktuell geladenen "personen" (aktive & korrekt gefiltert nach Firma/Unit, wenn kein SuperAdmin)
+    const rows = (personen || []).map((p) => ({
+      user_id: p.user_id,
+      vorname: (p.name || '').split(' ').slice(0, -1).join(' ') || '', // falls du es sauber willst: beim Laden vorname/nachname extra speichern (siehe Hinweis unten)
+      nachname: (p.name || '').split(' ').slice(-1).join(' ') || '',
+      tel_number1: '', // wird gleich aus DB_User nachgeladen
+      tel_number2: '',
+    }));
+
+    // Besser: direkt DB_User neu holen inkl. Tel (dann ist es 100% korrekt)
+    const ids = (personen || []).map((p) => p.user_id);
+    if (ids.length === 0) {
+      setCsvInfo({ type: 'error', text: 'Keine Personen vorhanden.' });
+      return;
+    }
+
+    let q = supabase
+      .from('DB_User')
+      .select('user_id, vorname, nachname, tel_number1, tel_number2, firma_id, unit_id')
+      .in('user_id', ids);
+
+    // Sicherheit: Nicht-SuperAdmin darf nur eigene Firma/Unit exportieren
+    if (!isSuperAdmin) q = q.eq('firma_id', firma).eq('unit_id', unit);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const header = ['user_id', 'vorname', 'nachname', 'tel_number1', 'tel_number2'];
+
+    const lines = [
+  header.join(';'),
+  ...(data || []).map((r) =>
+    [
+      safeCsv(r.user_id),
+      safeCsv(r.vorname),
+      safeCsv(r.nachname),
+      safeCsv(r.tel_number1, true), // 👈 als Text erzwingen
+      safeCsv(r.tel_number2, true), // 👈 als Text erzwingen
+    ].join(';')
+  ),
+].join('\n');
+
+    const blob = new Blob([lines], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `schichtpilot_mitarbeiter_telefonliste_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+    setCsvInfo({ type: 'success', text: 'CSV heruntergeladen.' });
+  } catch (e) {
+    console.error(e);
+    setCsvInfo({ type: 'error', text: 'CSV-Download fehlgeschlagen.' });
+  }
+};
+
+const detectDelimiter = (text) => {
+  const firstLine = (text.split(/\r?\n/)[0] || '');
+  const semi = (firstLine.match(/;/g) || []).length;
+  const comma = (firstLine.match(/,/g) || []).length;
+  return semi >= comma ? ';' : ',';
+};
+
+// sehr simples CSV-Parsing (reicht für deine Telefonliste)
+const parseCsvSimple = (text) => {
+  const delim = detectDelimiter(text);
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+  if (lines.length < 2) return { header: [], rows: [] };
+
+  const splitLine = (line) => {
+    // minimaler CSV-Parser: unterstützt Quotes
+    const out = [];
+    let cur = '';
+    let inQ = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        // escaped ""
+        if (inQ && line[i + 1] === '"') { cur += '"'; i++; continue; }
+        inQ = !inQ;
+        continue;
+      }
+      if (!inQ && ch === delim) { out.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    out.push(cur);
+    return out.map((s) => s.trim());
+  };
+
+  const header = splitLine(lines[0]).map((h) => h.trim());
+  const rows = lines.slice(1).map((l) => {
+    const cols = splitLine(l);
+    const obj = {};
+    header.forEach((h, idx) => (obj[h] = cols[idx] ?? ''));
+    return obj;
+  });
+
+  return { header, rows };
+};
+
+const normalizePhone = (v) => {
+  let s = (v ?? '').toString().trim();
+
+  // CSV Parser kann aus ="0171" -> =0171 machen (Quotes weg)
+  if (s.startsWith('=')) s = s.slice(1).trim();
+
+  // falls jetzt "0171..." übrig bleibt (oder noch Quotes drum sind)
+  if (s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1);
+
+  // Excel-Text-Formel ORIGINAL (falls Quotes doch erhalten bleiben)
+  if (s.startsWith('="') && s.endsWith('"')) s = s.slice(2, -1);
+
+  // Excel Apostroph: '0171... -> 0171...
+  if (s.startsWith("'")) s = s.slice(1);
+
+  // doppelte Quotes wieder zurück
+  s = s.replaceAll('""', '"');
+
+  // Sonder-Leerzeichen/Tabs -> normales Leerzeichen
+  s = s.replace(/[\u00A0\t]/g, ' ').trim();
+
+  return s;
+};
+
+
+const phoneOk = (s) => {
+  const v = (s || '').trim();
+  if (!v) return true; // leer ok
+  return /^[+0-9 ()/.-]{6,25}$/.test(v);
+};
+
+const uploadTelefonCSV = async (file) => {
+  if (!file) return;
+
+  try {
+    setCsvInfo({ type: 'info', text: 'CSV wird geprüft…' });
+
+    const text = await file.text();
+    const { header, rows } = parseCsvSimple(text);
+
+    // Header akzeptieren (tel_ oder tele_)
+    const hasUserId = header.includes('user_id');
+    const col1 = header.includes('tel_number1') ? 'tel_number1' : header.includes('tele_number1') ? 'tele_number1' : null;
+    const col2 = header.includes('tel_number2') ? 'tel_number2' : header.includes('tele_number2') ? 'tele_number2' : null;
+
+    if (!hasUserId || !col1 || !col2) {
+      setCsvInfo({
+        type: 'error',
+        text: 'CSV-Header falsch. Benötigt: user_id, tel_number1 (oder tele_number1), tel_number2 (oder tele_number2).',
+      });
+      return;
+    }
+
+    // Filter: nur IDs, die in der aktuellen Liste vorhanden sind (Sicherheitsnetz)
+    const allowedIds = new Set((personen || []).map((p) => String(p.user_id)));
+
+    const updates = rows
+      .map((r) => {
+        const id = (r.user_id || '').trim();
+        if (!id || !allowedIds.has(String(id))) return null;
+
+        const t1 = normalizePhone(r[col1]);
+        const t2 = normalizePhone(r[col2]);
+
+        if (!phoneOk(t1) || !phoneOk(t2)) return { bad: true, id, t1, t2 };
+
+        return {
+          user_id: id,
+          tel_number1: t1 || null,
+          tel_number2: t2 || null,
+        };
+      })
+      .filter(Boolean);
+
+    const bad = updates.filter((u) => u.bad);
+if (bad.length > 0) {
+  console.warn('Ungültige Telefonwerte (erste 10):', bad.slice(0, 10));
+  setCsvInfo({
+    type: 'error',
+    text: `Ungültige Telefonnummern in ${bad.length} Zeilen. Erlaubt: Ziffern, +, Leerzeichen, ()-/.`,
+  });
+  return;
+}
+
+    if (updates.length === 0) {
+      setCsvInfo({ type: 'error', text: 'Keine gültigen Updates gefunden (IDs müssen in der aktuellen Mitarbeiterliste sein).' });
+      return;
+    }
+
+    setCsvInfo({ type: 'info', text: `Update läuft… (${updates.length} Datensätze)` });
+
+// Chunked Updates (Supabase update pro User) – robust mit Error-Report
+const chunkSize = 50;
+let ok = 0;
+const failed = []; // [{ user_id, message }]
+
+for (let i = 0; i < updates.length; i += chunkSize) {
+  const chunk = updates.slice(i, i + chunkSize);
+
+  const results = await Promise.all(
+    chunk.map(async (u) => {
+      let q = supabase
+        .from('DB_User')
+        .update({ tel_number1: u.tel_number1, tel_number2: u.tel_number2 })
+        .eq('user_id', u.user_id);
+
+      if (!isSuperAdmin) q = q.eq('firma_id', firma).eq('unit_id', unit);
+
+      const res = await q;
+if (res?.error) {
+  failed.push({ user_id: u.user_id, message: res.error.message || res.error.details || 'Unbekannter Fehler' });
+} else {
+  ok += 1;
+}
+      return res;
+    })
+  );
+}
+
+// Ergebnis melden
+if (failed.length > 0) {
+  console.warn('CSV Upload: fehlgeschlagen für', failed);
+  setCsvInfo({
+    type: 'error',
+    text: `Update teilweise erfolgreich: ${ok} ok, ${failed.length} abgelehnt. (Console zeigt user_ids + Grund)`,
+  });
+} else {
+  setCsvInfo({ type: 'success', text: `Telefonliste aktualisiert: ${ok} Datensätze.` });
+}
+
+
+    // optional: Liste neu laden
+    // -> easiest: trigger über refreshKey vom Parent oder local state
+    // wenn du hier kein refresh trigger hast: einfach window.location.reload() vermeiden.
+    // Du kannst stattdessen refreshKey im Parent erhöhen.
+  } catch (e) {
+    console.error(e);
+    setCsvInfo({ type: 'error', text: 'CSV-Upload fehlgeschlagen.' });
+  } finally {
+    if (fileRef.current) fileRef.current.value = '';
+  }
+};
 
   useEffect(() => {
     const ladeDaten = async () => {
@@ -265,13 +530,54 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
 
   return (
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
-      <div className="flex justify-between items-center mb-2">
-        <h2 className="text-md font-bold">Mitarbeiterliste{isSuperAdmin ? ' (alle Firmen)' : ''}</h2>
-        <Info
-          className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
-          onClick={() => setInfoOffen(true)}
-        />
-      </div>
+      <div className="flex justify-between items-center mb-2 gap-2">
+  <h2 className="text-md font-bold">Mitarbeiterliste{isSuperAdmin ? ' (alle Firmen)' : ''}</h2>
+  <div className="flex items-center gap-2">
+  {canCsvDownload && (
+    <button type="button" onClick={downloadTelefonCSV} className="px-3 py-1 rounded ...">
+      CSV Download
+    </button>
+  )}
+
+  {canCsvUpload && (
+    <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => uploadTelefonCSV(e.target.files?.[0])}
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+      >
+        CSV Upload
+      </button>
+    </>
+  )}
+
+    <Info
+      className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+      onClick={() => setInfoOffen(true)}
+    />
+  </div>
+</div>
+{csvInfo && (
+  <div
+    className={`mb-3 text-sm rounded-lg px-3 py-2 border ${
+      csvInfo.type === 'success'
+        ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700'
+        : csvInfo.type === 'error'
+        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
+        : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700'
+    }`}
+  >
+    {csvInfo.text}
+  </div>
+)}
+
 
       {/* Suche */}
       <div className="flex gap-2 mb-3">
