@@ -445,7 +445,7 @@ export default function AenderungsprotokollTab({ firma_id, unit_id }) {
       <Card className="p-3 space-y-3">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-2 items-end">
           <div>
-            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Kampflisten-Jahr (Datum)</div>
+            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Dienstplan-Jahr (Datum)</div>
             <Select value={jahr} onChange={(e) => setJahr(Number(e.target.value))}>
               {yearOptions().map((y) => <option key={y} value={y}>{y}</option>)}
             </Select>
@@ -549,7 +549,7 @@ export default function AenderungsprotokollTab({ firma_id, unit_id }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
           <div>
-            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Filter Datum (Kampfliste)</div>
+            <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Filter Datum (Dienstplan)</div>
             <Input type="date" value={filterDatum} onChange={(e) => setFilterDatum(e.target.value)} />
           </div>
           <div className="lg:col-span-3 text-xs text-gray-600 dark:text-gray-300 flex items-end">
@@ -564,7 +564,7 @@ export default function AenderungsprotokollTab({ firma_id, unit_id }) {
           <table className="min-w-[1550px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-gray-900/40">
               <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
-                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')} title="Das ist das Datum der Änderung">
+                <th className="p-2 cursor-pointer select-none" onClick={() => toggleSort('changed_at')} title="Datum der Änderung">
                   geändert {sortBy.key === 'changed_at' ? (sortBy.dir === 'asc' ? '▲' : '▼') : ''}
                 </th>
 
