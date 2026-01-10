@@ -23,6 +23,7 @@ const Layout = () => {
   const [simulierterUserId, setSimulierterUserId] = useState(null);
   const [firmenName, setFirmenName] = useState('');
   const [unitName, setUnitName] = useState('');
+  const [firmenLogo, setFirmenLogo] = useState('');
 
   // 🔔 Offene Anfragen
   const [offeneAnfragenCount, setOffeneAnfragenCount] = useState(0);
@@ -114,9 +115,10 @@ const Layout = () => {
         if (userDaten?.firma_id) {
           const { data: firma } = await supabase
             .from('DB_Kunden')
-            .select('firmenname')
+            .select('firmenname, logo_url')
             .eq('id', userDaten.firma_id)
             .single();
+          setFirmenLogo(firma?.logo_url || '');
           setFirmenName(firma?.firmenname || '');
           setSichtFirma(userDaten.firma_id);
         } else {
@@ -336,7 +338,20 @@ const Layout = () => {
   return (
     <div className="min-h-screen w-full">
       <header className={`flex justify-between items-center px-8 pt-2 pb-2 ${umgeloggt ? 'bg-red-700' : 'bg-gray-800'} text-white relative`}>
-        <img src={logo} alt="logo" className="h-16" />
+        <div className="flex items-center gap-4">
+  <img src={logo} alt="SchichtPilot" className="h-16" />
+
+  {firmenLogo && (
+    <img
+      src={firmenLogo}
+      alt="Firmenlogo"
+      className="h-12 max-w-[160px] object-contain"
+      title={firmenName}
+      onError={(e) => (e.currentTarget.style.display = 'none')}
+    />
+  )}
+</div>
+
         <div className="absolute left-1/2 transform -translate-x-1/2 text-lg font-semibold">
           {begruessungRef.current}
         </div>
