@@ -89,13 +89,17 @@ export default function KundenTab() {
   const [firmen, setFirmen] = useState([]);
   const [firmenLoading, setFirmenLoading] = useState(false);
   const [firmaOpen, setFirmaOpen] = useState(true);
+  const [logoFile, setLogoFile] = useState(null); 
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState('');
+  const [logoOk, setLogoOk] = useState('');
 
   const loadFirmen = async () => {
     setFirmenLoading(true);
     try {
       const { data } = await supabase
       .from('DB_Kunden')
-      .select('id,firmenname,created_at,aktiv,inaktiv_at,plan,plan_valid_until,strasse,plz,stadt,telefon,telefon2')
+      .select('id,firmenname,logo_url,created_at,aktiv,inaktiv_at,plan,plan_valid_until,strasse,plz,stadt,telefon,telefon2')
       .order('firmenname', { ascending: true });
 
       const today = startOfToday();
@@ -228,10 +232,76 @@ useEffect(()=> {
     await loadFirmen();
     const refreshed = (await supabase
       .from('DB_Kunden')
-      .select('id,firmenname,created_at,aktiv,inaktiv_at,plan,plan_valid_until,strasse,plz,stadt,telefon,telefon2')
+      .select('id,firmenname,logo_url,created_at,aktiv,inaktiv_at,plan,plan_valid_until,strasse,plz,stadt,telefon,telefon2')
       .eq('id', selFirma.id).maybeSingle()).data;
     setSelFirma({ ...refreshed, user_count: selFirma.user_count });
   };
+
+  const uploadFirmenLogo = async () => {
+  if (!selFirma?.id) return;
+
+  if (!logoFile) {
+    setLogoError('Bitte zuerst eine Datei auswählen.');
+    return;
+  }
+
+  setLogoError('');
+  setLogoOk('');
+  setLogoUploading(true);
+
+  try {
+    const ext = (logoFile.name.split('.').pop() || '').toLowerCase();
+    const allowed = ['png', 'svg', 'jpg', 'jpeg', 'webp'];
+    if (!allowed.includes(ext)) {
+      setLogoError('Bitte PNG/SVG/JPG/WEBP hochladen.');
+      return;
+    }
+
+    const maxBytes = 200 * 1024;
+    if (logoFile.size > maxBytes) {
+      setLogoError('Datei zu groß (max. 200 KB).');
+      return;
+    }
+
+    const filePath = `firma_${selFirma.id}/logo.${ext}`;
+
+    const { error: upErr } = await supabase.storage
+      .from('company-logos')
+      .upload(filePath, logoFile, { upsert: true });
+
+    if (upErr) {
+      setLogoError('Upload fehlgeschlagen: ' + upErr.message);
+      return;
+    }
+
+    const { data } = supabase.storage.from('company-logos').getPublicUrl(filePath);
+    let publicUrl = data?.publicUrl;
+    if (!publicUrl) {
+      setLogoError('Public URL konnte nicht erstellt werden.');
+      return;
+    }
+
+    publicUrl = `${publicUrl}?v=${Date.now()}`;
+
+    const { error: dbErr } = await supabase
+      .from('DB_Kunden')
+      .update({ logo_url: publicUrl })
+      .eq('id', selFirma.id);
+
+    if (dbErr) {
+      setLogoError('DB Update fehlgeschlagen: ' + dbErr.message);
+      return;
+    }
+
+    setSelFirma((s) => ({ ...s, logo_url: publicUrl }));
+    await loadFirmen();
+
+    setLogoOk('Logo gespeichert ✅');
+    setLogoFile(null);
+  } finally {
+    setLogoUploading(false);
+  }
+};
 
 const toggleCompanyPageAccess = async (userId, current, adminRow) => {
   if (!userId) {
@@ -434,7 +504,7 @@ const saveUnit = async () => {
                     <td className="py-1 pr-3">
                       <button
                         className="text-xs px-2 py-1 rounded border border-gray-600 hover:bg-gray-700"
-                        onClick={async ()=>{ setSelFirma(f); setSelUnit(null); await loadFirmaDetails(f); }}
+                        onClick={async ()=>{ setSelFirma(f);  setSelUnit(null);  setLogoFile(null);  setLogoError('');  setLogoOk('');  await loadFirmaDetails(f);}}
                       >
                         Öffnen
                       </button>
@@ -479,6 +549,58 @@ const saveUnit = async () => {
       />
     </div>
   </div>
+<SubSectionTitle>Firmenlogo</SubSectionTitle>
+
+<div className="mt-2 space-y-2 text-sm">
+  <div className="text-xs text-gray-400">
+    Vorgabe: PNG/SVG/JPG/WEBP, transparent empfohlen, max. 160×48 px, max. 200 KB.
+  </div>
+
+  {/* Aktuelles Logo */}
+  {selFirma.logo_url ? (
+    <div className="flex items-center gap-3">
+      <div className="text-xs opacity-70">Aktuell:</div>
+      <img
+        src={selFirma.logo_url}
+        alt="Firmenlogo"
+        className="h-10 max-w-[180px] object-contain rounded bg-gray-800/40 border border-gray-700 px-2 py-1"
+        onError={(e) => (e.currentTarget.style.display = 'none')}
+      />
+    </div>
+  ) : (
+    <div className="text-xs text-gray-400">Noch kein Logo gespeichert.</div>
+  )}
+
+  {/* Upload Controls */}
+  <div className="flex flex-wrap items-center gap-2">
+    <input
+      type="file"
+      accept=".png,.svg,.jpg,.jpeg,.webp"
+      className="text-xs"
+      onChange={(e) => {
+        setLogoError('');
+        setLogoOk('');
+        setLogoFile(e.target.files?.[0] || null);
+      }}
+    />
+
+    <button
+      type="button"
+      disabled={!logoFile || logoUploading}
+      className={`text-xs px-3 py-1.5 rounded ${
+        !logoFile || logoUploading
+          ? 'bg-gray-700 opacity-60 cursor-not-allowed'
+          : 'bg-blue-600 hover:bg-blue-700'
+      }`}
+      onClick={uploadFirmenLogo}
+    >
+      {logoUploading ? 'Upload…' : 'Logo hochladen'}
+    </button>
+  </div>
+
+  {logoError && <div className="text-xs text-red-300">{logoError}</div>}
+  {logoOk && <div className="text-xs text-green-300">{logoOk}</div>}
+</div>
 
   {/* ADRESSE & KONTAKT */}
   <SubSectionTitle>Adresse & Kontakt</SubSectionTitle>
@@ -591,7 +713,7 @@ const saveUnit = async () => {
       </button>
     </div>
   </div>
-
+        
   {/* ADMINS & RECHTE – bleibt wie gehabt */}
               <SubSectionTitle>Admins & Unternehmensrechte</SubSectionTitle>
               <div className="mt-2">
