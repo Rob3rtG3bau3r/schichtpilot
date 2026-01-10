@@ -88,6 +88,12 @@ const CollapsibleSection = ({ id, title, tooltip, defaultOpen = true, children }
 const todayStr = () => dayjs().format('YYYY-MM-DD');
 const within = (d, von, bis) => dayjs(d).isSameOrAfter(von) && (!bis || dayjs(d).isSameOrBefore(bis));
 const cmpDate = (a, b) => dayjs(a).diff(dayjs(b));
+const fmtNum2 = (v) => {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  if (Number.isNaN(n)) return '—';
+  return n.toFixed(2).replace('.', ',');
+};
 
 const calcSegmentHours = (weeklyHours, fromISO, toISO) => {
   const days = dayjs(toISO).diff(dayjs(fromISO), 'day') + 1; // inkl. beide Tage
@@ -782,7 +788,7 @@ if (start !== deaktiviertAb) {
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-3">
       <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Stunden (Jahr {jahr})</div>
       <div className="text-sm text-gray-700 dark:text-gray-200 space-y-1">
-        <div className="flex justify-between"><span>Übernahme Vorjahr</span><span className="font-semibold">{stundenRow?.uebernahme_vorjahr ?? '—'}</span></div>
+        <div className="flex justify-between"><span>Übernahme Vorjahr</span><span className="font-semibold">{fmtNum2(stundenRow?.uebernahme_vorjahr)}</span></div>
         <div className="flex justify-between"><span>Vorgabe Stunden</span><span className="font-semibold">{stundenRow?.vorgabe_stunden ?? '—'}</span></div>
         <div className="flex justify-between"><span>Stunden gesamt</span><span className="font-semibold">{stundenRow?.stunden_gesamt ?? '—'}</span></div>
       </div>
