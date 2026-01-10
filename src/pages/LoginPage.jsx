@@ -172,11 +172,23 @@ const LoginPage = () => {
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="w-full text-center text-gray-400 text-xs py-4 border-t border-gray-800">
-        © {new Date().getFullYear()} SchichtPilot | 
-        <Link to="/impressum" className="ml-2 text-blue-400 hover:underline">Impressum</Link> | 
-        <Link to="/datenschutz" className="ml-2 text-blue-400 hover:underline">Datenschutz</Link>
+            {/* Footer */}
+      <footer className="mt-20 mb-6 text-gray-500 text-xs text-center">
+        © {new Date().getFullYear()} SchichtPilot ·{" "}
+        <Link
+          to="/impressum"
+          className="underline text-blue-400 hover:text-white"
+        >
+          Impressum
+        </Link>{" "}
+        ·{" "}
+        <Link
+          to="/datenschutz"
+          className="underline text-blue-400 hover:text-white"
+        >
+          Datenschutz
+        </Link>{" "}
+  · <span className="text-gray-500">Version {__APP_VERSION__}</span>
       </footer>
     </div>
   );

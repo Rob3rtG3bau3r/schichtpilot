@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, Link } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import Navigation from './Navigation';
 import { supabase } from '../supabaseClient';
@@ -435,6 +435,25 @@ const Layout = () => {
       <main className="pt-2 px-4 pb-8 overflow-y-visible">
         <Outlet />
       </main>
+
+      {/* Footer */}
+      <footer className="mt-20 mb-6 text-gray-500 text-xs text-center">
+        © {new Date().getFullYear()} SchichtPilot ·{" "}
+        <Link
+          to="/impressum"
+          className="underline text-blue-400 hover:text-white"
+        >
+          Impressum
+        </Link>{" "}
+        ·{" "}
+        <Link
+          to="/datenschutz"
+          className="underline text-blue-400 hover:text-white"
+        >
+          Datenschutz
+        </Link>{" "}
+  · <span className="text-gray-500">Version {__APP_VERSION__}</span>
+      </footer>
 
       {(adminPanelOffen || umgeloggt) && (
         <AdminPanelWrapper>

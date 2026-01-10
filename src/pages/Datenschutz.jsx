@@ -330,16 +330,23 @@ const Datenschutz = () => {
         </button>
       </main>
 
-      {/* Footer */}
-      <footer className="text-center text-gray-500 text-xs py-4">
+            {/* Footer */}
+      <footer className="mt-20 mb-6 text-gray-500 text-xs text-center">
         © {new Date().getFullYear()} SchichtPilot ·{" "}
-        <Link to="/" className="underline text-blue-400 hover:text-white">
-          Zur Startseite
-        </Link>{" "}
-        |{" "}
-        <Link to="/impressum" className="underline text-blue-400 hover:text-white">
+        <Link
+          to="/impressum"
+          className="underline text-blue-400 hover:text-white"
+        >
           Impressum
-        </Link>
+        </Link>{" "}
+        ·{" "}
+        <Link
+          to="/datenschutz"
+          className="underline text-blue-400 hover:text-white"
+        >
+          Datenschutz
+        </Link>{" "}
+  · <span className="text-gray-500">Version {__APP_VERSION__}</span>
       </footer>
     </div>
   );
