@@ -600,11 +600,69 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
         const bedarfHeute = bedarfTagSchicht.filter((b) => b.normalbetrieb === !hatZeitlich);
 
         // --- aktive User (nur nicht-ausgegraut) ---
-        const aktiveDienste = dienste
-          .filter((d) => d.datum === datum && d.ist_schicht?.kuerzel === schicht)
-          .filter((d) => !isGrey(d.user, datum));
+        const dayDienste = dienste
+  .filter((d) => d.datum === datum)
+  .filter((d) => !isGrey(d.user, datum));
 
-        const aktiveUser = [...new Set(aktiveDienste.map((d) => d.user))];
+const shift = shiftTimes[schicht] || null;
+
+// 1) Basis: Leute der Schicht (wie bisher)
+const baseShiftDienste = dayDienste.filter((d) => d.ist_schicht?.kuerzel === schicht);
+
+// 2) Helfer: andere Schichten, aber nur wenn aenderung=true (Zeit gesetzt)
+const helperDienste = shift
+  ? dayDienste.filter((d) => d.ist_schicht?.kuerzel !== schicht && d.aenderung)
+  : [];
+
+// Wir bauen jetzt eine Map uid -> clipped interval im aktuellen Schichtfenster
+const intervalsInThisShift = new Map(); // uid -> {s,e} oder null
+const helperFromOtherShift = [];        // fürs Tooltip
+
+if (shift) {
+  // Basis-Schicht: default volle Schicht, außer aenderung dann echte Zeiten
+  for (const d of baseShiftDienste) {
+    let r = { s: shift.s, e: shift.e };
+
+    if (d.aenderung) {
+      const s = timeToMin(d.start);
+      const e = timeToMin(d.end);
+      const nr = normalizeRange(s, e);
+      if (nr) r = nr;
+    }
+
+    const clipped = clampToShift(r, shift);
+    intervalsInThisShift.set(String(d.user), clipped || null);
+  }
+
+  // Helfer aus anderen Schichten: nur wenn deren echte Zeit in dieses Fenster reinragt
+  for (const d of helperDienste) {
+    const s = timeToMin(d.start);
+    const e = timeToMin(d.end);
+    const nr = normalizeRange(s, e);
+    if (!nr) continue;
+
+    const clipped = clampToShift(nr, shift);
+    if (!clipped) continue;
+
+    intervalsInThisShift.set(String(d.user), clipped);
+
+    helperFromOtherShift.push({
+      user: d.user,
+      fromShift: d.ist_schicht?.kuerzel || '?',
+      start: d.start,
+      end: d.end,
+    });
+  }
+}
+
+// aktiveUser = alle, die im Fenster wirklich Zeit haben
+const aktiveUser = Array.from(intervalsInThisShift.entries())
+  .filter(([, r]) => !!r)
+  .map(([uid]) => uid);
+
+// Für deinen bestehenden Code brauchen wir auch "aktiveDienste":
+// Wir nehmen alle baseShiftDienste + helperDienste, aber nur wenn sie im Fenster wirklich zählen
+const aktiveDienste = dayDienste.filter((d) => aktiveUser.includes(String(d.user)));
 
         // --- Qualis am Tag ---
         const userQualiMap = {};
@@ -672,15 +730,6 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
         const fehlend = base.fehlend || [];
         const bottom = base.topMissingKuerzel ? `${base.topMissingKuerzel}${base.totalMissing > 1 ? '+' : ''}` : null;
 
-        // --- Überbesetzung (wie bisher) ---
-        let topRight = null;
-        if (bedarfSortiert.length > 0) {
-          const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
-          const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
-          if (ueberschussGesamt === 1) topRight = 'blau-1';
-          else if (ueberschussGesamt >= 2) topRight = 'blau-2';
-        }
-
         // =========================
         // ⏱ Zeit-Prüfung nur wenn:
         // - mindestens ein Dienst aenderung=true (Zeit geändert)
@@ -694,39 +743,61 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
           end: d.end,
         }));
 
-
-
         const doTimeCheck = changedUsers.length > 0 && !!shiftTimes[schicht];
+        
+        // --- Überbesetzung (wie bisher) ---
+        let topRight = null;
+
+if (bedarfSortiert.length > 0) {
+  const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
+
+  if (doTimeCheck && shift) {
+    // Segment-basiert
+    const pts = Array.from(new Set([shift.s, shift.e, ...Array.from(intervalsInThisShift.values())
+      .filter(Boolean)
+      .flatMap(r => [r.s, r.e])]))
+      .sort((a,b)=>a-b);
+
+    let maxUeberschuss = -999;
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const mid = (pts[i] + pts[i+1]) / 2;
+      const segUsers = [];
+
+      for (const uid of intervalsInThisShift.keys()) {
+        const r = intervalsInThisShift.get(String(uid));
+        if (!r) continue;
+        if (mid >= r.s && mid < r.e) segUsers.push(uid);
+      }
+
+      const segUeberschuss = segUsers.length - benoetigtGesamt;
+      if (segUeberschuss > maxUeberschuss) maxUeberschuss = segUeberschuss;
+    }
+
+    if (maxUeberschuss === 1) topRight = 'blau-1';
+    else if (maxUeberschuss >= 2) topRight = 'blau-2';
+  } else {
+    // Fallback: altes Verhalten nur wenn keine Zeitprüfung aktiv
+    const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
+    if (ueberschussGesamt === 1) topRight = 'blau-1';
+    else if (ueberschussGesamt >= 2) topRight = 'blau-2';
+  }
+}
 
         const timeIssues = [];
 
         if (doTimeCheck) {
           const shift = shiftTimes[schicht]; // {s,e}
           // Dienst-Intervalle pro User innerhalb des Shifts
-          const intervals = new Map(); // uid -> {s,e}
+          const intervals = intervalsInThisShift; // ✅ nutzt jetzt auch Helfer aus anderen Schichten
           const points = new Set([shift.s, shift.e]);
 
-          for (const d of aktiveDienste) {
-            // Default: volle Schicht
-            let r = { s: shift.s, e: shift.e };
-
-            if (d.aenderung) {
-              const s = timeToMin(d.start);
-              const e = timeToMin(d.end);
-              const nr = normalizeRange(s, e);
-              if (nr) r = nr;
-            }
-            const clipped = clampToShift(r, shift);
-            if (clipped) {
-              intervals.set(String(d.user), clipped);
-              points.add(clipped.s);
-              points.add(clipped.e);
-            } else {
-              // wenn komplett außerhalb -> user zählt in keinem Segment (konservativ)
-              intervals.set(String(d.user), null);
-            }
+          for (const [uid, r] of intervals.entries()) {
+            if (!r) continue;
+            points.add(r.s);
+            points.add(r.e);
           }
-
+          
           const pts = Array.from(points).sort((a, b) => a - b);
 
           // Segmente prüfen
@@ -792,7 +863,7 @@ const timeIssueCount = timeIssues?.length || 0;
             timeIssues,   // [{from,to,missingTotal,missingKuerzel,missingList}]
             timeIssue,
             timeIssueCount,
-          },
+                      },
         };
       }
     }
