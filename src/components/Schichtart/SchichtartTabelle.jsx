@@ -1,23 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
-import { GripVertical, Info, RefreshCcw, X, Trash2, Pencil } from 'lucide-react';
+import { GripVertical, Info, X, Trash2, Pencil } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 
-const SchichtartTabelle = ({ onBearbeiten }) => {
+const SchichtartTabelle = ({ onBearbeiten, refreshKey = 0 }) => {
   const [eintraege, setEintraege] = useState([]);
   const { sichtFirma, sichtUnit, istSuperAdmin } = useRollen();
   const [loading, setLoading] = useState(false);
-  const [infoOffen, setInfoOffen] = useState(false); // NEU
+  const [infoOffen, setInfoOffen] = useState(false);
 
   const ladeSchichtarten = async () => {
     setLoading(true);
+
     let query = supabase
       .from('DB_SchichtArt')
-      .select(`
+      .select(
+        `
         *,
         DB_Kunden:firma_id ( firmenname ),
         DB_Unit:unit_id ( unitname )
-      `);
+      `
+      );
 
     if (!istSuperAdmin) {
       query = query.eq('firma_id', sichtFirma).eq('unit_id', sichtUnit);
@@ -28,14 +31,16 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
     if (error) {
       console.error('Fehler beim Laden:', error.message);
     } else {
-      setEintraege(data);
+      setEintraege(data || []);
     }
     setLoading(false);
   };
 
+  // ✅ refreshKey triggert Reload nach Save
   useEffect(() => {
     ladeSchichtarten();
-  }, [sichtFirma, sichtUnit, istSuperAdmin]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sichtFirma, sichtUnit, istSuperAdmin, refreshKey]);
 
   const handleDragStart = (e, index) => {
     e.dataTransfer.setData('index', index);
@@ -43,10 +48,10 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
 
   const handleDrop = async (e, targetIndex) => {
     const draggedIndex = e.dataTransfer.getData('index');
-    if (draggedIndex === undefined || draggedIndex === targetIndex) return;
+    if (draggedIndex === undefined || Number(draggedIndex) === targetIndex) return;
 
     const neueListe = [...eintraege];
-    const [verschobenesItem] = neueListe.splice(draggedIndex, 1);
+    const [verschobenesItem] = neueListe.splice(Number(draggedIndex), 1);
     neueListe.splice(targetIndex, 0, verschobenesItem);
 
     const aktualisierteListe = neueListe.map((eintrag, idx) => ({
@@ -81,7 +86,6 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
 
   return (
     <div className="bg-gray-200 dark:bg-gray-800 text-black dark:text-white p-6 rounded-xl shadow-xl w-full border border-gray-300 dark:border-gray-700 relative z-10">
-      {/* MODAL – Infoanzeige */}
       {infoOffen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center backdrop-blur-sm justify-center z-50">
           <div className="bg-white dark:bg-gray-900 text-black dark:text-white p-6 rounded-xl shadow-xl w-[90%] max-w-xl animate-fade-in relative">
@@ -98,13 +102,10 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
               <li>Im Cockpit wird dieselbe Reihenfolge beim Ändern angezeigt.</li>
               <li>Farben & Kürzel helfen bei der visuellen Zuordnung.</li>
               <li>
-                <strong>
-                  Löschen einer Schichtart ist nur möglich, wenn diese noch nicht eingesetzt wurde.
-                </strong>
+                <strong>Löschen nur möglich, wenn die Schichtart noch nicht eingesetzt wurde.</strong>
               </li>
               <li>
-                <strong>Pause:</strong> Ist in der Schichtart eine Pause aktiviert, wird hier die
-                hinterlegte Pausenzeit angezeigt (in Minuten).
+                <strong>Pause:</strong> Wenn aktiviert, wird die Pausenzeit angezeigt (Minuten).
               </li>
             </ul>
           </div>
@@ -117,13 +118,6 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={ladeSchichtarten}
-            className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
-          >
-            <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
           <button
             className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
             onClick={() => setInfoOffen(true)}
@@ -142,7 +136,6 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
             <th className="px-2 py-1">Beginn</th>
             <th className="px-2 py-1">Ende</th>
             <th className="px-2 py-1">Dauer</th>
-            {/* 🆕 Pause-Spalte */}
             <th className="px-2 py-1">Pause</th>
             <th className="px-2 py-1">Tag</th>
             <th className="px-2 py-1">Fix</th>
@@ -165,6 +158,7 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
               <td className="px-2 py-1 text-gray-400 dark:text-gray-500 border-b border-gray-300 dark:border-gray-700 cursor-move">
                 <GripVertical size={16} />
               </td>
+
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 <span
                   className="px-2 py-1 rounded font-bold inline-block text-center"
@@ -177,6 +171,7 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
                   {item.kuerzel}
                 </span>
               </td>
+
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 {item.startzeit}
               </td>
@@ -186,12 +181,11 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 {item.dauer} h
               </td>
-              {/* 🆕 Pause-Spalte – nur anzeigen, wenn pause_aktiv */}
+
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
-                {item.pause_aktiv
-                  ? `${item.pause_dauer ?? 0} min`
-                  : '—'}
+                {item.pause_aktiv ? `${item.pause_dauer ?? 0} min` : '—'}
               </td>
+
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 {item.endet_naechsten_tag ? 'yes' : 'no'}
               </td>
@@ -207,12 +201,10 @@ const SchichtartTabelle = ({ onBearbeiten }) => {
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700">
                 {item.DB_Kunden?.firmenname || '❓'} ➝ {item.DB_Unit?.unitname || '❓'}
               </td>
+
               <td className="px-2 py-1 border-b border-gray-300 dark:border-gray-700 space-x-2">
                 <button onClick={() => onBearbeiten(item)}>
-                  <Pencil
-                    size={16}
-                    className="inline text-blue-500 hover:text-blue-700 mr-2"
-                  />
+                  <Pencil size={16} className="inline text-blue-500 hover:text-blue-700 mr-2" />
                 </button>
                 <button
                   onClick={() => handleDelete(item.id)}

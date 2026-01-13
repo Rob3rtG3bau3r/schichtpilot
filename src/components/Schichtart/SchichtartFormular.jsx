@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import { Info, X } from 'lucide-react';
 
 const systemKuerzelSet = new Set(['F', 'S', 'N', '-', 'U', 'KO', 'KAU']);
 
-const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
+const SchichtartFormular = ({ schichtart, onReset, onSaved, darkMode }) => {
   const [kuerzel, setKuerzel] = useState('');
   const [beschreibung, setBeschreibung] = useState('');
   const [start, setStart] = useState('06:00');
@@ -16,9 +16,9 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
   const [ignoriertArbeitszeit, setIgnoriertArbeitszeit] = useState(false);
   const [sollRelevant, setSollRelevant] = useState(false);
 
-  // 🔁 NEU: Pausen-States
+  // Pause
   const [pauseAktiv, setPauseAktiv] = useState(false);
-  const [pauseDauer, setPauseDauer] = useState(30); // Minuten
+  const [pauseDauer, setPauseDauer] = useState(30);
 
   const [firma, setFirma] = useState('');
   const [unit, setUnit] = useState('');
@@ -29,9 +29,34 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
   const [unitListe, setUnitListe] = useState([]);
   const [originalKuerzel, setOriginalKuerzel] = useState('');
 
+  // ✅ NEU: Save-Status im Button statt alert
+  const [saveState, setSaveState] = useState('idle'); // idle | saving | success | error
+  const [saveMsg, setSaveMsg] = useState('');
+  const msgTimerRef = useRef(null);
+
   const isEditing = !!bearbeiteId;
   const isSystemOriginal =
     isEditing && systemKuerzelSet.has(originalKuerzel?.toUpperCase?.() || '');
+
+  // Helper: Message setzen & auto-hide
+  const setButtonMessage = (state, msg, autoClearMs = 2500) => {
+    if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+    setSaveState(state);
+    setSaveMsg(msg);
+
+    if (autoClearMs) {
+      msgTimerRef.current = setTimeout(() => {
+        setSaveState('idle');
+        setSaveMsg('');
+      }, autoClearMs);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+    };
+  }, []);
 
   // Firma/Unit für Nicht-SuperAdmin automatisch setzen
   useEffect(() => {
@@ -41,7 +66,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
     }
   }, [istSuperAdmin, sichtFirma, sichtUnit]);
 
-  // 🔁 Dauer berechnen (inkl. Pause)
+  // Dauer berechnen (inkl. Pause)
   useEffect(() => {
     if (ignoriertArbeitszeit) {
       setDauer(0);
@@ -54,7 +79,6 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
     let startTotal = startH * 60 + startM;
     let endTotal = endH * 60 + endM;
 
-    // Über Mitternacht
     if (endTotal < startTotal) endTotal += 1440;
 
     let arbeitsMinuten = endTotal - startTotal;
@@ -63,11 +87,19 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
       arbeitsMinuten = Math.max(arbeitsMinuten - pauseDauer, 0);
     }
 
-    setDauer(arbeitsMinuten / 60);
+    // Optional hübsch runden (z.B. 7.5 statt 7.499999)
+    const hours = Math.round((arbeitsMinuten / 60) * 100) / 100;
+    setDauer(hours);
   }, [start, end, ignoriertArbeitszeit, pauseAktiv, pauseDauer]);
 
-  // Formular mit Datensatz füllen
+  // Formular füllen
   useEffect(() => {
+if (saveState !== 'success') {
+  setSaveState('idle');
+  setSaveMsg('');
+}
+
+
     if (schichtart) {
       setBearbeiteId(schichtart.id || null);
       setKuerzel((schichtart.kuerzel || '').toUpperCase());
@@ -83,7 +115,6 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
       setFirma(schichtart.firma_id || sichtFirma || '');
       setUnit(schichtart.unit_id || sichtUnit || '');
 
-      // 🔁 NEU: Pause aus DB holen
       setPauseAktiv(Boolean(schichtart.pause_aktiv));
       setPauseDauer(
         schichtart.pause_dauer !== null && schichtart.pause_dauer !== undefined
@@ -134,7 +165,6 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
     })();
   }, [istSuperAdmin]);
 
-  // Kürzel-Eingabe: max 3 Zeichen, Uppercase
   const handleKuerzelChange = (e) => {
     const val = (e.target.value || '').toUpperCase().slice(0, 3);
     setKuerzel(val);
@@ -142,16 +172,16 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (saveState === 'saving') return;
+
     if (!firma || !unit) {
-      alert('Firma und Unit müssen gesetzt sein!');
+      setButtonMessage('error', 'Firma/Unit fehlt');
       return;
     }
 
-    // Beim ANLEGEN sind System-Kürzel reserviert
+    // System-Kürzel reserviert beim Anlegen
     if (!isEditing && systemKuerzelSet.has((kuerzel || '').toUpperCase())) {
-      alert(
-        'Das eingegebene Kürzel ist systemreserviert (F, S, N, -, U, KO, KAU) und kann nicht angelegt werden.'
-      );
+      setButtonMessage('error', 'Kürzel ist systemreserviert');
       return;
     }
 
@@ -167,17 +197,15 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
       sollplan_relevant: sollRelevant,
       firma_id: firma,
       unit_id: unit,
-      // 🔁 NEU: Pausen-Felder
       pause_aktiv: pauseAktiv,
       pause_dauer: pauseAktiv ? pauseDauer : 0,
     };
 
+    setButtonMessage('saving', 'Speichere…', null);
+
     let error;
     if (isEditing) {
-      const res = await supabase
-        .from('DB_SchichtArt')
-        .update(daten)
-        .eq('id', bearbeiteId);
+      const res = await supabase.from('DB_SchichtArt').update(daten).eq('id', bearbeiteId);
       error = res.error;
     } else {
       const res = await supabase.from('DB_SchichtArt').insert(daten);
@@ -185,13 +213,39 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
     }
 
     if (error) {
-      alert('Fehler beim Speichern: ' + error.message);
-    } else {
-      alert('Gespeichert!');
-      setBearbeiteId(null);
-      onReset();
+      setButtonMessage('error', `Fehler: ${error.message}`, 4000);
+      return;
     }
+
+// ✅ Erfolg: kurze Meldung am Button + Tabelle refreshen
+setButtonMessage('success', 'Gespeichert ✓', 2000);
+
+// Tabelle direkt refreshen
+onSaved?.();
+
+// ⏳ Reset minimal verzögert, damit man die Meldung sieht
+setTimeout(() => {
+  setBearbeiteId(null);
+  onReset?.();
+}, 800);
   };
+
+  const btnBase =
+    'px-4 py-2 rounded font-medium transition disabled:opacity-60 disabled:cursor-not-allowed';
+
+  const submitBtnClass = (() => {
+    if (saveState === 'saving') return `bg-blue-600 ${btnBase}`;
+    if (saveState === 'success') return `bg-green-600 ${btnBase}`;
+    if (saveState === 'error') return `bg-red-600 ${btnBase}`;
+    return `bg-blue-600 hover:bg-blue-700 ${btnBase}`;
+  })();
+
+  const submitText = (() => {
+    if (saveState === 'saving') return 'Speichere…';
+    if (saveState === 'success') return 'Gespeichert ✓';
+    if (saveState === 'error') return 'Fehler';
+    return isEditing ? 'Ändern' : 'Speichern';
+  })();
 
   return (
     <div
@@ -221,7 +275,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           value={kuerzel}
           onChange={handleKuerzelChange}
           maxLength={3}
-          disabled={isSystemOriginal}
+          disabled={isSystemOriginal || saveState === 'saving'}
           className={`text-center px-3 py-2 rounded placeholder-gray-400 focus:outline-none ${
             darkMode ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-800'
           } ${isSystemOriginal ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -233,6 +287,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
               type="color"
               value={schriftfarbe}
               onChange={(e) => setSchriftfarbe(e.target.value)}
+              disabled={saveState === 'saving'}
             />
             <span className="text-sm mt-1">Schriftfarbe</span>
           </div>
@@ -241,6 +296,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
               type="color"
               value={hintergrundfarbe}
               onChange={(e) => setHintergrundfarbe(e.target.value)}
+              disabled={saveState === 'saving'}
             />
             <span className="text-sm mt-1">Hintergrund</span>
           </div>
@@ -250,6 +306,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           <input
             type="checkbox"
             checked={ignoriertArbeitszeit}
+            disabled={saveState === 'saving'}
             onChange={(e) => {
               const checked = e.target.checked;
               setIgnoriertArbeitszeit(checked);
@@ -264,14 +321,13 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           Diese Eintragung überschreibt die Arbeitszeit nicht (z. B. Urlaub, Krank)
         </label>
 
-        {/* 🔁 Nur wenn Arbeitszeit relevant ist, Pausen & Zeiten anzeigen */}
         {!ignoriertArbeitszeit && (
           <>
-          {/* 🔁 NEU: Pause Checkbox + Auswahl */}
             <label className="flex gap-2 items-center mt-1">
               <input
                 type="checkbox"
                 checked={pauseAktiv}
+                disabled={saveState === 'saving'}
                 onChange={(e) => setPauseAktiv(e.target.checked)}
               />
               Schicht enthält Pause
@@ -281,6 +337,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
             <input
               type="time"
               value={start}
+              disabled={saveState === 'saving'}
               onChange={(e) => setStart(e.target.value)}
               className={`rounded px-20 py-2 focus:outline-none ${
                 darkMode ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-800'
@@ -292,11 +349,10 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
                 <span className="text-sm">Pausendauer</span>
                 <select
                   value={pauseDauer}
+                  disabled={saveState === 'saving'}
                   onChange={(e) => setPauseDauer(Number(e.target.value))}
                   className={`rounded px-3 py-2 focus:outline-none ${
-                    darkMode
-                      ? 'bg-gray-700 text-white'
-                      : 'bg-gray-300 text-gray-800'
+                    darkMode ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-800'
                   }`}
                 >
                   <option value={15}>15 Minuten</option>
@@ -314,6 +370,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
             <input
               type="time"
               value={end}
+              disabled={saveState === 'saving'}
               onChange={(e) => setEnd(e.target.value)}
               className={`rounded px-20 py-2 focus:outline-none ${
                 darkMode ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-800'
@@ -326,11 +383,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
               </div>
             )}
 
-            <div
-              className={`text-right text-sm ${
-                darkMode ? 'text-gray-300' : 'text-gray-600'
-              }`}
-            >
+            <div className={`text-right text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
               Dauer: <strong>{dauer} h</strong>
             </div>
           </>
@@ -340,8 +393,8 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           <input
             type="checkbox"
             checked={sollRelevant}
+            disabled={isSystemOriginal || saveState === 'saving'}
             onChange={(e) => setSollRelevant(e.target.checked)}
-            disabled={isSystemOriginal}
           />
           Soll-Plan relevant?
         </label>
@@ -351,8 +404,8 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           placeholder="Bezeichnung (max. 30 Zeichen)"
           maxLength={30}
           value={beschreibung}
+          disabled={isSystemOriginal || saveState === 'saving'}
           onChange={(e) => setBeschreibung(e.target.value)}
-          disabled={isSystemOriginal}
           className={`px-3 py-2 rounded placeholder-gray-400 focus:outline-none ${
             darkMode ? 'bg-gray-700 text-white' : 'bg-gray-300 text-gray-800'
           } ${isSystemOriginal ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -362,11 +415,11 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           <>
             <select
               value={firma}
+              disabled={isSystemOriginal || saveState === 'saving'}
               onChange={(e) => {
                 setFirma(e.target.value);
                 setUnit('');
               }}
-              disabled={isSystemOriginal}
               className={`px-3 py-2 rounded focus:outline-none ${
                 darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-800'
               } ${isSystemOriginal ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -381,8 +434,8 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
 
             <select
               value={unit}
+              disabled={isSystemOriginal || saveState === 'saving'}
               onChange={(e) => setUnit(e.target.value)}
-              disabled={isSystemOriginal}
               className={`px-3 py-2 rounded focus:outline-none ${
                 darkMode ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-800'
               } ${isSystemOriginal ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -402,9 +455,7 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
         {isSystemOriginal && (
           <div
             className={`text-sm px-2 py-1 rounded text-yellow-900 ${
-              darkMode
-                ? 'bg-yellow-900 bg-opacity-20'
-                : 'bg-yellow-100'
+              darkMode ? 'bg-yellow-900 bg-opacity-20' : 'bg-yellow-100'
             }`}
           >
             ⚠️ <strong>Hinweis:</strong> Dieses Kürzel ist systemrelevant – nur{' '}
@@ -413,19 +464,27 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
           </div>
         )}
 
-        <div className="flex justify-between mt-1">
-          <button
-            type="submit"
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded font-medium"
-          >
-            {isEditing ? 'Ändern' : 'Speichern'}
-          </button>
+        {/* ✅ Buttons */}
+        <div className="flex justify-between mt-1 items-center gap-3">
+          <div className="flex flex-col">
+            <button type="submit" className={submitBtnClass} disabled={saveState === 'saving'}>
+              {submitText}
+            </button>
+            {/* kleine Zusatzzeile nur bei error */}
+            {saveState === 'error' && saveMsg ? (
+              <span className="text-xs mt-1 text-red-200">{saveMsg}</span>
+            ) : null}
+          </div>
+
           <button
             type="button"
-            className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded font-medium"
+            className={`bg-red-600 hover:bg-red-700 ${btnBase}`}
+            disabled={saveState === 'saving'}
             onClick={() => {
               setBearbeiteId(null);
-              onReset();
+              onReset?.();
+              setSaveState('idle');
+              setSaveMsg('');
             }}
           >
             Abbrechen
@@ -442,44 +501,35 @@ const SchichtartFormular = ({ schichtart, onReset, darkMode }) => {
             >
               <X size={20} />
             </button>
-            <h2 className="text-lg font-bold mb-4">
-              Informationen zur Schichtart
-            </h2>
+            <h2 className="text-lg font-bold mb-4">Informationen zur Schichtart</h2>
             <ul className="list-disc list-inside text-sm space-y-2">
               <li>
-                <strong>Kürzel:</strong> Max. 3 Zeichen, farbig im Plan
-                dargestellt.
+                <strong>Kürzel:</strong> Max. 3 Zeichen, farbig im Plan dargestellt.
               </li>
               <li>
-                <strong>Farben:</strong> Schrift- und Hintergrundfarbe für
-                visuelle Trennung.
+                <strong>Farben:</strong> Schrift- und Hintergrundfarbe für visuelle Trennung.
               </li>
               <li>
                 <strong>Beginn &amp; Ende:</strong> Arbeitszeit der Schicht.
               </li>
               <li>
-                <strong>Pausen:</strong> Optional 15–60 Minuten; wird von der
-                Schichtdauer abgezogen.
+                <strong>Pausen:</strong> Optional 15–60 Minuten; wird von der Schichtdauer abgezogen.
               </li>
               <li>
-                <strong>Dauer:</strong> Wird automatisch berechnet, auch über
-                Nacht.
+                <strong>Dauer:</strong> Wird automatisch berechnet, auch über Nacht.
               </li>
               <li>
-                <strong>Überschreibt Arbeitszeit nicht:</strong> z. B. Urlaub
-                oder Krank.
+                <strong>Überschreibt Arbeitszeit nicht:</strong> z. B. Urlaub oder Krank.
               </li>
               <li>
-                <strong>Soll-Plan relevant:</strong> Notwendig für das
-                Schichtsystem.
+                <strong>Soll-Plan relevant:</strong> Notwendig für das Schichtsystem.
                 <br />
                 <span className="text-xs text-gray-500">
                   Typisch: F = Früh, S = Spät, N = Nacht, - = Frei
                 </span>
               </li>
               <li>
-                <strong>Firma &amp; Unit:</strong> Für SuperAdmin wählbar, sonst
-                automatisch gesetzt.
+                <strong>Firma &amp; Unit:</strong> Für SuperAdmin wählbar, sonst automatisch gesetzt.
               </li>
             </ul>
           </div>
