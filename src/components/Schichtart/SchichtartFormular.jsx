@@ -144,7 +144,7 @@ if (saveState !== 'success') {
         setUnit('');
       }
     }
-  }, [schichtart, sichtFirma, sichtUnit, istSuperAdmin]);
+  }, [schichtart, sichtFirma, sichtUnit, istSuperAdmin, saveState]);
 
   // Stammdaten für SuperAdmin
   useEffect(() => {
@@ -218,16 +218,13 @@ if (saveState !== 'success') {
     }
 
 // ✅ Erfolg: kurze Meldung am Button + Tabelle refreshen
-setButtonMessage('success', 'Gespeichert ✓', 2000);
-
-// Tabelle direkt refreshen
+setButtonMessage('success', 'Gespeichert ✓', 1500);
 onSaved?.();
-
-// ⏳ Reset minimal verzögert, damit man die Meldung sieht
+// Reset minimal verzögert, damit man die Meldung sieht
 setTimeout(() => {
   setBearbeiteId(null);
   onReset?.();
-}, 800);
+}, 2000);
   };
 
   const btnBase =
