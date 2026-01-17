@@ -151,7 +151,6 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
     if (n.kann_nur_frueh) arr.push('Kann Früh');
     if (n.kann_nur_spaet) arr.push('Kann Spät');
     if (n.kann_nur_nacht) arr.push('Kann Nacht');
-    if (n.macht_schicht) arr.push('✅ macht Schicht');
     return arr.length ? arr.join(', ') : '';
   };
 
@@ -197,19 +196,28 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const handleDecision = async () => {
     if (!selected?.uid) return;
     setSaving(true);
+    const shouldCloseAfterSave = !!flags.macht_schicht;
 
     try {
       const createdBy = (await supabase.auth.getUser()).data?.user?.id ?? null;
 
       const payloadNotiz = {
-        firma_id: firma,
-        unit_id: unit,
-        user_id: selected.uid,
-        datum: modalDatum,
-        created_by: createdBy,
-        notiz: notizText || null,
-        ...flags,
-      };
+  firma_id: firma,
+  unit_id: unit,
+  user_id: selected.uid,
+  datum: modalDatum,
+  created_by: createdBy,
+  notiz: notizText || null,
+
+  // NUR Gesprächsnotiz-Flags (ohne "macht_schicht")
+  kann_heute_nicht: flags.kann_heute_nicht,
+  kann_keine_frueh: flags.kann_keine_frueh,
+  kann_keine_spaet: flags.kann_keine_spaet,
+  kann_keine_nacht: flags.kann_keine_nacht,
+  kann_nur_frueh: flags.kann_nur_frueh,
+  kann_nur_spaet: flags.kann_nur_spaet,
+  kann_nur_nacht: flags.kann_nur_nacht,
+};
 
       const { error: upErr } = await supabase
         .from('DB_Gespraechsnotiz')
@@ -353,6 +361,9 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         kann_nur_spaet: false,
         kann_nur_nacht: false,
       });
+      if (shouldCloseAfterSave) {
+       onClose?.();
+      }
     } finally {
       setSaving(false);
     }
@@ -1170,7 +1181,7 @@ useEffect(() => {
                   </label>
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={flags.kann_nur_frueh} onChange={() => toggleFlag('kann_nur_frueh')} />
-                    Kann nur Früh
+                    Kann Früh
                   </label>
 
                   <label className="flex items-center gap-2">
@@ -1179,7 +1190,7 @@ useEffect(() => {
                   </label>
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={flags.kann_nur_spaet} onChange={() => toggleFlag('kann_nur_spaet')} />
-                    Kann nur Spät
+                    Kann Spät
                   </label>
 
                   <label className="flex items-center gap-2">
@@ -1188,7 +1199,7 @@ useEffect(() => {
                   </label>
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={flags.kann_nur_nacht} onChange={() => toggleFlag('kann_nur_nacht')} />
-                    Kann nur Nacht
+                    Kann Nacht
                   </label>
                 </div>
 
