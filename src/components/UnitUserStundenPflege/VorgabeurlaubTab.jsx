@@ -1,6 +1,6 @@
 // src/components/UnitUserStundenPflege/VorgabeurlaubTab.jsx
 'use client';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/de';
 import { Search, RefreshCw, Download } from 'lucide-react';
@@ -11,10 +11,13 @@ dayjs.locale('de');
 
 const T_USERS = 'DB_User';
 const T_URLAUB = 'DB_Urlaub';
+const T_WAZ = 'DB_WochenArbeitsZeit';
 
 /* ---------------- UI Helpers ---------------- */
 const Card = ({ className = '', children }) => (
-  <div className={`rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm ${className}`}>
+  <div
+    className={`rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm ${className}`}
+  >
     {children}
   </div>
 );
@@ -31,11 +34,20 @@ const Btn = ({ className = '', children, ...props }) => (
   </button>
 );
 
-const BtnPrimary = ({ className = '', children, ...props }) => (
+const ActionBtn = ({ active = true, className = '', children, ...props }) => (
   <button
     {...props}
-    className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold
-      bg-gray-900 text-white hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+    className={`
+      inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold
+      transition-all
+      disabled:opacity-50 disabled:cursor-not-allowed
+      ${
+        active
+          ? 'bg-green-700 text-white hover:bg-green-500 dark:hover:bg-green-900 shadow-md ring-2 ring-gray-900/30'
+          : 'bg-gray-100 text-gray-900 border border-gray-300 hover:bg-gray-200 dark:bg-gray-900/40 dark:hover:bg-gray-900/70 dark:border-gray-700 dark:text-gray-100'
+      }
+      ${className}
+    `}
   >
     {children}
   </button>
@@ -58,6 +70,11 @@ const Select = ({ className = '', ...props }) => (
       focus:ring-2 focus:ring-gray-400/40 ${className}`}
   />
 );
+
+const SortIcon = ({ aktiv, richtung }) => {
+  if (!aktiv) return <span className="opacity-20">↕</span>;
+  return richtung === 'asc' ? <span>▲</span> : <span>▼</span>;
+};
 
 const fmt = (v, digits = 2) => {
   if (v == null || v === '') return '—';
@@ -84,24 +101,45 @@ const triMsgClass = (type) =>
     ? 'border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100'
     : 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
 
+function csvEscape(v) {
+  const s = String(v ?? '');
+  if (s.includes(';') || s.includes(',') || s.includes('\n') || s.includes('"')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/* ---------------- Component ---------------- */
+
 export default function VorgabeurlaubTab({ firma_id, unit_id }) {
   const [jahr, setJahr] = useState(dayjs().year());
   const jahrNext = jahr + 1;
 
-  // Suche
+  // Suche + Filter
   const [search, setSearch] = useState('');
+  const [onlyWithWAZ, setOnlyWithWAZ] = useState(true);
+  const [wazFilter, setWazFilter] = useState('ALL');
 
   // Daten
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
   const [urlaubRows, setUrlaubRows] = useState([]);
+  const [wazRows, setWazRows] = useState([]);
 
   // Auswahl + Msg
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [msg, setMsg] = useState(null);
 
-  // Aktionen: manuell (urlaub_soll für Zieljahr)
+  // Aktionen
   const [manualSoll, setManualSoll] = useState('');
+
+  // Sorting
+  const [sortKey, setSortKey] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+
+  const hasSelection = selectedIds.size > 0;
+  const manualSollNumber = Number(String(manualSoll).replace(',', '.'));
+  const manualSollAktiv = hasSelection && Number.isFinite(manualSollNumber);
 
   // Maps
   const urlaubByUserYear = useMemo(() => {
@@ -109,6 +147,32 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
     (urlaubRows || []).forEach((r) => m.set(`${r.user_id}__${r.jahr}`, r));
     return m;
   }, [urlaubRows]);
+
+  const wazByUser = useMemo(() => {
+    const m = new Map();
+    (wazRows || []).forEach((r) => {
+      const uid = String(r.user_id);
+      if (!m.has(uid)) m.set(uid, []);
+      m.get(uid).push(r);
+    });
+
+    for (const [, arr] of m.entries()) {
+      arr.sort((a, b) => String(a.gueltig_ab).localeCompare(String(b.gueltig_ab)));
+    }
+    return m;
+  }, [wazRows]);
+
+  const getWazForDate = (userId, isoDate) => {
+    const arr = wazByUser.get(String(userId)) || [];
+    if (!arr.length) return null;
+
+    let val = null;
+    for (const r of arr) {
+      if (String(r.gueltig_ab) <= isoDate) val = r.wochenstunden;
+      else break;
+    }
+    return val;
+  };
 
   const loadAll = async () => {
     if (!firma_id || !unit_id) return;
@@ -140,6 +204,19 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
       if (urErr) throw urErr;
       setUrlaubRows(urData || []);
 
+      // WAZ bis Ende Zieljahr
+      const wazTo = `${jahrNext}-12-31`;
+      const { data: wazData, error: wazErr } = await supabase
+        .from(T_WAZ)
+        .select('user_id, gueltig_ab, wochenstunden, firma_id, unit_id')
+        .eq('firma_id', firma_id)
+        .eq('unit_id', unit_id)
+        .lte('gueltig_ab', wazTo)
+        .order('gueltig_ab', { ascending: true });
+
+      if (wazErr) throw wazErr;
+      setWazRows(wazData || []);
+
       setSelectedIds(new Set());
     } catch (e) {
       setMsg({ type: 'err', text: e?.message || 'Fehler beim Laden.' });
@@ -153,56 +230,164 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma_id, unit_id, jahr]);
 
-  const vorgabeRows = useMemo(() => {
+  // Basisdaten aufbauen
+  const baseRows = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    const rows = (users || []).map((u) => {
-      const userId = u.user_id || u.id;
+    return (users || [])
+      .map((u) => {
+        const userId = u.user_id || u.id;
 
-      const cur = urlaubByUserYear.get(`${userId}__${jahr}`) || {};
-      const next = urlaubByUserYear.get(`${userId}__${jahrNext}`) || {};
+        const cur = urlaubByUserYear.get(`${userId}__${jahr}`) || {};
+        const next = urlaubByUserYear.get(`${userId}__${jahrNext}`) || {};
 
-      // Aktuell
-      const soll = Number(cur.urlaub_soll ?? 0);
-      const genommen = Number(cur.summe_jahr ?? 0);
-      const uebernahme = Number(cur.uebernahme_vorjahr ?? 0);
-      const korrektur = Number(cur.korrektur ?? 0);
+        const wazAktuell = getWazForDate(userId, `${jahr}-12-31`);
+        const wazNext = getWazForDate(userId, `${jahrNext}-12-31`);
 
-      const gesamt = (cur.urlaub_gesamt != null)
-        ? Number(cur.urlaub_gesamt ?? 0)
-        : (soll + uebernahme + korrektur);
+        // Aktuell
+        const soll = Number(cur.urlaub_soll ?? 0);
+        const genommen = Number(cur.summe_jahr ?? 0);
+        const uebernahme = Number(cur.uebernahme_vorjahr ?? 0);
+        const korrektur = Number(cur.korrektur ?? 0);
 
-      const resturlaub = gesamt - genommen;
+        const gesamt =
+          cur.urlaub_gesamt != null ? Number(cur.urlaub_gesamt ?? 0) : soll + uebernahme + korrektur;
 
-      // Zieljahr
-      const sollNext = Number(next.urlaub_soll ?? 0);
-      const uebernahmeNext = Number(next.uebernahme_vorjahr ?? 0);
+        const resturlaub = gesamt - genommen;
 
-      return {
-        userId,
-        name: buildDisplayName(u),
-        nachname: u.nachname,
-        vorname: u.vorname,
-        personalnummer: u.personal_nummer,
+        // Zieljahr
+        const sollNext = Number(next.urlaub_soll ?? 0);
+        const uebernahmeNext = Number(next.uebernahme_vorjahr ?? 0);
 
-        sollAktuell: soll,
-        genommenAktuell: genommen,
-        gesamtAktuell: gesamt,
-        resturlaubAktuell: resturlaub,
+        const name = buildDisplayName(u);
 
-        sollNext,
-        uebernahmeNext,
+        return {
+          userId,
+          name,
+          nachname: u.nachname,
+          vorname: u.vorname,
+          personalnummer: u.personal_nummer,
 
-        hasCur: !!cur?.id,
-        hasNext: !!next?.id,
-      };
+          wazAktuell,
+          wazNext,
+
+          sollAktuell: soll,
+          genommenAktuell: genommen,
+          gesamtAktuell: gesamt,
+          resturlaubAktuell: resturlaub,
+
+          sollNext,
+          uebernahmeNext,
+
+          hasCur: !!cur?.id,
+          hasNext: !!next?.id,
+
+          _searchName: name.toLowerCase(),
+        };
+      })
+      .filter((r) => {
+        if (q && !r._searchName.includes(q)) return false;
+        return true;
+      });
+  }, [users, urlaubByUserYear, wazByUser, jahr, jahrNext, search]);
+
+  // WAZ-Options wie in VorgabestundenTab (auf Basis der aktuell sichtbaren Suche)
+  const wazOptions = useMemo(() => {
+    const set = new Set();
+    (baseRows || []).forEach((r) => {
+      if (r.wazNext != null) set.add(Number(r.wazNext));
     });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [baseRows]);
 
-    return rows.filter((r) => {
-      if (q && !r.name.toLowerCase().includes(q)) return false;
+  // Filter anwenden
+  const filteredRows = useMemo(() => {
+    return (baseRows || []).filter((r) => {
+      if (onlyWithWAZ && r.wazNext == null) return false;
+
+      if (wazFilter !== 'ALL') {
+        const w = Number(String(wazFilter).replace(',', '.'));
+        if (Number(r.wazNext) !== w) return false;
+      }
+
       return true;
     });
-  }, [users, urlaubByUserYear, jahr, jahrNext, search]);
+  }, [baseRows, onlyWithWAZ, wazFilter]);
+
+  // Sortierung anwenden
+  const vorgabeRows = useMemo(() => {
+    const rows = [...(filteredRows || [])];
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+
+    const cmpNum = (a, b) => {
+      const na = a == null ? Number.NEGATIVE_INFINITY : Number(a);
+      const nb = b == null ? Number.NEGATIVE_INFINITY : Number(b);
+      if (Number.isNaN(na) && Number.isNaN(nb)) return 0;
+      if (Number.isNaN(na)) return -1;
+      if (Number.isNaN(nb)) return 1;
+      return na === nb ? 0 : na > nb ? 1 : -1;
+    };
+
+    const cmpStr = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'de');
+
+    rows.sort((ra, rb) => {
+      let res = 0;
+
+      switch (sortKey) {
+        case 'name':
+          // stabil nach Nachname/Vorname
+          res = cmpStr(ra.nachname, rb.nachname) || cmpStr(ra.vorname, rb.vorname) || cmpStr(ra.name, rb.name);
+          break;
+
+        case 'wazAktuell':
+          res = cmpNum(ra.wazAktuell, rb.wazAktuell);
+          break;
+
+        case 'wazNext':
+          res = cmpNum(ra.wazNext, rb.wazNext);
+          break;
+
+        case 'sollAktuell':
+          res = cmpNum(ra.sollAktuell, rb.sollAktuell);
+          break;
+
+        case 'genommenAktuell':
+          res = cmpNum(ra.genommenAktuell, rb.genommenAktuell);
+          break;
+
+        case 'resturlaubAktuell':
+          res = cmpNum(ra.resturlaubAktuell, rb.resturlaubAktuell);
+          break;
+
+        case 'sollNext':
+          res = cmpNum(ra.sollNext, rb.sollNext);
+          break;
+
+        case 'uebernahmeNext':
+          res = cmpNum(ra.uebernahmeNext, rb.uebernahmeNext);
+          break;
+
+        default:
+          res = 0;
+      }
+
+      return res * dir;
+    });
+
+    return rows;
+  }, [filteredRows, sortKey, sortDir]);
+
+  const toggleSort = (key) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('asc');
+      return key;
+    });
+  };
 
   const toggleSelected = (id) => {
     setSelectedIds((prev) => {
@@ -273,9 +458,7 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
     }
   };
 
-  // 2) Aus Vorjahr übernehmen + Resturlaub:
-  // Zieljahr: urlaub_soll = aktuelles urlaub_soll
-  //          uebernahme_vorjahr = Resturlaub (gesamt - genommen) aus aktuellem Jahr
+  // 2) Aus Vorjahr übernehmen + Resturlaub
   const bulkCopyCurrentToNextSollWithResturlaub = async () => {
     const ids = Array.from(selectedIds);
     if (!ids.length) return setMsg({ type: 'err', text: 'Bitte mindestens einen Mitarbeiter auswählen.' });
@@ -292,11 +475,10 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
         const uebernahme = Number(cur.uebernahme_vorjahr ?? 0);
         const korrektur = Number(cur.korrektur ?? 0);
 
-        const gesamt = (cur.urlaub_gesamt != null)
-          ? Number(cur.urlaub_gesamt ?? 0)
-          : (soll + uebernahme + korrektur);
+        const gesamt =
+          cur.urlaub_gesamt != null ? Number(cur.urlaub_gesamt ?? 0) : soll + uebernahme + korrektur;
 
-        const resturlaub = gesamt - genommen; // kann auch negativ sein
+        const resturlaub = gesamt - genommen;
 
         const { error } = await supabase
           .from(T_URLAUB)
@@ -386,12 +568,11 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
       'nachname',
       'vorname',
       'personalnummer',
-
+      'waz_zieljahr',
       'jahr',
       'urlaub_soll',
       'genommen_summe_jahr',
       'resturlaub',
-
       'zieljahr',
       'zieljahr_urlaub_soll',
       'zieljahr_uebernahme_vorjahr',
@@ -408,6 +589,7 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
         r.nachname ?? '',
         r.vorname ?? '',
         r.personalnummer ?? '',
+        String(r.wazNext ?? '').replace('.', ','),
 
         String(jahr),
         String(r.sollAktuell ?? '').replace('.', ','),
@@ -437,12 +619,11 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
       'nachname',
       'vorname',
       'personalnummer',
-
+      'waz_zieljahr',
       'jahr',
       'urlaub_soll',
       'genommen_summe_jahr',
       'resturlaub',
-
       'zieljahr',
       'zieljahr_urlaub_soll',
       'zieljahr_uebernahme_vorjahr',
@@ -458,6 +639,7 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
         r.nachname ?? '',
         r.vorname ?? '',
         r.personalnummer ?? '',
+        String(r.wazNext ?? '').replace('.', ','),
 
         String(jahr),
         String(r.sollAktuell ?? '').replace('.', ','),
@@ -476,6 +658,8 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
     downloadTextFile(filename, lines.join('\n'));
   };
 
+  /* ---------------- Render ---------------- */
+
   return (
     <div className="space-y-3">
       {/* Controls */}
@@ -484,7 +668,11 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
           <div>
             <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">Jahr</div>
             <Select value={jahr} onChange={(e) => setJahr(Number(e.target.value))}>
-              {yearOptions().map((y) => <option key={y} value={y}>{y}</option>)}
+              {yearOptions().map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
             </Select>
           </div>
 
@@ -509,17 +697,40 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             Zieljahr: {jahrNext}
           </div>
 
-          <Btn onClick={() => setAllVisibleSelected(true)} disabled={!vorgabeRows.length}>
-            Alle sichtbaren
-          </Btn>
-          <Btn onClick={() => setSelectedIds(new Set())} disabled={!selectedIds.size}>
-            Auswahl leeren
-          </Btn>
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+            <input
+              type="checkbox"
+              checked={!!onlyWithWAZ}
+              onChange={(e) => setOnlyWithWAZ(e.target.checked)}
+            />
+            Nur MA mit WAZ (Zieljahr)
+          </label>
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-700 dark:text-gray-200">WAZ:</span>
+            <Select className="w-44" value={wazFilter} onChange={(e) => setWazFilter(e.target.value)}>
+              <option value="ALL">Alle</option>
+              {(wazOptions || []).map((w) => (
+                <option key={w} value={String(w)}>
+                  {String(w).replace('.', ',')}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center">
+            <Btn onClick={() => setAllVisibleSelected(true)} disabled={!vorgabeRows.length}>
+              Alle sichtbaren
+            </Btn>
+            <Btn onClick={() => setSelectedIds(new Set())} disabled={!selectedIds.size}>
+              Auswahl leeren
+            </Btn>
+          </div>
 
           <div className="text-xs text-gray-600 dark:text-gray-300 ml-auto">
             Treffer: <b>{vorgabeRows.length}</b> · Ausgewählt: <b>{selectedIds.size}</b>
@@ -527,22 +738,24 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
         </div>
 
         {msg && (
-          <div className={`rounded-xl border p-2 text-sm ${triMsgClass(msg.type)}`}>
-            {msg.text}
-          </div>
+          <div className={`rounded-xl border p-2 text-sm ${triMsgClass(msg.type)}`}>{msg.text}</div>
         )}
       </Card>
 
       {/* Aktionen */}
       <Card className="p-3 space-y-3">
         <div className="flex flex-wrap gap-2 items-center">
-          <BtnPrimary onClick={bulkCopyCurrentToNextSoll} disabled={loading || !selectedIds.size}>
+          <ActionBtn active={hasSelection} onClick={bulkCopyCurrentToNextSoll} disabled={loading || !hasSelection}>
             Aus Vorjahr übernehmen (Soll)
-          </BtnPrimary>
+          </ActionBtn>
 
-          <Btn onClick={bulkCopyCurrentToNextSollWithResturlaub} disabled={loading || !selectedIds.size}>
+          <ActionBtn
+            active={hasSelection}
+            onClick={bulkCopyCurrentToNextSollWithResturlaub}
+            disabled={loading || !hasSelection}
+          >
             Aus Vorjahr übernehmen mit Resturlaub
-          </Btn>
+          </ActionBtn>
 
           <div className="flex items-center gap-2">
             <Input
@@ -551,9 +764,14 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
               value={manualSoll || ''}
               onChange={(e) => setManualSoll(e.target.value)}
             />
-            <Btn onClick={bulkSetManualSollNextYear} disabled={loading || !selectedIds.size}>
+
+            <ActionBtn
+              active={manualSollAktiv}
+              onClick={bulkSetManualSollNextYear}
+              disabled={loading || !manualSollAktiv}
+            >
               Manuell setzen (Soll)
-            </Btn>
+            </ActionBtn>
           </div>
 
           <div className="text-xs text-gray-600 dark:text-gray-300 ml-auto">
@@ -565,7 +783,7 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
       {/* Tabelle */}
       <Card className="p-0 overflow-hidden">
         <div className="overflow-auto">
-          <table className="min-w-[1100px] w-full text-sm">
+          <table className="min-w-[1200px] w-full text-sm">
             <thead className="bg-gray-100 dark:bg-gray-900/40">
               <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
                 <th className="p-2 w-10">
@@ -576,18 +794,83 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
                   />
                 </th>
 
-                <th className="p-2">Name</th>
-                <th className="p-2 text-right">Urlaub Soll ({jahr})</th>
-                <th className="p-2 text-right">Genommen ({jahr})</th>
-                <th className="p-2 text-right">Resturlaub ({jahr})</th>
-                <th className="p-2 text-right">Urlaub Soll ({jahrNext})</th>
-                <th className="p-2 text-right">Übernahme ({jahrNext})</th>
+                <th className="p-2">
+                  <button className="inline-flex items-center gap-2 hover:underline" onClick={() => toggleSort('name')}>
+                    Name <SortIcon aktiv={sortKey === 'name'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('wazAktuell')}
+                  >
+                    WAZ ({jahr}) <SortIcon aktiv={sortKey === 'wazAktuell'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('wazNext')}
+                  >
+                    WAZ ({jahrNext}) <SortIcon aktiv={sortKey === 'wazNext'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('sollAktuell')}
+                  >
+                    Urlaub Soll ({jahr}) <SortIcon aktiv={sortKey === 'sollAktuell'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('genommenAktuell')}
+                  >
+                    Genommen ({jahr}) <SortIcon aktiv={sortKey === 'genommenAktuell'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('resturlaubAktuell')}
+                  >
+                    Resturlaub ({jahr}) <SortIcon aktiv={sortKey === 'resturlaubAktuell'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('sollNext')}
+                  >
+                    Urlaub Soll ({jahrNext}) <SortIcon aktiv={sortKey === 'sollNext'} richtung={sortDir} />
+                  </button>
+                </th>
+
+                <th className="p-2 text-right">
+                  <button
+                    className="inline-flex items-center gap-2 hover:underline"
+                    onClick={() => toggleSort('uebernahmeNext')}
+                  >
+                    Übernahme ({jahrNext}) <SortIcon aktiv={sortKey === 'uebernahmeNext'} richtung={sortDir} />
+                  </button>
+                </th>
               </tr>
             </thead>
 
             <tbody>
               {vorgabeRows.map((r) => (
-                <tr key={r.userId} className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                <tr
+                  key={r.userId}
+                  className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30"
+                >
                   <td className="p-2">
                     <input
                       type="checkbox"
@@ -604,9 +887,13 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
                     </div>
                   </td>
 
+                  <td className="p-2 text-right tabular-nums">{fmt(r.wazAktuell)}</td>
+                  <td className="p-2 text-right tabular-nums">{fmt(r.wazNext)}</td>
+
                   <td className="p-2 text-right tabular-nums">{fmt(r.sollAktuell)}</td>
                   <td className="p-2 text-right tabular-nums">{fmt(r.genommenAktuell)}</td>
                   <td className="p-2 text-right tabular-nums font-semibold">{fmt(r.resturlaubAktuell)}</td>
+
                   <td className="p-2 text-right tabular-nums font-semibold">{fmt(r.sollNext)}</td>
                   <td className="p-2 text-right tabular-nums">{fmt(r.uebernahmeNext)}</td>
                 </tr>
@@ -614,7 +901,7 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
 
               {!vorgabeRows.length && (
                 <tr>
-                  <td colSpan={7} className="p-4 text-center text-gray-600 dark:text-gray-300">
+                  <td colSpan={9} className="p-4 text-center text-gray-600 dark:text-gray-300">
                     Keine Einträge gefunden.
                   </td>
                 </tr>
@@ -638,7 +925,7 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
           </Btn>
 
           <div className="text-xs text-gray-600 dark:text-gray-300 ml-auto">
-            Export enthält: Soll, Genommen (summe_jahr), Resturlaub und Zieljahr-Felder.
+            Export enthält: WAZ (Zieljahr), Soll, Genommen (summe_jahr), Resturlaub und Zieljahr-Felder.
           </div>
         </div>
 
@@ -648,14 +935,4 @@ export default function VorgabeurlaubTab({ firma_id, unit_id }) {
       </Card>
     </div>
   );
-}
-
-/* ---------------- helpers ---------------- */
-
-function csvEscape(v) {
-  const s = String(v ?? '');
-  if (s.includes(';') || s.includes(',') || s.includes('\n') || s.includes('"')) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
 }

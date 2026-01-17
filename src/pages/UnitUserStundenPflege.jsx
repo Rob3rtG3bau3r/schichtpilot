@@ -57,7 +57,7 @@ export default function UnitUserStundenPflege() {
                 : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
               }`}
           >
-            Vorgabestunden
+            Vorgabe Stunden
           </button>
                    <button
             onClick={() => setTab('ueberstunden')}
@@ -79,7 +79,7 @@ export default function UnitUserStundenPflege() {
                 : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
               }`}
           >
-            Abzugstunden
+            Abzug Stunden
           </button>
           <button
             onClick={() => setTab('vorgabeurlaub')}
@@ -89,7 +89,7 @@ export default function UnitUserStundenPflege() {
                 : 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100'
               }`}
           >
-            Vorgabeurlaub
+            Vorgabe Urlaub
           </button>
         </div>
       </Card>
