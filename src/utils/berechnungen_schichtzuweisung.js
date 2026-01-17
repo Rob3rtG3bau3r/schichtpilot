@@ -73,7 +73,7 @@ export const berechneAlleStundenFuerJahr = async (userId, jahr, firmaId, unitId)
 
     if (upErr) throw upErr;
 
-    console.log(`✅ Ist/Soll-Stunden für ${jahr} aktualisiert: ${summeJahrIst}h / ${summeJahrSoll}h`);
+    //console.log(`✅ Ist/Soll-Stunden für ${jahr} aktualisiert: ${summeJahrIst}h / ${summeJahrSoll}h`);
   } catch (err) {
     console.error('❌ Fehler bei Stundenberechnung:', err.message);
   }
@@ -143,7 +143,7 @@ export const berechneAlleUrlaubeFuerJahr = async (userId, jahr, firmaId, unitId)
 
     if (upErr) throw upErr;
 
-    console.log(`✅ Urlaubstage für ${jahr} aktualisiert: ${summeJahr} Tage`);
+    //console.log(`✅ Urlaubstage für ${jahr} aktualisiert: ${summeJahr} Tage`);
   } catch (err) {
     console.error('❌ Fehler bei Urlaubsberechnung:', err.message);
   }

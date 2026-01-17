@@ -173,7 +173,7 @@ export const berechneUndSpeichereStunden = async (userId, jahr, monat, firmaId, 
       );
     if (upErr) throw upErr;
 
-    console.log(`✅ Stunden gespeichert: m${monat}=${summe}h, Jahr=${summeJahr}h`);
+    //console.log(`✅ Stunden gespeichert: m${monat}=${summe}h, Jahr=${summeJahr}h`);
   } catch (err) {
     console.error('❌ Fehler bei Stundenberechnung:', err?.message || err);
   }
@@ -230,7 +230,7 @@ export async function berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId) 
       );
     if (upErr) throw upErr;
 
-    console.log(`✅ Urlaub gespeichert: ${summeJahr} Tage`);
+   // console.log(`✅ Urlaub gespeichert: ${summeJahr} Tage`);
   } catch (err) {
     console.error('❌ Fehler bei Urlaubsberechnung:', err?.message || err);
   }
