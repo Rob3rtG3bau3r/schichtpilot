@@ -183,7 +183,9 @@ useEffect(()=> {
     unitname,
     created_at,
     anzahl_schichten,
+    land,
     bundesland,
+    unit_standort,
     unit_aktiv,
     unit_inaktiv_at,
     enabled_features,
@@ -430,7 +432,9 @@ const saveUnit = async () => {
       unitname,
       created_at,
       anzahl_schichten,
+      land,
       bundesland,
+      unit_standort,
       unit_aktiv,
       unit_inaktiv_at,
       enabled_features,
@@ -805,7 +809,7 @@ const saveUnit = async () => {
                         <th className="py-1 pr-3"><SortHeader label="ID" sortKey="id" current={unitSort} setCurrent={setUnitSort}/></th>
                         <th className="py-1 pr-3"><SortHeader label="Erstellt" sortKey="created_at" current={unitSort} setCurrent={setUnitSort}/></th>
                         <th className="py-1 pr-3"><SortHeader label="Schichten" sortKey="anzahl_schichten" current={unitSort} setCurrent={setUnitSort}/></th>
-                        <th className="py-1 pr-3"><SortHeader label="Bundesland" sortKey="bundesland" current={unitSort} setCurrent={setUnitSort}/></th>
+                        <th className="py-1 pr-3"><SortHeader label="Land/BL" sortKey="bundesland" current={unitSort} setCurrent={setUnitSort}/></th>
                         <th className="py-1 pr-3"><SortHeader label="Aktiv" sortKey="unit_aktiv" current={unitSort} setCurrent={setUnitSort}/></th>
                         <th className="py-1 pr-3"><SortHeader label="User (aktiv)" sortKey="user_count" current={unitSort} setCurrent={setUnitSort}/></th>
                         <th className="py-1 pr-3">Aktion</th>
@@ -818,7 +822,7 @@ const saveUnit = async () => {
                           <td className="py-1 pr-3">{u.id}</td>
                           <td className="py-1 pr-3">{fmtDate(u.created_at)}</td>
                           <td className="py-1 pr-3">{u.anzahl_schichten ?? '—'}</td>
-                          <td className="py-1 pr-3">{u.bundesland ?? '—'}</td>
+                          <td className="py-1 pr-3">{(u.land || '—') + '/' + (u.bundesland || '—')}</td>
                           <td className="py-1 pr-3">{u.unit_aktiv ? <Badge tone="good">aktiv</Badge> : <Badge tone="bad">inaktiv</Badge>}</td>
                           <td className="py-1 pr-3">{u.user_count}</td>
                           <td className="py-1 pr-3">
@@ -885,6 +889,17 @@ const saveUnit = async () => {
         </div>
       </div>
     </div>
+<div>
+  <SubSectionTitle>Unit-Location</SubSectionTitle>
+
+  <div className="mt-2 text-xs text-gray-400">
+    Land | Bundesland | Standort
+  </div>
+
+  <div className="mt-1 text-sm text-gray-100">
+    {(selUnit?.land || '—')} | {(selUnit?.bundesland || '—')} | {(selUnit?.unit_standort || '—')}
+  </div>
+</div>
 
     {/* --- SECTION: Features --- */}
     <div>
