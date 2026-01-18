@@ -223,8 +223,7 @@ export default function BAM_SchichtTausch({
                               n.kann_keine_nacht ||
                               n.kann_nur_frueh ||
                               n.kann_nur_spaet ||
-                              n.kann_nur_nacht ||
-                              n.macht_schicht
+                              n.kann_nur_nacht 
                             );
 
                           const row = dienstFensterByUserId?.[uid] || {

@@ -1,47 +1,71 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Info } from 'lucide-react';
 
 const FerienundFeiertageZusammengefasst = ({ onFilterChange, refresh }) => {
   const [daten, setDaten] = useState([]);
   const [infoOpen, setInfoOpen] = useState(false);
+
   const [gefiltertesJahr, setGefiltertesJahr] = useState('');
   const [gefiltertesBundesland, setGefiltertesBundesland] = useState('');
+  const [gefiltertesLand, setGefiltertesLand] = useState('');
 
   useEffect(() => {
     const ladeDaten = async () => {
       const { data, error } = await supabase.from('DB_FeiertageundFerien').select('*');
-      if (!error) setDaten(data);
+      if (!error) setDaten(data || []);
     };
     ladeDaten();
   }, [refresh]);
 
-  // Gruppenlogik: Jahr + Bundesland => Array von { jahr, bundesland, count }
-  const gruppiert = daten.reduce((acc, eintrag) => {
-    const key = `${eintrag.jahr}-${eintrag.bundesland}`;
-    if (!acc[key]) {
-      acc[key] = {
-        jahr: eintrag.jahr,
-        bundesland: eintrag.bundesland,
-        count: 1,
-      };
-    } else {
-      acc[key].count++;
-    }
-    return acc;
-  }, {});
+  // Gruppenlogik: Jahr + Land + Bundesland => Counts
+  // - count_all
+  // - count_feiertag
+  // - count_ferien
+  const gruppiert = useMemo(() => {
+    return daten.reduce((acc, eintrag) => {
+      const jahr = eintrag?.jahr ?? null;
+      const land = (eintrag?.land || '').trim() || null;
+      const bundesland = (eintrag?.bundesland || '').trim() || '—'; // bundesweit / kein BL
+
+      const key = `${jahr}__${land}__${bundesland}`;
+
+      if (!acc[key]) {
+        acc[key] = {
+          jahr,
+          land,
+          bundesland,
+          count_all: 0,
+          count_feiertag: 0,
+          count_ferien: 0,
+        };
+      }
+
+      acc[key].count_all += 1;
+
+      if (eintrag?.typ === 'Feiertag') acc[key].count_feiertag += 1;
+      if (eintrag?.typ === 'Ferien') acc[key].count_ferien += 1;
+
+      return acc;
+    }, {});
+  }, [daten]);
 
   let gruppiertArray = Object.values(gruppiert);
 
   if (gefiltertesJahr) {
-    gruppiertArray = gruppiertArray.filter(e => e.jahr.toString() === gefiltertesJahr);
+    gruppiertArray = gruppiertArray.filter(e => String(e.jahr) === String(gefiltertesJahr));
+  }
+  if (gefiltertesLand) {
+    gruppiertArray = gruppiertArray.filter(e => String(e.land) === String(gefiltertesLand));
   }
   if (gefiltertesBundesland) {
-    gruppiertArray = gruppiertArray.filter(e => e.bundesland === gefiltertesBundesland);
+    gruppiertArray = gruppiertArray.filter(e => String(e.bundesland) === String(gefiltertesBundesland));
   }
 
-  const alleJahre = [...new Set(daten.map(e => e.jahr))];
-  const alleBundeslaender = [...new Set(daten.map(e => e.bundesland))];
+  // Dropdown Optionen
+  const alleJahre = [...new Set(daten.map(e => e.jahr).filter(Boolean))].sort((a, b) => a - b);
+  const alleLaender = [...new Set(daten.map(e => (e.land || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const alleBundeslaender = [...new Set(daten.map(e => (e.bundesland || '').trim() || '—'))].sort((a, b) => a.localeCompare(b));
 
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow relative">
@@ -53,8 +77,19 @@ const FerienundFeiertageZusammengefasst = ({ onFilterChange, refresh }) => {
             className="p-2 border rounded border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
           >
             <option value="">Alle Jahre</option>
-            {alleJahre.sort().map(j => (
+            {alleJahre.map(j => (
               <option key={j} value={j}>{j}</option>
+            ))}
+          </select>
+
+          <select
+            value={gefiltertesLand}
+            onChange={(e) => setGefiltertesLand(e.target.value)}
+            className="p-2 border rounded border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
+          >
+            <option value="">Alle Länder</option>
+            {alleLaender.map(l => (
+              <option key={l} value={l}>{l}</option>
             ))}
           </select>
 
@@ -64,7 +99,7 @@ const FerienundFeiertageZusammengefasst = ({ onFilterChange, refresh }) => {
             className="p-2 border rounded border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
           >
             <option value="">Alle Bundesländer</option>
-            {alleBundeslaender.sort().map(b => (
+            {alleBundeslaender.map(b => (
               <option key={b} value={b}>{b}</option>
             ))}
           </select>
@@ -83,16 +118,22 @@ const FerienundFeiertageZusammengefasst = ({ onFilterChange, refresh }) => {
         <thead>
           <tr className="text-left border-b dark:border-gray-700">
             <th className="py-1">Jahr</th>
+            <th className="py-1">Land</th>
             <th className="py-1">Bundesland</th>
-            <th className="py-1">Anzahl Einträge</th>
+            <th className="py-1">Feiertage</th>
+            <th className="py-1">Ferien</th>
+            <th className="py-1">Einträge gesamt</th>
           </tr>
         </thead>
         <tbody>
           {gruppiertArray.map((e, i) => (
             <tr key={i} className="border-b text-gray-800 dark:text-gray-200 dark:border-gray-700">
-              <td className="py-1">{e.jahr}</td>
-              <td className="py-1">{e.bundesland}</td>
-              <td className="py-1">{e.count}</td>
+              <td className="py-1">{e.jahr ?? '—'}</td>
+              <td className="py-1">{e.land ?? '—'}</td>
+              <td className="py-1">{e.bundesland ?? '—'}</td>
+              <td className="py-1">{e.count_feiertag}</td>
+              <td className="py-1">{e.count_ferien}</td>
+              <td className="py-1">{e.count_all}</td>
             </tr>
           ))}
         </tbody>
@@ -109,9 +150,9 @@ const FerienundFeiertageZusammengefasst = ({ onFilterChange, refresh }) => {
             </button>
             <h2 className="text-lg font-bold mb-2">Informationen zur Zusammenfassung</h2>
             <ul className="list-disc pl-5 space-y-2">
-              <li>Einträge werden nach Jahr und Bundesland gruppiert.</li>
-              <li>Die Anzahl zeigt, wie viele Feiertage oder Ferien pro Kombination existieren.</li>
-              <li>Du kannst gezielt nach Jahr oder Bundesland filtern.</li>
+              <li>Einträge werden nach Jahr, Land und Bundesland gruppiert.</li>
+              <li>Du siehst getrennt: Anzahl Feiertage, Anzahl Ferien und Gesamt.</li>
+              <li>Bundesland „—“ bedeutet: kein Bundesland gesetzt (z. B. bundesweit).</li>
               <li>Die Filter gelten nur für diese Übersicht, nicht für die Detailanzeige darunter.</li>
             </ul>
           </div>
