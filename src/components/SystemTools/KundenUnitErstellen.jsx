@@ -5,8 +5,10 @@ import { useRollen } from '../../context/RollenContext';
 const KundenUnitErstellen = ({ firmaId, onCreated }) => {
   const { sichtFirma } = useRollen();
   const firma = firmaId ?? sichtFirma;
+
   const [unitName, setUnitName] = useState('');
   const [standort, setStandort] = useState('');
+  const [land, setLand] = useState('DE'); // ✅ NEU: Standard DE
   const [bundesland, setBundesland] = useState('');
   const [anzahlMA, setAnzahlMA] = useState(1);
   const [anzahlSchichten, setAnzahlSchichten] = useState(2);
@@ -15,20 +17,26 @@ const KundenUnitErstellen = ({ firmaId, onCreated }) => {
   const handleReset = () => {
     setUnitName('');
     setStandort('');
+    setLand('DE');
     setBundesland('');
     setAnzahlMA(1);
     setAnzahlSchichten(2);
     setSchichtNamen([]);
   };
 
-    const handleSave = async () => {
-    // ALT:
-    // if (!sichtFirma) {
+  const handleSave = async () => {
     if (!firma) {
       console.error('Keine Firma ausgewählt');
       return;
     }
-    if (!bundesland) {
+
+    if (!land) {
+      alert('Bitte ein Land auswählen!');
+      return;
+    }
+
+    // Bundesland nur erzwingen, wenn Land = DE (für AT/CH später andere Logik)
+    if (land === 'DE' && !bundesland) {
       alert('Bitte ein Bundesland auswählen!');
       return;
     }
@@ -38,12 +46,11 @@ const KundenUnitErstellen = ({ firmaId, onCreated }) => {
       .from('DB_Unit')
       .insert([
         {
-          // ALT:
-          // firma: sichtFirma,
           firma: firma,
           unitname: unitName,
           unit_standort: standort,
-          bundesland: bundesland,
+          land: land, // ✅ NEU
+          bundesland: land === 'DE' ? bundesland : null, // ✅ bei Nicht-DE optional leer
           anzahl_ma: anzahlMA,
           anzahl_schichten: anzahlSchichten,
           schichtname1: schichtNamen[0] || null,
@@ -73,9 +80,7 @@ const KundenUnitErstellen = ({ firmaId, onCreated }) => {
       { kuerzel: 'K', beschreibung: 'Krank mit Attest', start: '00:00', ende: '00:00', dauer: 0, bg: '#e3dede', text: '#000000', relevant: false, ignoriert: true, pos: 7 }
     ];
 
-        const eintraege = schichtarten.map((s) => ({
-      // ALT:
-      // firma_id: sichtFirma,
+    const eintraege = schichtarten.map((s) => ({
       firma_id: firma,
       unit_id: unitData.id,
       kuerzel: s.kuerzel,
@@ -90,7 +95,6 @@ const KundenUnitErstellen = ({ firmaId, onCreated }) => {
       position: s.pos,
     }));
 
-
     const { error: schichtError } = await supabase.from('DB_SchichtArt').insert(eintraege);
     if (schichtError) {
       console.error('Fehler beim Einfügen der Schichtarten:', schichtError.message);
@@ -98,7 +102,6 @@ const KundenUnitErstellen = ({ firmaId, onCreated }) => {
       console.log('Unit und Schichtarten erfolgreich erstellt!');
       handleReset();
 
-      // 👇 NEU: Event an Parent (z.B. KundenTab) zurückgeben
       if (onCreated && unitData) {
         onCreated(unitData);
       }
@@ -138,14 +141,40 @@ const KundenUnitErstellen = ({ firmaId, onCreated }) => {
               className="w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
             />
           </div>
+        </div>
+
+        {/* ✅ NEU: Land + Bundesland */}
+        <div className="flex space-x-4">
           <div className="flex-1">
-            <label className="block text-sm">Bundesland</label>
+            <label className="block text-sm">Land</label>
+            <select
+              value={land}
+              onChange={(e) => {
+                const v = e.target.value;
+                setLand(v);
+                if (v !== 'DE') setBundesland(''); // bei AT/CH nicht erzwingen
+              }}
+              className="w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="DE">DE</option>
+              <option value="AT">AT</option>
+              <option value="CH">CH</option>
+            </select>
+          </div>
+
+          <div className="flex-1">
+            <label className="block text-sm">
+              Bundesland {land !== 'DE' ? '(optional)' : ''}
+            </label>
             <select
               value={bundesland}
               onChange={e => setBundesland(e.target.value)}
-              className="w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600"
+              disabled={land !== 'DE'}
+              className={`w-full mt-1 p-2 rounded border dark:bg-gray-700 dark:border-gray-600 ${
+                land !== 'DE' ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
-              <option value="">Bundesland wählen</option>
+              <option value="">{land !== 'DE' ? '—' : 'Bundesland wählen'}</option>
               {["BW", "BY", "BE", "BB", "HB", "HH", "HE", "MV", "NI", "NW", "RP", "SL", "SN", "ST", "SH", "TH"].map((bl) => (
                 <option key={bl} value={bl}>{bl}</option>
               ))}
