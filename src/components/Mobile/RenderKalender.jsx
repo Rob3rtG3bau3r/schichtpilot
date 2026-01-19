@@ -41,22 +41,32 @@ export default function RenderKalender({
   const findEintrag = (iso) =>
     eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === iso);
 
-const feiertagsBadge = (iso) => {
-  const tags = feierMap?.[iso];
-  if (!tags || !tags.length) return null;
+  const feiertagsBadge = (iso) => {
+    const tags = feierMap?.[iso];
+    if (!tags || !tags.length) return null;
 
-  const title = tags.map((t) => `${t.typ}: ${t.name}`).join(' • ');
-  const color = tags[0].farbe || '#16a34a';
+    const ferien = tags.filter(t => ((t.typ || '').toLowerCase().includes('ferien')));
+    const feiertage = tags.filter(t => ((t.typ || '').toLowerCase().includes('feiertag')));
 
-  return (
-    // nur der dezente Balken oben – kein Eck-Dreieck mehr
-    <div
-      className="absolute top-0 left-0 right-0 h-1.5 rounded-t"
-      style={{ backgroundColor: color }}
-      title={title}
-    />
-  );
-};
+    // Ranking: Feiertag > Ferien
+    const pick = (feiertage[0] || ferien[0]) || null;
+    if (!pick) return null;
+
+    const title = (() => {
+      if (feiertage.length) {
+        return `Feiertag: ${feiertage[0]?.name || ''}${feiertage.length > 1 ? ` +${feiertage.length - 1}` : ''}`;
+      }
+      return `Ferien: ${ferien[0]?.name || ''}${ferien.length > 1 ? ` +${ferien.length - 1}` : ''}`;
+    })();
+
+    return (
+      <div
+        className="absolute top-0 left-0 right-0 h-1.5 rounded-t"
+        style={{ backgroundColor: pick.farbe || '#ef4444' }}
+        title={title}
+      />
+    );
+  };
 
 
   for (let day = 1; day <= daysInMonth; day++) {

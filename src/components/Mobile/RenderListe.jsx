@@ -30,6 +30,23 @@ export default function RenderListe({
   const findEintrag = (iso) =>
     eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === iso);
 
+    const getDateHighlight = (iso) => {
+    const tags = feierMap?.[iso] || [];
+    if (!tags.length) return null;
+
+    const ferien = tags.filter(t => ((t.typ || '').toLowerCase().includes('ferien')));
+    const feiertage = tags.filter(t => ((t.typ || '').toLowerCase().includes('feiertag')));
+
+    const pick = (feiertage[0] || ferien[0]) || null;
+    if (!pick) return null;
+
+    const title = feiertage.length
+      ? `Feiertag: ${feiertage[0]?.name || ''}`
+      : `Ferien: ${ferien[0]?.name || ''}`;
+
+    return { color: pick.farbe || '#ef4444', title, hasFeiertag: feiertage.length > 0, hasFerien: ferien.length > 0 };
+  };
+
   return (
     <div className="px-4 space-y-3 pb-6">
       {Array.from({ length: daysInMonth }, (_, i) => {
@@ -72,26 +89,33 @@ export default function RenderListe({
           <div
             key={iso}
             ref={istHeute ? heuteRef : null}
-            className={`bg-white dark:bg-gray-700 rounded-lg shadow p-3 border-2 ${
+            className={`bg-white dark:bg-gray-700 rounded-lg shadow p-2 border-2 ${
               istHeute ? 'border-blue-500' : 'border-transparent'
             }`}
           >
             <div className="flex justify-between items-center">
               {/* Linker Block: Datum + Feiertags/Ferien-Badges */}
-              <div className="flex items-center gap-2 text-sm">
-                <span className="font-medium">{WTAG_KURZ[w]}</span>
-                <span>{dayjs(iso).format('DD.MM.YYYY')}</span>
+              <div className="flex items-center gap-1 text-sm">
+                                {(() => {
+                  const hi = getDateHighlight(iso);
+                  return (
+                    <>
+                      <span className="w-4 font-medium">{WTAG_KURZ[w]}</span>
+                      <span
+                        className="px-2 py-0.5 rounded-md font-semibold"
+                        style={
+                          hi
+                            ? { backgroundColor: hi.color, color: '#111827' }
+                            : undefined
+                        }
+                        title={hi?.title || undefined}
+                      >
+                        {dayjs(iso).format('DD.MM.YYYY')}
+                      </span>
+                    </>
+                  );
+                })()}
 
-                {tags.slice(0, 2).map((t, idx) => (
-                  <span
-                    key={idx}
-                    className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px]"
-                    style={{ backgroundColor: t.farbe || '#16a34a', color: '#fff' }}
-                    title={`${t.typ}: ${t.name}`}
-                  >
-                    {t.typ}
-                  </span>
-                ))}
                 {tags.length > 2 && (
                   <span
                     className="text-xs"

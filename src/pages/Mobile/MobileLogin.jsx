@@ -31,14 +31,53 @@ const MobileLogin = () => {
     }
 
     try {
-      // Firma & Unit laden
-      const { data: userDetails } = await supabase
+      // 1) Firma & Unit laden
+      const { data: userDetails, error: userErr } = await supabase
         .from('DB_User')
         .select('firma_id, unit_id')
         .eq('user_id', user.id)
         .single();
 
-      // Login-Log & LocalStorage
+      if (userErr) {
+        console.error('❌ DB_User Fehler:', userErr.message || userErr);
+        setFehler('Fehler: Benutzerdaten konnten nicht geladen werden.');
+        return;
+      }
+
+      const firmaId = userDetails?.firma_id ?? null;
+      const unitId = userDetails?.unit_id ?? null;
+
+      if (!firmaId || !unitId) {
+        setFehler('Fehler: Firma/Unit fehlt im Benutzerprofil.');
+        return;
+      }
+
+      // 2) Land + Bundesland aus DB_Unit laden
+      const { data: unitData, error: unitErr } = await supabase
+        .from('DB_Unit')
+        .select('land, bundesland')
+        .eq('id', unitId)
+        .single();
+
+      if (unitErr) {
+        console.error('❌ DB_Unit Fehler:', unitErr.message || unitErr);
+        setFehler('Fehler: Unit-Daten konnten nicht geladen werden.');
+        return;
+      }
+
+      const land = (unitData?.land || '').trim();
+      const bundesland = (unitData?.bundesland || '').trim();
+
+      if (!land) {
+        setFehler('Fehler: In der Unit ist noch kein Land hinterlegt.');
+        return;
+      }
+      if (!bundesland) {
+        setFehler('Fehler: In der Unit ist noch kein Bundesland hinterlegt.');
+        return;
+      }
+
+      // 3) Login-Log & LocalStorage
       await Promise.all([
         supabase.from('DB_LoginLog').insert({
           user_id: user.id,
@@ -46,10 +85,12 @@ const MobileLogin = () => {
         }),
         Promise.resolve().then(() => {
           localStorage.setItem('user_id', user.id);
-          if (userDetails) {
-            localStorage.setItem('firma_id', userDetails.firma_id);
-            localStorage.setItem('unit_id', userDetails.unit_id);
-          }
+          localStorage.setItem('firma_id', String(firmaId));
+          localStorage.setItem('unit_id', String(unitId));
+
+          // ✅ NEU für Feiertage/Ferien
+          localStorage.setItem('land', land);
+          localStorage.setItem('bundesland', bundesland);
         }),
       ]);
 
