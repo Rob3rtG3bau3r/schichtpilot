@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../supabaseClient";
 
+const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
 const fmt = (n, digits = 2) =>
   Number.isFinite(n)
     ? n.toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: digits })
@@ -22,61 +24,90 @@ const Row = ({ label, value }) => (
   </div>
 );
 
+const YearSelect = ({ value, onChange }) => {
+  const now = new Date().getFullYear();
+  const options = [now - 1, now];
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900/40
+                 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none
+                 focus:ring-2 focus:ring-gray-400/40"
+    >
+      {options.map((y) => (
+        <option key={y} value={y}>
+          {y}
+        </option>
+      ))}
+    </select>
+  );
+};
+
 export default function MobileMeineUebersicht() {
   const [loading, setLoading] = useState(true);
-  const [jahr] = useState(new Date().getFullYear());
+  const [jahr, setJahr] = useState(new Date().getFullYear());
   const [err, setErr] = useState(null);
 
   // Stunden
-  const [stundenGesamt, setStundenGesamt] = useState(0);          // stunden_gesamt
-  const [stundenSummeJahr, setStundenSummeJahr] = useState(0);    // summe_jahr
+  const [stundenGesamt, setStundenGesamt] = useState(0); // vorgabe_stunden
+  const [stundenSummeJahr, setStundenSummeJahr] = useState(0); // summe_jahr
   const [stundenUebernahmeVorjahr, setStundenUebernahmeVorjahr] = useState(0); // uebernahme_vorjahr
+  const [stundenAbzugSummeJahr, setStundenAbzugSummeJahr] = useState(0); // sum(stunden)
 
   // Urlaub
-  const [urlaubGesamt, setUrlaubGesamt] = useState(0);            // urlaub_gesamt
-  const [urlaubSummeJahr, setUrlaubSummeJahr] = useState(0);      // summe_jahr
-  const [urlaubUebernahmeVorjahr, setUrlaubUebernahmeVorjahr] = useState(0);   // uebernahme_vorjahr
+  const [urlaubGesamt, setUrlaubGesamt] = useState(0); // urlaub_gesamt
+  const [urlaubSummeJahr, setUrlaubSummeJahr] = useState(0); // summe_jahr
+  const [urlaubUebernahmeVorjahr, setUrlaubUebernahmeVorjahr] = useState(0); // uebernahme_vorjahr
 
   const load = useCallback(async () => {
     try {
       setErr(null);
       setLoading(true);
+
       const me = localStorage.getItem("user_id");
       if (!me) {
         setErr("Nicht angemeldet.");
-        setLoading(false);
         return;
       }
 
       // --- DB_Stunden ---
       const { data: stundenRows, error: e1 } = await supabase
         .from("DB_Stunden")
-        .select("stunden_gesamt,summe_jahr,uebernahme_vorjahr,jahr")
+        .select("vorgabe_stunden,summe_jahr,uebernahme_vorjahr,jahr")
         .eq("user_id", me)
         .eq("jahr", jahr);
 
       if (e1) throw e1;
 
-      const sSum = (stundenRows || []).reduce(
-        (acc, r) => acc + (Number(r?.summe_jahr) || 0),
-        0
-      );
+      const sSum = (stundenRows || []).reduce((acc, r) => acc + num(r?.summe_jahr), 0);
+
       const sGes = Math.max(
         0,
-        ...((stundenRows || [])
-          .map((r) => Number(r?.stunden_gesamt))
-          .filter((n) => Number.isFinite(n)))
+        ...((stundenRows || []).map((r) => Number(r?.vorgabe_stunden)).filter((n) => Number.isFinite(n)))
       );
+
       const sVorj = Math.max(
         0,
-        ...((stundenRows || [])
-          .map((r) => Number(r?.uebernahme_vorjahr))
-          .filter((n) => Number.isFinite(n)))
+        ...((stundenRows || []).map((r) => Number(r?.uebernahme_vorjahr)).filter((n) => Number.isFinite(n)))
       );
 
       setStundenSummeJahr(sSum);
       setStundenGesamt(Number.isFinite(sGes) ? sGes : 0);
       setStundenUebernahmeVorjahr(Number.isFinite(sVorj) ? sVorj : 0);
+
+      // --- DB_StundenAbzug ---
+      const { data: abzugRows, error: eAb } = await supabase
+        .from("DB_StundenAbzug")
+        .select("stunden,jahr")
+        .eq("user_id", me)
+        .eq("jahr", jahr);
+
+      if (eAb) throw eAb;
+
+      const abzugSum = (abzugRows || []).reduce((acc, r) => acc + num(r?.stunden), 0);
+      setStundenAbzugSummeJahr(abzugSum);
 
       // --- DB_Urlaub ---
       const { data: urlaubRows, error: e2 } = await supabase
@@ -87,21 +118,16 @@ export default function MobileMeineUebersicht() {
 
       if (e2) throw e2;
 
-      const uSum = (urlaubRows || []).reduce(
-        (acc, r) => acc + (Number(r?.summe_jahr) || 0),
-        0
-      );
+      const uSum = (urlaubRows || []).reduce((acc, r) => acc + num(r?.summe_jahr), 0);
+
       const uGes = Math.max(
         0,
-        ...((urlaubRows || [])
-          .map((r) => Number(r?.urlaub_gesamt))
-          .filter((n) => Number.isFinite(n)))
+        ...((urlaubRows || []).map((r) => Number(r?.urlaub_gesamt)).filter((n) => Number.isFinite(n)))
       );
+
       const uVorj = Math.max(
         0,
-        ...((urlaubRows || [])
-          .map((r) => Number(r?.uebernahme_vorjahr))
-          .filter((n) => Number.isFinite(n)))
+        ...((urlaubRows || []).map((r) => Number(r?.uebernahme_vorjahr)).filter((n) => Number.isFinite(n)))
       );
 
       setUrlaubSummeJahr(uSum);
@@ -119,29 +145,30 @@ export default function MobileMeineUebersicht() {
     load();
   }, [load]);
 
-  // ---- Berechnungen inkl. Übernahme Vorjahr ----
-  const istStundenInklVorjahr = (Number(stundenSummeJahr) || 0) + (Number(stundenUebernahmeVorjahr) || 0);
-  const restStunden = istStundenInklVorjahr -(Number(stundenGesamt) || 0) ; // Soll – Ist
+  // ---- Berechnungen ----
+  const istStundenInklVorjahrRaw = num(stundenSummeJahr) + num(stundenUebernahmeVorjahr);
+  const istStundenInklVorjahr = istStundenInklVorjahrRaw - num(stundenAbzugSummeJahr);
+  const restStunden = istStundenInklVorjahr - num(stundenGesamt);
 
-  const istUrlaubInklVorjahr = (Number(urlaubSummeJahr) || 0);
-  const urlaubSollInklVorjahr = (Number(urlaubGesamt) || 0) + (Number(urlaubUebernahmeVorjahr) || 0);
-  const restUrlaub = urlaubSollInklVorjahr - istUrlaubInklVorjahr; // Gesamt(+Vorjahr) – Verbraucht
+  const istUrlaub = num(urlaubSummeJahr);
+  const urlaubSollInklVorjahr = num(urlaubGesamt) + num(urlaubUebernahmeVorjahr);
+  const restUrlaub = urlaubSollInklVorjahr - istUrlaub;
 
-  const pctStundenRaw = pct(Number(stundenGesamt) || 0, istStundenInklVorjahr);
-  const pctUrlaubRaw  = pct(urlaubSollInklVorjahr, istUrlaubInklVorjahr);
+  const pctStundenRaw = pct(num(stundenGesamt), istStundenInklVorjahr);
+  const pctUrlaubRaw = pct(urlaubSollInklVorjahr, istUrlaub);
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold">Meine Übersicht</h2>
-        <div className="text-sm opacity-80">{jahr}</div>
+        <YearSelect value={jahr} onChange={setJahr} />
       </div>
 
       {loading && <div className="text-sm opacity-80">Lade Daten…</div>}
       {err && <div className="text-sm text-red-500">{err}</div>}
 
       {!loading && !err && (
-        <div className="space-y-4 bg-gray-200 dark:bg-gray-900 ">
+        <div className="space-y-4 bg-gray-200 dark:bg-gray-900">
           {/* Stunden */}
           <Card title="Arbeitsstunden (Jahr)">
             <div className="flex items-end justify-between">
@@ -151,23 +178,22 @@ export default function MobileMeineUebersicht() {
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">Differenz (Soll – Ist)</div>
               </div>
+
               <div className="text-right">
                 <div className="text-sm font-medium">
                   {fmt(istStundenInklVorjahr)} / {fmt(stundenGesamt)} Std
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Ist (inkl. Vorjahr) / Soll</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Ist (inkl. Vorjahr - Abzug) / Soll</div>
               </div>
             </div>
 
             <div className="mt-3">
               <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full relative overflow-visible">
-                {/* bis 100% (grün) */}
                 <div
                   className="h-3 bg-green-600 rounded-l-full"
                   style={{ width: `${Math.min(pctStundenRaw, 100)}%` }}
                   aria-hidden
                 />
-                {/* darüber hinaus (rot) */}
                 {pctStundenRaw > 100 && (
                   <div
                     className="h-3 bg-red-500 rounded-r-full absolute top-0"
@@ -182,8 +208,9 @@ export default function MobileMeineUebersicht() {
             </div>
 
             <div className="mt-3 space-y-1">
-              <Row label="Std. nach Sollplan" value={`${fmt(stundenGesamt)} Std`} />
-              <Row label="Bisherige Std. (inkl. Vorjahr)" value={`${fmt(istStundenInklVorjahr)} Std`} />
+              <Row label="Std. Vorgabe" value={`${fmt(stundenGesamt)} Std`} />
+              <Row label="Bisherige Std. (inkl. Vorjahr)" value={`${fmt(istStundenInklVorjahrRaw)} Std`} />
+              <Row label="Stundenabzug (Jahr)" value={`-${fmt(stundenAbzugSummeJahr)} Std`} />
               <Row label="Differenz (Soll – Ist)" value={`${fmt(restStunden)} Std`} />
             </div>
           </Card>
@@ -197,13 +224,12 @@ export default function MobileMeineUebersicht() {
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">Resturlaub (Gesamt – Verbraucht)</div>
               </div>
+
               <div className="text-right">
                 <div className="text-sm font-medium">
-                  {fmt(istUrlaubInklVorjahr, 1)} / {fmt(urlaubSollInklVorjahr, 1)} Tage
+                  {fmt(istUrlaub, 1)} / {fmt(urlaubSollInklVorjahr, 1)} Tage
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  Verbraucht / Gesamt (inkl. Vorjahr)
-                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Verbraucht / Gesamt (inkl. Vorjahr)</div>
               </div>
             </div>
 
@@ -229,13 +255,10 @@ export default function MobileMeineUebersicht() {
 
             <div className="mt-3 space-y-1">
               <Row label="Gesamt (inkl. Vorjahr)" value={`${fmt(urlaubSollInklVorjahr, 1)} Tage`} />
-              <Row label="Verbraucht (Jahr)" value={`${fmt(istUrlaubInklVorjahr, 1)} Tage`} />
+              <Row label="Verbraucht (Jahr)" value={`${fmt(istUrlaub, 1)} Tage`} />
               <Row label="Rest" value={`${fmt(restUrlaub, 1)} Tage`} />
             </div>
           </Card>
-
-          <div className="flex justify-end">
-          </div>
         </div>
       )}
     </div>
