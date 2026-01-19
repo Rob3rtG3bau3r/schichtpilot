@@ -26,27 +26,29 @@ export default function RenderKalender({
 }) {
   if (!startDatum || typeof startDatum.daysInMonth !== 'function') return null;
 
-  const daysInMonth = startDatum.daysInMonth();
   // Montag als Wochenstart: Offset so berechnen, dass Montag links ist
   const firstDay = startDatum.startOf('month').day(); // 0=So..6=Sa
   const offset = firstDay === 0 ? 6 : firstDay - 1;
-
   const cells = [];
-
-  // Leerzellen vor dem 1.
-  for (let i = 0; i < offset; i++) {
-    cells.push(<div key={`empty-${i}`} className="h-20 rounded bg-gray-200 dark:bg-gray-900" />);
-  }
+  const monthStart = startDatum.startOf('month');
+  const monthEnd = startDatum.endOf('month');
+  // Grid Start: Montag vor/gleich Monatsstart
+  const gridStart = monthStart.subtract(offset, 'day');
+  // Grid End: Sonntag nach/gleich Monatsende
+  const endDay = monthEnd.day(); // 0=So..6=Sa
+  const trailing = endDay === 0 ? 0 : (7 - endDay); // Tage bis Sonntag auffüllen
+  const gridEnd = monthEnd.add(trailing, 'day');
+  const totalDays = gridEnd.diff(gridStart, 'day') + 1;
 
   const findEintrag = (iso) =>
     eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === iso);
 
-  const feiertagsBadge = (iso) => {
+    function feiertagsBadge(iso) {
     const tags = feierMap?.[iso];
     if (!tags || !tags.length) return null;
 
-    const ferien = tags.filter(t => ((t.typ || '').toLowerCase().includes('ferien')));
-    const feiertage = tags.filter(t => ((t.typ || '').toLowerCase().includes('feiertag')));
+    const ferien = tags.filter((t) => ((t.typ || '').toLowerCase().includes('ferien')));
+    const feiertage = tags.filter((t) => ((t.typ || '').toLowerCase().includes('feiertag')));
 
     // Ranking: Feiertag > Ferien
     const pick = (feiertage[0] || ferien[0]) || null;
@@ -66,13 +68,16 @@ export default function RenderKalender({
         title={title}
       />
     );
-  };
+  }
 
+  for (let i = 0; i < totalDays; i++) {
+    const d = gridStart.clone().add(i, 'day');
+    const iso = d.format('YYYY-MM-DD');
+    const dayNum = d.date();
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    const iso = startDatum.date(day).format('YYYY-MM-DD');
+    const isOtherMonth = !d.isSame(monthStart, 'month');
+
     const e = findEintrag(iso);
-
     const kuerzel = e?.ist_schicht?.kuerzel || '';
     const farbeBg = e?.ist_schicht?.farbe_bg || '#ccc';
     const farbeTx = e?.ist_schicht?.farbe_text || '#000';
@@ -87,9 +92,9 @@ export default function RenderKalender({
 
     const status = bedarfStatus?.[iso] || {};
 
-    // Nachbar-Regel F/N
-    const prevIso = dayjs(iso).subtract(1, 'day').format('YYYY-MM-DD');
-    const nextIso = dayjs(iso).add(1, 'day').format('YYYY-MM-DD');
+    // Nachbar-Regel F/N (funktioniert auch über Monatsgrenzen)
+    const prevIso = d.clone().subtract(1, 'day').format('YYYY-MM-DD');
+    const nextIso = d.clone().add(1, 'day').format('YYYY-MM-DD');
     const prevK = findEintrag(prevIso)?.ist_schicht?.kuerzel || null;
     const nextK = findEintrag(nextIso)?.ist_schicht?.kuerzel || null;
     const hideFrueh = prevK === 'N';
@@ -105,20 +110,27 @@ export default function RenderKalender({
     const hatUnterbesetzung =
       !istVergangenheit &&
       Object.values(gefFehl).some((v) => v === true || (typeof v === 'number' && v > 0));
+
     const hatUeberdeckung = !istVergangenheit && kuerzel !== '-' && status?.ueber?.includes(kuerzel);
 
     cells.push(
       <div
         key={iso}
-        className={`relative border rounded h-20 p-1 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 ${
-          istHeute ? 'border-blue-400 border-2' : 'border-gray-300 dark:border-gray-700'
-        }`}
-        onClick={() => setInfoOffenIndex(day - 1)}
+        className={`relative border rounded p-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-800
+                  min-h-[5rem] sm:min-h-[5.5rem] md:min-h-[6rem] lg:min-h-[7rem] xl:min-h-[8rem]
+                  ${istHeute ? 'border-blue-400 border-2' : 'border-gray-300 dark:border-gray-700'}
+                  ${isOtherMonth ? 'opacity-50 bg-gray-100 dark:bg-gray-900/40' : ''} cursor-pointer
+                  `}
+
+        onClick={() => {
+          if (isOtherMonth) return;     
+          setInfoOffenIndex(dayNum - 1); 
+        }}
       >
         {feiertagsBadge(iso)}
 
         <div className="flex justify-between items-center text-[10px] mb-1">
-          <span className="text-gray-700 dark:text-gray-200 font-semibold">{day}</span>
+          <span className="text-gray-700 dark:text-gray-200 font-semibold">{dayNum}</span>
           <span className="flex gap-1">
             {hatKommentar && <span title="Kommentar vorhanden">💬</span>}
             {hatUeberdeckung && <span title="Überdeckung – Urlaub möglich">🌿</span>}
@@ -134,6 +146,7 @@ export default function RenderKalender({
             {kuerzel}
           </div>
         )}
+
         {start && ende && (
           <div className="text-gray-700 dark:text-gray-400 text-[10px]">
             {start.format('HH:mm')} - {ende.format('HH:mm')}

@@ -106,8 +106,22 @@ export default function MeineDiensteListe() {
       return;
     }
 
-    const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
-    const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
+    const monthStartObj = startDatum.startOf('month');
+const monthEndObj   = startDatum.endOf('month');
+
+// Montag-Start wie im Kalender
+const firstDay = monthStartObj.day(); // 0=So..6=Sa
+const offset = firstDay === 0 ? 6 : firstDay - 1;
+
+const gridStart = monthStartObj.subtract(offset, 'day');
+
+// Sonntag-Ende wie im Kalender
+const endDay = monthEndObj.day(); // 0=So..6=Sa
+const trailing = endDay === 0 ? 0 : (7 - endDay);
+const gridEnd = monthEndObj.add(trailing, 'day');
+
+const from = gridStart.format('YYYY-MM-DD');
+const to   = gridEnd.format('YYYY-MM-DD');
 
     // 1) Komponierter Tagesplan aus View (nur der eigene User)
     const { data: viewRows, error: viewErr } = await supabase
@@ -126,8 +140,8 @@ export default function MeineDiensteListe() {
       .eq('firma_id', Number(firma))
       .eq('unit_id', Number(unit))
       .eq('user_id', String(gespeicherteId))
-      .gte('datum', monthStart)
-      .lte('datum', monthEnd)
+      .gte('datum', from) 
+      .lte('datum', to)
       .order('datum', { ascending: true });
 
     if (viewErr) {
@@ -218,47 +232,71 @@ export default function MeineDiensteListe() {
       setFeierMap({});
       return;
     }
+
     const monthStart = startDatum.startOf('month').format('YYYY-MM-DD');
     const monthEnd   = startDatum.endOf('month').format('YYYY-MM-DD');
 
-    const bundesland = localStorage.getItem('bundesland') || null;
+    // NEU: Land + Bundesland (aus localStorage oder später besser aus DB_Unit)
+    const land = (localStorage.getItem('land') || '').trim();
+    const bundesland = (localStorage.getItem('bundesland') || '').trim();
 
-    let q = supabase
+    if (!land) {
+      setFeierMap({});
+      return;
+    }
+
+    const { data, error } = await supabase
       .from('DB_FeiertageundFerien')
-      .select('von,bis,name,typ,farbe,bundesland')
+      .select('id, von, bis, name, typ, farbe, land, bundesland, ist_bundesweit')
+      .eq('land', land)
+      // bundesweit ODER exakt Bundesland
+      .or(`ist_bundesweit.eq.true,bundesland.eq.${bundesland}`)
+      // Overlap: von <= monthEnd AND (bis is null OR bis >= monthStart)
       .lte('von', monthEnd)
-      .gte('bis', monthStart);
+      .or(`bis.is.null,bis.gte.${monthStart}`);
 
-    if (bundesland) q = q.eq('bundesland', bundesland);
-
-    const { data, error } = await q;
     if (error) {
-      console.error('❌ Feiertage/Ferien:', error.message || error);
+      console.error('❌ Feiertage/Ferien (mobil):', error.message || error);
       setFeierMap({});
       return;
     }
 
     const defaultColor = (typ) => {
-      if (!typ) return '#16a34a';
-      const t = typ.toLowerCase();
-      if (t.includes('feiertag')) return '#16a34a';
-      if (t.includes('ferien'))   return '#f59e0b';
-      return '#16a34a';
+      const t = (typ || '').toLowerCase();
+      if (t.includes('feiertag')) return '#ef4444'; // rot
+      if (t.includes('ferien'))   return '#10b981'; // grün (oder was du willst)
+      return '#10b981';
     };
 
+    // Map pro Tag: mehrere Einträge möglich
     const map = {};
-    (data || []).forEach(row => {
-      const start = dayjs(row.von);
-      const end   = dayjs(row.bis);
+    const startBound = dayjs(monthStart);
+    const endBound   = dayjs(monthEnd);
+
+    for (const row of (data || [])) {
+      const typ = (row.typ || '').toLowerCase();
       const color = row.farbe || defaultColor(row.typ);
 
-      const days = Math.min(end.diff(start, 'day') + 1, 400);
-      for (let i = 0; i < days; i++) {
-        const d = start.add(i, 'day').format('YYYY-MM-DD');
-        if (!map[d]) map[d] = [{ name: row.name, typ: row.typ, farbe: color }];
-        else map[d].push({ name: row.name, typ: row.typ, farbe: color });
+      const von = dayjs(row.von);
+      const bis = row.bis ? dayjs(row.bis) : von;
+
+      let cur = von.isBefore(startBound, 'day') ? startBound : von;
+      const last = bis.isAfter(endBound, 'day') ? endBound : bis;
+
+      for (let i = 0; i < 500 && (cur.isSame(last, 'day') || cur.isBefore(last, 'day')); i++) {
+        const dIso = cur.format('YYYY-MM-DD');
+        if (!map[dIso]) map[dIso] = [];
+        map[dIso].push({
+          id: row.id,
+          name: row.name,
+          typ: row.typ,
+          farbe: color,
+          ist_bundesweit: !!row.ist_bundesweit,
+          bundesland: row.bundesland || null,
+        });
+        cur = cur.add(1, 'day');
       }
-    });
+    }
 
     setFeierMap(map);
   };
