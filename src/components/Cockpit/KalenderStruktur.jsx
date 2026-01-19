@@ -71,10 +71,10 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
       const start = startDate.format('YYYY-MM-DD');
       const ende = endDate.format('YYYY-MM-DD');
 
-      // Bundesland der Unit holen
+      // Land + Bundesland der Unit holen
       const { data: unitData, error: unitError } = await supabase
         .from('DB_Unit')
-        .select('bundesland')
+        .select('land, bundesland')
         .eq('id', unit)
         .single();
 
@@ -83,15 +83,34 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
         return;
       }
 
-      const bundesland = unitData?.bundesland;
+      const land = (unitData?.land || '').trim();
+      const bundesland = (unitData?.bundesland || '').trim();
 
-      // Ferien & Feiertage (typ unterscheidet)
-      const { data: feiertage, error: feiertageError } = await supabase
-        .from('DB_FeiertageundFerien')
-        .select('typ, name, von, bis, farbe')
-        .eq('bundesland', bundesland)
-        .lte('von', ende)
-        .or(`bis.is.null, bis.gte.${start}`);
+      if (!land) {
+        console.warn('⚠️ Unit hat kein Land gesetzt (DB_Unit.land). Feiertage/Ferien können nicht geladen werden.');
+      }
+
+      // Ferien & Feiertage:
+      // - muss zum Land passen
+      // - und entweder bundesweit (ist_bundesweit=true) ODER passendes Bundesland
+      // - Zeitraum-Overlap: von <= ende UND bis >= start
+      // Hinweis: Wir gehen davon aus, dass "bis" immer gesetzt ist (Feiertag: bis=von).
+      let feiertage = [];
+      if (land) {
+        const { data: ff, error: feiertageError } = await supabase
+          .from('DB_FeiertageundFerien')
+          .select('typ, name, von, bis, farbe, land, bundesland, ist_bundesweit')
+          .eq('land', land)
+          .or(`ist_bundesweit.eq.true,bundesland.eq.${bundesland}`)
+          .lte('von', ende)
+          .gte('bis', start);
+
+        if (feiertageError) {
+          console.error('❌ Fehler beim Laden Feiertage/Ferien:', feiertageError.message);
+          return;
+        }
+        feiertage = ff || [];
+      }
 
       const [
         { data: termine, error: termineError },
@@ -109,10 +128,10 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
           .select('id, qualifikation'),
       ]);
 
-      if (feiertageError || termineError || qualisError) {
+      if (termineError || qualisError) {
         console.error(
           '❌ Fehler beim Laden der Einträge:',
-          feiertageError || termineError || qualisError
+          termineError || qualisError
         );
         return;
       }
@@ -124,7 +143,7 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
       setQualiMap(map);
 
       setEintraege({
-        feiertage: feiertage || [],
+        feiertage,
         termine: termine || [],
       });
     };
@@ -139,12 +158,10 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     const start = tage[0].date;
     const end = tage[tage.length - 1].date;
 
-    // 🔄 global merken (für Komponenten, die später gemountet werden)
     if (typeof window !== 'undefined') {
       window.__spVisibleRange = { start, end };
     }
 
-    // 🔊 Event für Listener (KampfListe, MitarbeiterBedarf, Sollplan, ...)
     window.dispatchEvent(
       new CustomEvent('sp:visibleRange', {
         detail: { start, end },
@@ -235,13 +252,16 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
               : '';
 
             const feiertagTitle = feiertagTag.length
-              ? `Feiertag: ${feiertagTag[0].name || ''}`
+              ? (() => {
+                  const f = feiertagTag[0];
+                  const bw = f.ist_bundesweit ? 'bundesweit' : (f.bundesland || '');
+                  return `Feiertag: ${f.name || ''}${bw ? ` (${bw})` : ''}`;
+                })()
               : '';
 
             const terminTitle = termineHeute.length
               ? (() => {
                   const t0 = termineHeute[0];
-                  // Qualis auflösen
                   let qualiText = '';
                   if (Array.isArray(t0.quali_ids) && t0.quali_ids.length) {
                     const namen = t0.quali_ids
@@ -251,7 +271,6 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
                       qualiText = ` | Quali: ${namen.join(', ')}`;
                     }
                   }
-                  // Teams
                   let teamText = '';
                   if (Array.isArray(t0.team) && t0.team.length) {
                     teamText = ` | Team: ${t0.team.join(', ')}`;
@@ -299,10 +318,10 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
                   />
                 )}
 
-                {/* Feiertag-Punkt oben rechts */}
+                {/* Feiertag-Balken unten (statt Punkt) */}
                 {feiertagTag.length > 0 && (
                   <div
-                    className="absolute top-[2px] right-[2px] w-[6px] h-[6px] rounded-full"
+                    className="absolute bottom-0 left-0 right-0 h-[4px] rounded-b-[6px]"
                     style={{ backgroundColor: feiertagColor }}
                     title={feiertagTitle}
                   />

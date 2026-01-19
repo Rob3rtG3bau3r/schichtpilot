@@ -11,7 +11,7 @@ dayjs.locale('de');
 const getWeekStart = (year, kw) => {
   // Jan 4 ist in KW 1
   const jan4 = dayjs(`${year}-01-04`);
-  const week1Start = jan4.startOf('week'); // Montag
+  const week1Start = jan4.startOf('week'); // bei de-Locale ist "week" i.d.R. Montag-basiert
   return week1Start.add(kw - 1, 'week');
 };
 
@@ -29,7 +29,8 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
   const [visibleStart, setVisibleStart] = useState(null);
   const [visibleEnd, setVisibleEnd] = useState(null);
 
-  const [bundesland, setBundesland] = useState(null);
+  // 🔎 Unit-Location: Land + Bundesland (NEU)
+  const [unitLoc, setUnitLoc] = useState({ land: null, bundesland: null });
 
   const [termineByDate, setTermineByDate] = useState({});
   const [ferienByDate, setFerienByDate] = useState({});
@@ -60,25 +61,28 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
     );
   };
 
-  // 🔎 Bundesland laden
+  // 🔎 Land + Bundesland laden
   useEffect(() => {
-    const ladeBundesland = async () => {
+    const ladeUnitLoc = async () => {
       if (!unit) return;
       const { data, error } = await supabase
         .from('DB_Unit')
-        .select('bundesland')
+        .select('land, bundesland')
         .eq('id', unit)
         .single();
 
       if (error) {
-        console.error('❌ Fehler beim Laden des Bundeslandes:', error.message || error);
-        setBundesland(null);
+        console.error('❌ Fehler beim Laden der Unit-Location:', error.message || error);
+        setUnitLoc({ land: null, bundesland: null });
         return;
       }
-      setBundesland(data?.bundesland || null);
+      setUnitLoc({
+        land: (data?.land || null),
+        bundesland: (data?.bundesland || null),
+      });
     };
 
-    ladeBundesland();
+    ladeUnitLoc();
   }, [unit]);
 
   // Wenn Jahr wechselt → sinnvolle default-KW
@@ -145,17 +149,21 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
         tMap[d].push(t);
       }
 
-      // Ferien / Feiertage
+      // Ferien / Feiertage (NEU: Land + (bundesweit oder BL))
       let fMap = {};
       let hMap = {};
 
-      if (bundesland) {
+      const land = (unitLoc?.land || '').trim();
+      const bundesland = (unitLoc?.bundesland || '').trim();
+
+      if (land) {
         const { data: ff, error: ffErr } = await supabase
           .from('DB_FeiertageundFerien')
-          .select('id, typ, name, von, bis, jahr, farbe')
-          .eq('bundesland', bundesland)
+          .select('id, typ, name, von, bis, jahr, farbe, land, bundesland, ist_bundesweit')
+          .eq('land', land)
+          .or(`ist_bundesweit.eq.true,bundesland.eq.${bundesland}`)
           .lte('von', endIso)
-          .or(`bis.is.null, bis.gte.${startIso}`);
+          .gte('bis', startIso);
 
         if (ffErr) {
           console.error('❌ Fehler Ferien/Feiertage (Woche):', ffErr.message || ffErr);
@@ -197,6 +205,11 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
             }
           }
         }
+      } else {
+        // Land fehlt → Hinweis in Console
+        if (unit) {
+          console.warn('⚠️ Unit hat kein Land (DB_Unit.land). Ferien/Feiertage werden nicht geladen.');
+        }
       }
 
       setTermineByDate(tMap);
@@ -205,7 +218,7 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
     };
 
     ladeKalenderDaten();
-  }, [firma, unit, bundesland, visibleStart, visibleEnd]);
+  }, [firma, unit, unitLoc, visibleStart, visibleEnd]);
 
   // Liste aller Tage im sichtbaren Bereich
   const tage = useMemo(() => {
@@ -335,7 +348,11 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
               const feiertagTitle =
                 feiertage.length === 0
                   ? ''
-                  : `Feiertag: ${feiertage[0].name || ''}`;
+                  : (() => {
+                      const f = feiertage[0];
+                      const bw = f.ist_bundesweit ? 'bundesweit' : (f.bundesland || '');
+                      return `Feiertag: ${f.name || ''}${bw ? ` (${bw})` : ''}`;
+                    })();
 
               const combinedTitle = [ferienTitle, feiertagTitle, terminTitle]
                 .filter(Boolean)
@@ -368,10 +385,10 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
                     />
                   )}
 
-                  {/* Feiertag-Punkt */}
+                  {/* Feiertag-Balken unten (statt Punkt) */}
                   {feiertage.length > 0 && (
                     <div
-                      className="absolute top-[2px] right-[2px] w-[5px] h-[5px] rounded-full"
+                      className="absolute bottom-0 left-0 right-0 h-[3px] rounded-b-[4px]"
                       style={{ backgroundColor: feiertagColor }}
                       title={feiertagTitle}
                     />

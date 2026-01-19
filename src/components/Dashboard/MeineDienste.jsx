@@ -41,11 +41,17 @@ const MeineDienste = () => {
   const [druckOffen, setDruckOffen] = useState(false);
 
   // Tooltips
-  const [hoverKey, setHoverKey] = useState(null); // 'c-YYYY-MM-DD-i' | 't-YYYY-MM-DD-i'
+  const [hoverKey, setHoverKey] = useState(null); // 'c-YYYY-MM-DD-i' | 't-YYYY-MM-DD-i' | 'd-YYYY-MM-DD-i'
   const todayStr = dayjs().format('YYYY-MM-DD');
 
   // Termine pro Datum
-  const [termineByDate, setTermineByDate] = useState({}); // { 'YYYY-MM-DD': [{id, bezeichnung, ziel_typ, farbe}] }
+  const [termineByDate, setTermineByDate] = useState({});
+
+  // Feiertage/Ferien pro Datum
+  const [ffByDate, setFfByDate] = useState({}); // { 'YYYY-MM-DD': [{id, typ, name, farbe, von, bis}] }
+
+  // Unit-Location
+  const [unitLoc, setUnitLoc] = useState({ land: null, bundesland: null });
 
   const changeMonthRel = (delta) => {
     setStartDatum(prev => {
@@ -53,6 +59,94 @@ const MeineDienste = () => {
       setJahr(neu.year());
       return neu;
     });
+  };
+
+  // Unit-Location laden (Land + Bundesland)
+  useEffect(() => {
+    const loadUnitLoc = async () => {
+      if (!unit) return;
+      const { data, error } = await supabase
+        .from('DB_Unit')
+        .select('land, bundesland')
+        .eq('id', unit)
+        .single();
+
+      if (error) {
+        console.error('❌ DB_Unit Location Fehler:', error.message || error);
+        setUnitLoc({ land: null, bundesland: null });
+        return;
+      }
+      setUnitLoc({
+        land: (data?.land || null),
+        bundesland: (data?.bundesland || null),
+      });
+    };
+
+    loadUnitLoc();
+  }, [unit]);
+
+  // Feiertage/Ferien laden (Land + (bundesweit oder BL))
+  const ladeFeiertageFerienOptional = async (von, bis) => {
+    try {
+      const land = (unitLoc?.land || '').trim();
+      const bundesland = (unitLoc?.bundesland || '').trim();
+
+      if (!land) {
+        setFfByDate({});
+        return;
+      }
+
+      const { data: rows, error } = await supabase
+        .from('DB_FeiertageundFerien')
+        .select('id, typ, name, von, bis, farbe, land, bundesland, ist_bundesweit')
+        .eq('land', land)
+        .or(`ist_bundesweit.eq.true,bundesland.eq.${bundesland}`)
+        .lte('von', bis)
+        .or(`bis.is.null, bis.gte.${von}`);
+
+      if (error) {
+        console.error('❌ DB_FeiertageundFerien Fehler:', error.message || error);
+        setFfByDate({});
+        return;
+      }
+
+      const map = {};
+      const startBound = dayjs(von);
+      const endBound = dayjs(bis);
+
+      for (const r of rows || []) {
+        const typ = (r.typ || '').toLowerCase();
+        const color = r.farbe || (typ.includes('ferien') ? '#10b981' : '#ef4444');
+        const name = r.name || '';
+
+        const rVon = dayjs(r.von);
+        const rBis = r.bis ? dayjs(r.bis) : rVon;
+
+        let cur = rVon.isBefore(startBound, 'day') ? startBound : rVon;
+        const last = rBis.isAfter(endBound, 'day') ? endBound : rBis;
+
+        while (cur.isSame(last, 'day') || cur.isBefore(last, 'day')) {
+          const ds = cur.format('YYYY-MM-DD');
+          if (!map[ds]) map[ds] = [];
+          map[ds].push({
+            id: r.id,
+            typ: r.typ,
+            name,
+            farbe: color,
+            von: r.von,
+            bis: r.bis,
+            ist_bundesweit: !!r.ist_bundesweit,
+            bundesland: r.bundesland || null,
+          });
+          cur = cur.add(1, 'day');
+        }
+      }
+
+      setFfByDate(map);
+    } catch (e) {
+      console.warn('Feiertage/Ferien konnten nicht ermittelt werden:', e?.message || e);
+      setFfByDate({});
+    }
   };
 
   // Dienste laden (v_tagesplan + SchichtArt)
@@ -108,13 +202,15 @@ const MeineDienste = () => {
       setEintraege(mapped);
     }
 
-    await ladeTermineOptional(von, bis);
+    await Promise.all([
+      ladeTermineOptional(von, bis),
+      ladeFeiertageFerienOptional(von, bis),
+    ]);
   };
 
-  // Termine: nur für MAs Gruppe (ziel_typ 'team') + (optional) Quali-Termine
+  // Termine (dein bestehender Code unverändert)
   const ladeTermineOptional = async (von, bis) => {
     try {
-      // Gruppe pro Tag aus Zuweisung
       const { data: zuw, error: zErr } = await supabase
         .from('DB_SchichtZuweisung')
         .select('schichtgruppe, von_datum, bis_datum')
@@ -136,28 +232,26 @@ const MeineDienste = () => {
         gruppeByDate[ds] = hit?.schichtgruppe || null;
       }
 
-      // Qualifikationen des Users (mit firma/unit)
       const { data: qRows, error: qErr } = await supabase
         .from('DB_Qualifikation')
         .select('quali')
-        .eq('user_id', userId)
+        .eq('user_id', userId);
       if (qErr) throw qErr;
       const qualiSet = new Set(
         (qRows || []).map(r => Number(r.quali)).filter(n => !Number.isNaN(n))
       );
 
-      // Termindaten: fixe + wiederholende
       const [fix, rep] = await Promise.all([
         supabase
           .from('DB_TerminVerwaltung')
-          .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ')
+          .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ, wiederholung_typ, wiederholung_intervall')
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
           .gte('datum', von)
           .lte('datum', bis),
         supabase
           .from('DB_TerminVerwaltung')
-          .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ')
+          .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ, wiederholung_typ, wiederholung_intervall')
           .eq('firma_id', Number(firma))
           .eq('unit_id', Number(unit))
           .eq('wiederholend', true)
@@ -165,94 +259,73 @@ const MeineDienste = () => {
       ]);
 
       if (fix.error) console.error('❌ Termine FIX Fehler:', fix.error.message || fix.error);
-if (rep.error) console.error('❌ Termine REP Fehler:', rep.error.message || rep.error);
+      if (rep.error) console.error('❌ Termine REP Fehler:', rep.error.message || rep.error);
 
-const fixRows = fix.error ? [] : (fix.data || []);
-const repRows = rep.error ? [] : (rep.data || []);
+      const fixRows = fix.error ? [] : (fix.data || []);
+      const repRows = rep.error ? [] : (rep.data || []);
 
-console.log('REP ROWS COUNT', repRows.length);
-console.log('REP SAMPLE', repRows?.[0]);
-
-      // Helper
       const asArray = (x) => Array.isArray(x)
         ? x
         : (typeof x === 'string'
             ? x.split(',').map(s => s.trim()).filter(Boolean)
             : (x == null ? [] : [x]));
-const getRepeatTyp = (row) => (row?.wiederholung_typ || '').toString().trim().toLowerCase();
-const getRepeatEvery = (row) => {
-  const n = Number(row?.wiederholung_intervall);
-  return Number.isFinite(n) && n > 0 ? n : 1;
-};
 
-const occursOnDate = (row, ds) => {
-  if (!row?.wiederholend) return row?.datum === ds;
+      const getRepeatTyp = (row) => (row?.wiederholung_typ || '').toString().trim().toLowerCase();
+      const getRepeatEvery = (row) => {
+        const n = Number(row?.wiederholung_intervall);
+        return Number.isFinite(n) && n > 0 ? n : 1;
+      };
 
-  const start = row?.datum ? dayjs(row.datum).startOf('day') : null;
-  const cur = dayjs(ds).startOf('day');
-  if (!start) return false;
+      const occursOnDate = (row, ds) => {
+        if (!row?.wiederholend) return row?.datum === ds;
 
-  // Wiederholung startet erst ab Startdatum
-  if (cur.isBefore(start, 'day')) return false;
+        const start = row?.datum ? dayjs(row.datum).startOf('day') : null;
+        const cur = dayjs(ds).startOf('day');
+        if (!start) return false;
+        if (cur.isBefore(start, 'day')) return false;
 
-  const typ = getRepeatTyp(row);
-  const every = getRepeatEvery(row);
+        const typ = getRepeatTyp(row);
+        const every = getRepeatEvery(row);
 
-  // Fallback: wenn typ fehlt, NICHT jeden Tag => wir bleiben bei deinem alten "monatlich gleicher Tag"
-  // (So gibt's keine Überraschungen bei alten Datensätzen.)
-  if (!typ) {
-  // Wenn Typ fehlt: sicherheitshalber NUR am Startdatum anzeigen
-  return cur.isSame(start, 'day');
-}
+        if (!typ) return cur.isSame(start, 'day');
 
-  if (typ === 'taeglich' || typ === 'daily') {
-    const diffDays = cur.diff(start, 'day');
-    return diffDays % every === 0;
-  }
+        if (typ === 'taeglich' || typ === 'daily') {
+          const diffDays = cur.diff(start, 'day');
+          return diffDays % every === 0;
+        }
+        if (typ === 'woechentlich' || typ === 'weekly') {
+          if (cur.day() !== start.day()) return false;
+          const diffWeeks = cur.diff(start, 'week');
+          return diffWeeks % every === 0;
+        }
+        if (typ === 'monatlich' || typ === 'monthly') {
+          if (cur.date() !== start.date()) return false;
+          const diffMonths = cur.diff(start, 'month');
+          return diffMonths % every === 0;
+        }
+        return false;
+      };
 
-  if (typ === 'woechentlich' || typ === 'weekly') {
-    // gleicher Wochentag + Wochenabstand
-    if (cur.day() !== start.day()) return false;
-    const diffWeeks = cur.diff(start, 'week');
-    return diffWeeks % every === 0;
-  }
-
-  if (typ === 'monatlich' || typ === 'monthly') {
-    // gleicher Tag im Monat + Monatsabstand
-    if (cur.date() !== start.date()) return false;
-    const diffMonths = cur.diff(start, 'month');
-    return diffMonths % every === 0;
-  }
-
-  // unbekannter typ => lieber NICHT anzeigen
-  return false;
-};
-
-      // pro Tag bestimmen
       const map = {};
       let cur = dayjs(von); end = dayjs(bis);
       for (; !cur.isAfter(end, 'day'); cur = cur.add(1, 'day')) {
         const ds = cur.format('YYYY-MM-DD');
         const gruppe = gruppeByDate[ds] || null;
 
-        // Kandidaten zusammenstellen
-        const tagged  = fixRows.filter(r => r.datum === ds);
+        const tagged = fixRows.filter(r => r.datum === ds);
         const repHits = repRows.filter(r => occursOnDate(r, ds));
 
-        // Erstes Dedupe nach id (fix vs. rep)
         const byId = new Map();
         [...tagged, ...repHits].forEach(r => byId.set(r.id, r));
         const all = Array.from(byId.values());
 
-        // Filter: nur wenn MA-Gruppe im Termin enthalten (bei ziel_typ 'team')
-        // + optional: Quali-Termine, falls Nutzer passende Quali hat
         const hits = all.filter(row => {
           const typ = row.ziel_typ || null;
 
           if (typ === 'team') {
             if (!gruppe) return false;
             const teams = asArray(row.team);
-            return teams.includes(gruppe); // NUR die Gruppe des MAs
+            return teams.includes(gruppe);
           }
 
           if (typ === 'quali') {
@@ -261,15 +334,13 @@ const occursOnDate = (row, ds) => {
             return false;
           }
 
-          // „für alle“
           return !typ;
         });
 
-        // Zweites Dedupe: nach Name|Datum (falls derselbe Termin mehrfach für versch. Teams angelegt wurde)
         if (hits.length) {
           const norm = (s) => (s || '').trim().toLowerCase();
           const uniqByName = Array.from(
-            new Map(hits.map(h => [ `${norm(h.bezeichnung)}|${ds}`, h ])).values()
+            new Map(hits.map(h => [`${norm(h.bezeichnung)}|${ds}`, h])).values()
           );
 
           map[ds] = uniqByName.map(h => ({
@@ -291,13 +362,14 @@ const occursOnDate = (row, ds) => {
   useEffect(() => {
     ladeDienste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, firma, unit, startDatum]);
+  }, [userId, firma, unit, startDatum, unitLoc.land, unitLoc.bundesland]);
 
   const zurueckZuHeute = () => {
     const heute = dayjs();
     setJahr(heute.year());
     setStartDatum(heute.startOf('month'));
   };
+
   const changeMonth = (e) => {
     const idx = monate.indexOf(e.target.value);
     if (idx >= 0) {
@@ -306,6 +378,7 @@ const occursOnDate = (row, ds) => {
       setJahr(neu.year());
     }
   };
+
   const changeYear = (e) => {
     const y = parseInt(e.target.value, 10);
     if (!Number.isNaN(y)) {
@@ -313,6 +386,56 @@ const occursOnDate = (row, ds) => {
       setJahr(y);
       setStartDatum(neu);
     }
+  };
+
+  // Helper: Datum-Zellenstyle nach Ferien/Feiertag
+  const getDateCellStyle = (ds) => {
+    const ff = ffByDate[ds] || [];
+    if (!ff.length) return null;
+
+    const ferien = ff.filter(x => ((x.typ || '').toLowerCase().includes('ferien')));
+    const feiertage = ff.filter(x => ((x.typ || '').toLowerCase().includes('feiertag')));
+
+    // Priorität: Feiertag > Ferien
+    const pick = (feiertage[0] || ferien[0]) || null;
+    if (!pick) return null;
+
+    return {
+      backgroundColor: pick.farbe || '#ef4444',
+      color: '#111827', // dunkel lesbar
+      borderRadius: '8px',
+      padding: '2px 6px',
+      display: 'inline-block',
+      fontWeight: 600,
+    };
+  };
+
+  const getDateTitle = (ds) => {
+    const ff = ffByDate[ds] || [];
+    if (!ff.length) return '';
+
+    const ferien = ff.filter(x => ((x.typ || '').toLowerCase().includes('ferien')));
+    const feiertage = ff.filter(x => ((x.typ || '').toLowerCase().includes('feiertag')));
+
+    const lines = [];
+
+    if (feiertage.length) {
+      const h0 = feiertage[0];
+      lines.push(`Feiertag: ${h0.name || ''}`);
+      if (feiertage.length > 1) lines.push(`+ ${feiertage.length - 1} weitere`);
+      // wichtig: wenn Feiertag da ist, Ferien NICHT anzeigen (dein Ranking)
+      return lines.join(' | ');
+    }
+
+    if (ferien.length) {
+      const f0 = ferien[0];
+      const von = dayjs(f0.von).format('DD.MM.');
+      const bis = dayjs(f0.bis || f0.von).format('DD.MM.');
+      lines.push(`Ferien: ${f0.name || ''} (${von} – ${bis})`);
+      if (ferien.length > 1) lines.push(`+ ${ferien.length - 1} weitere`);
+    }
+
+    return lines.join(' | ');
   };
 
   return (
@@ -366,13 +489,14 @@ const occursOnDate = (row, ds) => {
           >
             <Info className="w-5 h-5 text-blue-600 dark:text-blue-300" />
           </button>
+
           <button
-           onClick={() => setDruckOffen(true)}
-           title="Dienstplan drucken"
-           className="px-2 py-1 rounded hover:bg-gray-300/60 dark:hover:bg-gray-700/60"
-         >
-           <Printer className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-         </button>
+            onClick={() => setDruckOffen(true)}
+            title="Dienstplan drucken"
+            className="px-2 py-1 rounded hover:bg-gray-300/60 dark:hover:bg-gray-700/60"
+          >
+            <Printer className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+          </button>
         </div>
       </div>
 
@@ -408,12 +532,14 @@ const occursOnDate = (row, ds) => {
               const hatKommentar = !!(e.kommentar && e.kommentar.trim().length > 0);
               const termine = termineByDate[ds] || [];
 
-              // finaler Dedupe beim Render (Sicherheitsgurt)
               const uniqueTermine = Array.from(
                 new Map(
                   termine.map(t => [t.id ?? `${(t.bezeichnung || '').trim().toLowerCase()}|${ds}`, t])
                 ).values()
               );
+
+              const dateStyle = getDateCellStyle(ds);
+              const dateTitle = getDateTitle(ds);
 
               return (
                 <tr
@@ -422,9 +548,27 @@ const occursOnDate = (row, ds) => {
                     istHeute ? 'ring-2 ring-blue-400/70' : ''
                   }`}
                 >
-                  {/* Datum */}
+                  {/* Datum (hier einfärben) */}
                   <td className="py-1 align-top">
-                    <span className="font-medium">{dayjs(ds).format('DD.MM.YYYY')}</span>
+                    <span
+                      className="font-medium"
+                      style={dateStyle || undefined}
+                      title={dateTitle || undefined}
+                      onMouseEnter={() => dateTitle ? setHoverKey(`d-${ds}-${i}`) : null}
+                      onMouseLeave={() => hoverKey?.startsWith(`d-${ds}-${i}`) ? setHoverKey(null) : null}
+                    >
+                      {dayjs(ds).format('DD.MM.YYYY')}
+                    </span>
+
+                    {/* Optional Tooltip (nur wenn Titel vorhanden) */}
+                    {dateTitle && hoverKey === `d-${ds}-${i}` && (
+                      <Tooltip>
+                        <div className="font-semibold mb-1">
+                          {dayjs(ds).format('dddd, DD.MM.YYYY')}
+                        </div>
+                        <div>{dateTitle}</div>
+                      </Tooltip>
+                    )}
                   </td>
 
                   {/* Kürzel */}
@@ -445,7 +589,7 @@ const occursOnDate = (row, ds) => {
                   <td className="align-top">{ende ? ende.format('HH:mm') : '–'}</td>
                   <td className="align-top">{dauerMin > 0 ? `${stunden}h ${minuten}min` : '–'}</td>
 
-                  {/* Info-Spalte: nur Symbole + Tooltip */}
+                  {/* Info */}
                   <td className="align-top">
                     <div className="flex items-center gap-2 relative">
                       {/* Kommentar */}
@@ -467,7 +611,7 @@ const occursOnDate = (row, ds) => {
                         </span>
                       )}
 
-                      {/* Termin(e) – nur 1x pro Terminname */}
+                      {/* Termin(e) */}
                       {uniqueTermine.length > 0 && (
                         <span
                           className="relative cursor-default inline-flex items-center"
@@ -515,8 +659,9 @@ const occursOnDate = (row, ds) => {
               <li>Monatswechsel: – / + direkt neben der Monatsauswahl.</li>
               <li>„Zurück zu heute“ setzt auf den aktuellen Monatsanfang.</li>
               <li>Heutiger Tag ist blau markiert.</li>
-              <li>Info-Spalte: 💬 für Kommentare, 📅 für **Team-/Quali-Termine**, jeweils nur einmal pro Tag.</li>
-              <li>Datenquelle: v_tagesplan + DB_SchichtArt; Termine aus DB_TerminVerwaltung.</li>
+              <li>Datum wird eingefärbt: Feiertag &gt; Ferien (Feiertag überdeckt Ferien).</li>
+              <li>Info-Spalte: 💬 Kommentar, 📅 Team-/Quali-Termine.</li>
+              <li>Datenquelle: v_tagesplan + DB_SchichtArt; Feiertage/Ferien aus DB_FeiertageundFerien.</li>
             </ul>
             <div className="text-right mt-4">
               <button
@@ -529,14 +674,14 @@ const occursOnDate = (row, ds) => {
           </div>
         </div>
       )}
+
       {druckOffen && (
         <DienstPlanDruckModal
-         onClose={() => setDruckOffen(false)}
+          onClose={() => setDruckOffen(false)}
           defaultYear={jahr}
-          defaultMonthIndex={startDatum.month()}  // 0..11
+          defaultMonthIndex={startDatum.month()}
         />
       )}
-
     </div>
   );
 };
