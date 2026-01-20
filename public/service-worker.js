@@ -1,5 +1,5 @@
 // public/service-worker.js
-const CACHE_VERSION = "v13-schichtpilot";
+const CACHE_VERSION = "v15-schichtpilot";
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
@@ -130,4 +130,28 @@ self.addEventListener("fetch", (event) => {
       }
     })()
   );
+});
+// ===== PUSH: Notification anzeigen =====
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {}
+
+  const title = data.title || 'SchichtPilot';
+  const options = {
+    body: data.body || 'Neue Nachricht',
+    icon: data.icon || '/icons/icon-192.png',
+    badge: data.badge || '/icons/icon-192.png',
+    data: data.data || {}, // z.B. { url: '/mobile/meine-dienste' }
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// ===== PUSH: Klick auf Notification =====
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification?.data?.url || '/';
+  event.waitUntil(clients.openWindow(url));
 });

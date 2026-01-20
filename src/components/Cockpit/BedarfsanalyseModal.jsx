@@ -9,7 +9,7 @@ import duration from 'dayjs/plugin/duration';
 dayjs.extend(duration);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
-
+import { ensurePushSubscription } from '../../utils/pushClient';
 import { useRollen } from '../../context/RollenContext';
 import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
 import { BAM_UI, BAM_InfoModal } from './BAM_UI';
@@ -29,6 +29,69 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const [notizByUser, setNotizByUser] = useState(new Map()); // uid -> row
   const [selected, setSelected] = useState(null);             // { uid, name, tel1, tel2 }
   const [notizText, setNotizText] = useState('');
+    // ✅ Push (UI first, Backend later)
+    const defaultPushText = () => {
+    const s = String(modalSchicht || '').toUpperCase();
+    const label = s === 'F' ? 'Früh' : s === 'S' ? 'Spät' : s === 'N' ? 'Nacht' : s;
+    return `❗ ${label}schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')} unterbesetzt – kannst du helfen?`;
+  };
+  const [pushText, setPushText] = useState('');
+  const [pushSending, setPushSending] = useState(false);
+  const [pushResult, setPushResult] = useState(''); // kurze Statusmeldung
+  const dbg = (...args) => console.log("[PUSH-DBG]", ...args);
+    const saveSubscription = async (sub) => {
+      const u = (await supabase.auth.getUser()).data?.user;
+      if (!u?.id) throw new Error("Kein User eingeloggt.");
+
+      const json = sub?.toJSON?.() || sub;
+      const endpoint = json?.endpoint;
+      const p256dh = json?.keys?.p256dh;
+      const auth = json?.keys?.auth;
+
+      if (!endpoint || !p256dh || !auth) throw new Error("Subscription unvollständig.");
+
+      const payload = {
+        user_id: u.id,
+        firma_id: firma ?? null,
+        unit_id: unit ?? null,
+        endpoint,
+        p256dh,
+        auth,
+        user_agent: navigator.userAgent,
+        last_seen: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+      .from("db_pushsubscription") 
+      .upsert(payload, { onConflict: "endpoint" });
+
+      if (error) throw error;
+
+      dbg("SAVE_OK", { endpoint });
+    };
+
+    const testGetSubscription = async () => {
+  try {
+    dbg("CLICK", { permission: Notification?.permission, hasSW: "serviceWorker" in navigator });
+
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    dbg("ENV", { hasKey: !!vapidPublicKey, len: vapidPublicKey?.length });
+    if (!vapidPublicKey) throw new Error("VAPID Public Key fehlt.");
+
+    if (!("serviceWorker" in navigator)) throw new Error("Service Worker nicht verfügbar.");
+
+    dbg("SW_READY_WAIT…");
+    const reg = await navigator.serviceWorker.ready;
+    dbg("SW_READY_OK", { scope: reg?.scope, active: !!reg?.active });
+
+    const sub = await ensurePushSubscription({ vapidPublicKey });
+    dbg("SUB_OK", { endpoint: sub?.endpoint });
+
+    await saveSubscription(sub);
+  } catch (e) {
+    dbg("SUB_ERR", e?.message || e);
+  }
+};
 
   const [tauschQuelle, setTauschQuelle] = useState(''); // 'F'|'S'|'N'
   const [shiftUserIds, setShiftUserIds] = useState({ F: [], S: [], N: [] }); // sichtbare im Tag pro Schicht
@@ -1040,6 +1103,8 @@ useEffect(() => {
       tel1: profil?.tel1 || '',
       tel2: profil?.tel2 || '',
     });
+    setPushText(defaultPushText());
+    setPushResult?.('');
     setNotizText(n?.notiz || '');
     setFlags({
       macht_schicht: false,
@@ -1056,6 +1121,8 @@ useEffect(() => {
   const pickUserFromFreeRow = (row) => {
     const n = notizByUser.get(String(row.uid));
     setSelected({ uid: row.uid, name: row.name, tel1: row.tel1, tel2: row.tel2 });
+    setPushText(defaultPushText());
+    setPushResult?.('');
     setNotizText(n?.notiz || '');
     setFlags({
       macht_schicht: false,
@@ -1069,6 +1136,41 @@ useEffect(() => {
     });
   };
 
+const sendPushToUsers = async (userIds, message) => {
+  const ids = (userIds || []).map(String).filter(Boolean);
+  const msg = String(message || '').trim();
+
+  if (!ids.length) {
+    setPushResult('⚠️ Kein Empfänger ausgewählt.');
+    return;
+  }
+  if (!msg) {
+    setPushResult('⚠️ Nachricht ist leer.');
+    return;
+  }
+
+  try {
+    setPushSending(true);
+    setPushResult('');
+
+    console.log('PUSH STUB →', {
+      firma,
+      unit,
+      datum: modalDatum,
+      schicht: sch,
+      userIds: ids,
+      message: msg,
+    });
+
+    setPushResult(`✅ Push vorbereitet (${ids.length} Empfänger)`);
+  } catch (e) {
+    console.error(e);
+    setPushResult('❌ Push fehlgeschlagen (Test)');
+  } finally {
+    setPushSending(false);
+  }
+};
+
   const tauschenMoeglich = !!(overByShift.F || overByShift.S || overByShift.N);
 
   return (
@@ -1081,6 +1183,15 @@ useEffect(() => {
       >
         <p className="text-sm">❌ Fehlende Qualifikationen (Ziel): {fehlendeQualis.length ? fehlendeQualis.join(', ') : '—'}</p>
 
+        <button
+  type="button"
+  className="mt-2 rounded-xl px-3 py-2 bg-gray-200 dark:bg-gray-800 text-sm"
+  onClick={testGetSubscription}
+>
+  Push Subscription testen
+</button>
+
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Links */}
           <BAM_MitarbeiterimDienst mitarbeiter={mitarbeiter} />
@@ -1091,32 +1202,28 @@ useEffect(() => {
               deckungByShift={deckungByShift}
               overByShift={overByShift}
               missingText={missingText}
-
               tauschenMoeglich={tauschenMoeglich}
               tauschAktiv={tauschAktiv}
               setTauschAktiv={setTauschAktiv}
-
               sch={sch}
               tauschQuelle={tauschQuelle}
               setTauschQuelle={(v) => {
                 setTauschQuelle(v);
                 setTauschChecks(new Map());
               }}
-
               tauschAutoLoading={tauschAutoLoading}
               tauschShowAll={tauschShowAll}
               setTauschShowAll={setTauschShowAll}
               tauschOkIds={tauschOkIds}
               tauschChecks={tauschChecks}
               shiftUserIds={shiftUserIds}
-
               userNameById={userNameById}
               notizByUser={notizByUser}
               flagsSummary={flagsSummary}
               onPickUser={pickUserById}
-
               dienstFensterByUserId={dienstFensterByUserId}
               modalDatum={modalDatum}
+              onSendPush={(userIds, msg) => sendPushToUsers(userIds, msg)}
             />
 
             <BAM_VerfuegbareMitarbeiter
@@ -1129,11 +1236,12 @@ useEffect(() => {
               flagsSummary={flagsSummary}
               notizByUser={notizByUser}
               onPickUser={pickUserFromFreeRow}
+              onSendPush={(userIds, msg) => sendPushToUsers(userIds, msg)}
             />
           </div>
         </div>
 
-        {/* User Modal (deins – unverändert) */}
+        {/* User Modal */}
         {selected && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70]" onClick={() => setSelected(null)}>
             <div
@@ -1162,7 +1270,29 @@ useEffect(() => {
                   maxLength={250}
                 />
               </div>
+              <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
+              <div className="text-sm font-medium mb-1">Push-Nachricht</div>
 
+              <textarea
+                rows={2}
+                value={pushText || defaultPushText()}
+                onChange={(e) => setPushText(e.target.value)}
+                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+                maxLength={180}
+              />
+
+             <button
+              className="mt-2 w-full rounded-xl px-4 py-2 bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
+              disabled={pushSending || !(pushText || defaultPushText()).trim()}
+              onClick={() => sendPushToUsers([selected.uid], pushText || defaultPushText())}
+            >
+              {pushSending ? 'Sende…' : 'Push senden (Test)'}
+            </button>
+
+            {pushResult ? (
+              <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">{pushResult}</div>
+            ) : null}
+            </div>
               <div className="mt-4 space-y-2 text-sm">
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={flags.macht_schicht} onChange={() => toggleFlag('macht_schicht')} />
@@ -1173,7 +1303,6 @@ useEffect(() => {
                   <input type="checkbox" checked={flags.kann_heute_nicht} onChange={() => toggleFlag('kann_heute_nicht')} />
                   Kann heute nicht
                 </label>
-
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={flags.kann_keine_frueh} onChange={() => toggleFlag('kann_keine_frueh')} />
