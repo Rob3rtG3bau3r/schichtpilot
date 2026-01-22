@@ -2,6 +2,8 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import logo from "../../assets/logo.png";
 import { useEffect, useState } from "react";
+import { ensurePushSubscription } from "../../utils/pushClient";
+import { savePushSubscriptionToDb } from "../../utils/pushSave";
 import {
   X,
   Settings,
@@ -18,13 +20,13 @@ const MobileLayout = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const isAuthScreen = pathname.startsWith("/mobile/login");
-
-    const gespeicherteId = localStorage.getItem("user_id");
-
+  const gespeicherteId = localStorage.getItem("user_id");
   const [menueOffen, setMenueOffen] = useState(false);
+  const [pushMsg, setPushMsg] = useState("");
   const [darkMode, setDarkMode] = useState(
     document.documentElement.classList.contains("dark")
   );
+  
   const [einwilligung, setEinwilligung] = useState(false);
   const [einwilligungDatum, setEinwilligungDatum] = useState(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -191,6 +193,93 @@ useEffect(() => {
     alert("Vielen Dank! Deine Einwilligung wurde gespeichert.");
   };
 
+  const [pushStatus, setPushStatus] = useState("unbekannt"); 
+  const [pushSince, setPushSince] = useState(null); 
+
+const checkPushStatus = async () => {
+  try {
+    if (!("Notification" in window)) return setPushStatus("inaktiv");
+    if (Notification.permission === "denied") return setPushStatus("blocked");
+
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    setPushStatus(sub ? "aktiv" : "inaktiv");
+  } catch {
+    setPushStatus("inaktiv");    
+  }
+};
+const loadPushInfoFromDb = async () => {
+  try {
+    const userId = localStorage.getItem("user_id");
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("db_pushsubscription")
+      .select("created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+  setPushSince(null);
+  return;
+}
+setPushSince(data.created_at);
+  } catch (e) {
+    console.error("Push-Status laden fehlgeschlagen:", e);
+  }
+};
+useEffect(() => {
+  
+  if (!isAuthScreen) checkPushStatus();
+  
+
+}, [isAuthScreen, pathname]);
+
+useEffect(() => {
+  if (!isAuthScreen && menueOffen) {
+    loadPushInfoFromDb();
+  }
+}, [menueOffen, isAuthScreen]);
+
+const activatePush = async () => {
+  try {
+    setPushMsg("");
+
+    if (!("Notification" in window)) {
+      setPushMsg("❌ Push wird auf diesem Gerät nicht unterstützt.");
+      return;
+    }
+    if (Notification.permission === "denied") {
+      setPushStatus("blocked");
+      setPushMsg("❌ Benachrichtigungen sind blockiert (Browser-Einstellung).");
+      return;
+    }
+
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      setPushMsg("❌ VAPID Public Key fehlt (ENV).");
+      return;
+    }
+
+    const sub = await ensurePushSubscription({ vapidPublicKey });
+
+      // firma/unit aus LocalStorage (Mobile nutzt das ja schon)
+      const firma_id = Number(localStorage.getItem("firma_id")) || null;
+      const unit_id  = Number(localStorage.getItem("unit_id")) || null;
+
+      // ✅ in DB speichern
+      await savePushSubscriptionToDb(sub, { firma_id, unit_id });
+      await loadPushInfoFromDb();
+          setPushStatus("aktiv");
+          setPushMsg("✅ Push ist aktiv (dieses Gerät ist registriert).");
+        } catch (e) {
+          console.error(e);
+          setPushMsg(`❌ Aktivierung fehlgeschlagen: ${e?.message || e}`);
+        }
+      };
+
   // 🧹 Logout
   const logout = async () => {
     try {
@@ -349,7 +438,56 @@ useEffect(() => {
                   📄 Datenschutzerklärung PDF
                 </button>
               </li>
+            {/* Pushbenachrichtigungen */}
+              <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
+                <h4 className="font-bold mb-2">🔔 Push-Benachrichtigungen</h4>
 
+                <p className="text-xs mb-2">
+              Status:{" "}
+              {pushStatus === "aktiv" ? (
+                <>
+                  <span className="text-green-600">✅ aktiv</span>
+                  {pushSince && (
+                    <span className="text-gray-500">
+                      {" "}seit {new Date(pushSince).toLocaleDateString("de-DE")}
+                    </span>
+                  )}
+                </>
+              ) : pushStatus === "blocked" ? (
+                "⛔ blockiert"
+              ) : (
+                "⚠️ nicht aktiv"
+              )}
+            </p>
+                <button
+                  onClick={activatePush}
+                  className="w-full text-left text-blue-600 hover:underline"
+                >
+                  {pushStatus === "aktiv" ? "🔄 Push neu verbinden" : "➕ Push aktivieren"}
+                </button>
+
+                {pushMsg ? <p className="text-xs mt-2">{pushMsg}</p> : null}
+                <button
+                onClick={async () => {
+                  try {
+                    setPushMsg("");
+                    const reg = await navigator.serviceWorker.ready;
+                    const sub = await reg.pushManager.getSubscription();
+                    if (sub) await sub.unsubscribe();
+                    setPushStatus("inaktiv");
+                    setPushSince(null);  
+                    setPushMsg("✅ Push wurde auf diesem Gerät deaktiviert.");
+                  } catch (e) {
+                    console.error(e);
+                    setPushMsg("❌ Deaktivieren fehlgeschlagen.");
+                  }
+                }}
+                className="w-full text-left text-red-600 hover:underline mt-2"
+              >
+                ❌ Push auf diesem Gerät deaktivieren
+              </button>
+              </li>
+            
               {/* Logout */}
               <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
                 <button
