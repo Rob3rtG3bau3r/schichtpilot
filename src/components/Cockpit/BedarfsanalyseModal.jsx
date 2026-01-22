@@ -1137,7 +1137,7 @@ useEffect(() => {
   };
 
 const sendPushToUsers = async (userIds, message) => {
-  const ids = (userIds || []).map(String).filter(Boolean);
+    const ids = (userIds || []).map(String).filter(Boolean);
   const msg = String(message || '').trim();
 
   if (!ids.length) {
@@ -1151,21 +1151,40 @@ const sendPushToUsers = async (userIds, message) => {
 
   try {
     setPushSending(true);
-    setPushResult('');
+    setPushResult('📨 Sende Push…');
 
-    console.log('PUSH STUB →', {
-      firma,
-      unit,
-      datum: modalDatum,
-      schicht: sch,
-      userIds: ids,
-      message: msg,
+    // 1) Eigene Subscription sicherstellen (du hast das schon – nutzen wir)
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) throw new Error("VITE_VAPID_PUBLIC_KEY fehlt (env).");
+
+    const sub = await ensurePushSubscription({ vapidPublicKey });
+    await saveSubscription(sub);
+
+    // 2) Edge Function senden
+    const { data, error } = await supabase.functions.invoke('send-push', {
+      body: {
+        firma_id: firma ?? null,
+        unit_id: unit ?? null,
+        user_ids: ids,
+        title: "SchichtPilot",
+        message: msg,
+        url: "https://schichtpilot.com",
+      },
     });
 
-    setPushResult(`✅ Push vorbereitet (${ids.length} Empfänger)`);
+    if (error) throw error;
+
+    const sent = data?.sent ?? 0;
+    const failed = data?.failed ?? 0;
+
+    if (sent > 0 && failed === 0) {
+      setPushResult(`✅ Push gesendet (${sent}/${ids.length})`);
+    } else {
+      setPushResult(`⚠️ Ergebnis: sent=${sent}, failed=${failed} (Logs prüfen)`);
+    }
   } catch (e) {
     console.error(e);
-    setPushResult('❌ Push fehlgeschlagen (Test)');
+    setPushResult(`❌ Push fehlgeschlagen: ${e?.message || e}`);
   } finally {
     setPushSending(false);
   }
