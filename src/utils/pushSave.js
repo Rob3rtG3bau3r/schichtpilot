@@ -38,5 +38,12 @@ export async function savePushSubscriptionToDb(sub, { firma_id = null, unit_id =
 
   if (error) throw error;
 
+  // 🔥 Nur EIN Handy pro User erlauben → alle anderen Subscriptions löschen
+await supabase
+  .from("db_pushsubscription")
+  .delete()
+  .eq("user_id", user.id)
+  .neq("endpoint", endpoint);
+
   return { ok: true, endpoint };
 }
