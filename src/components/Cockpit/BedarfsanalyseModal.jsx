@@ -9,7 +9,6 @@ import duration from 'dayjs/plugin/duration';
 dayjs.extend(duration);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
-import { ensurePushSubscription } from '../../utils/pushClient';
 import { useRollen } from '../../context/RollenContext';
 import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
 import { BAM_UI, BAM_InfoModal } from './BAM_UI';
@@ -1201,15 +1200,6 @@ const sendPushToUsers = async (userIds, message) => {
         title={`${SCH_LABEL[sch] || sch}-Schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')}`}
       >
         <p className="text-sm">❌ Fehlende Qualifikationen (Ziel): {fehlendeQualis.length ? fehlendeQualis.join(', ') : '—'}</p>
-
-        <button
-  type="button"
-  className="mt-2 rounded-xl px-3 py-2 bg-gray-200 dark:bg-gray-800 text-sm"
-  onClick={testGetSubscription}
->
-  Push Subscription testen
-</button>
-
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Links */}

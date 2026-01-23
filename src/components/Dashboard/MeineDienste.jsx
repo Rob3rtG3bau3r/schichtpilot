@@ -249,14 +249,7 @@ const MeineDienste = () => {
           .eq('unit_id', Number(unit))
           .gte('datum', von)
           .lte('datum', bis),
-        supabase
-          .from('DB_TerminVerwaltung')
-          .select('id, bezeichnung, datum, wiederholend, quali_ids, farbe, team, ziel_typ, wiederholung_typ, wiederholung_intervall')
-          .eq('firma_id', Number(firma))
-          .eq('unit_id', Number(unit))
-          .eq('wiederholend', true)
-          .lte('datum', bis),
-      ]);
+              ]);
 
       if (fix.error) console.error('❌ Termine FIX Fehler:', fix.error.message || fix.error);
       if (rep.error) console.error('❌ Termine REP Fehler:', rep.error.message || rep.error);
