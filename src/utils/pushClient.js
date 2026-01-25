@@ -29,6 +29,11 @@ export async function ensurePushSubscription({ vapidPublicKey }) {
   const reg = await navigator.serviceWorker.ready;
 
   // ✅ 4) vorhandene Subscription wiederverwenden
+  console.log("FRONTEND_VAPID_PUBLIC", {
+  start: (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").slice(0, 12),
+  end: (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").slice(-12),
+  });
+
   const existing = await reg.pushManager.getSubscription();
   if (existing) return existing;
 
