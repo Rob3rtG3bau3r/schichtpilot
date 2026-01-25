@@ -9,6 +9,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+        workbox: {
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
+        },
       manifest: {
         short_name: 'SchichtPilot',
         name: 'SchichtPilot Mobile',
