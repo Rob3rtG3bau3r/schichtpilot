@@ -78,11 +78,25 @@ Deno.serve(async (req) => {
     });
 
     // --- VAPID
-    const VAPID_PUBLIC_KEY = requireEnv("VAPID_PUBLIC_KEY");
-    const VAPID_PRIVATE_KEY = requireEnv("VAPID_PRIVATE_KEY");
-    const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") || "mailto:admin@schichtpilot.de";
+// --- VAPID (Debug Mini-Step)
+const VAPID_PUBLIC_KEY  = (Deno.env.get("VAPID_PUBLIC_KEY")  || "").trim();
+const VAPID_PRIVATE_KEY = (Deno.env.get("VAPID_PRIVATE_KEY") || "").trim();
+const VAPID_SUBJECT     = (Deno.env.get("VAPID_SUBJECT")     || "").trim();
 
-    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+console.log("VAPID_CHECK", {
+  hasPublic: !!VAPID_PUBLIC_KEY,
+  hasPrivate: !!VAPID_PRIVATE_KEY,
+  hasSubject: !!VAPID_SUBJECT,
+  pubLen: VAPID_PUBLIC_KEY.length,
+  privLen: VAPID_PRIVATE_KEY.length,
+  subject: VAPID_SUBJECT
+});
+
+webpush.setVapidDetails(
+  VAPID_SUBJECT,
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
 
     // --- Subscriptions laden
     let q = admin
@@ -90,10 +104,23 @@ Deno.serve(async (req) => {
       .select("id, user_id, firma_id, unit_id, endpoint, p256dh, auth")
       .in("user_id", user_ids);
 
-    if (firma_id != null) q = q.eq("firma_id", firma_id);
-    if (unit_id != null) q = q.eq("unit_id", unit_id);
+   // if (firma_id != null) q = q.eq("firma_id", firma_id);
+   // if (unit_id != null) q = q.eq("unit_id", unit_id);
 
     const { data: subs, error } = await q;
+    console.log("PUSH_DEBUG_QUERY", {
+      firma_id,
+      unit_id,
+      user_ids_len: user_ids.length,
+      first_uid: user_ids[0],
+      subs_found: subs?.length ?? 0,
+      subs_sample: (subs || []).slice(0, 2).map((s) => ({
+        user_id: s.user_id,
+        firma_id: s.firma_id,
+        unit_id: s.unit_id,
+        endpoint_domain: (s.endpoint || "").split("/")[2] || "",
+      })),
+    });
     if (error) return json({ error: error.message }, 500);
 
     if (!subs?.length) {

@@ -24,27 +24,49 @@ const getSchichtName = (s) =>
 
 const MobileMeineAnfragen = () => {
   const [anfragen, setAnfragen] = useState([]);
-  const [filter, setFilter] = useState('ausstehend'); // 'ausstehend' | 'genehmigt' | 'abgelehnt'
+  const [nachrichten, setNachrichten] = useState([]);
+  const [filter, setFilter] = useState('ausstehend'); // 'nachrichten 'ausstehend' | 'genehmigt' | 'abgelehnt'
   const userId = localStorage.getItem('user_id');
 
   useEffect(() => {
-    const ladeAnfragen = async () => {
-      const { data, error } = await supabase
-        .from('DB_AnfrageMA')
-        .select('*')
-        .eq('created_by', userId);
+  const ladeAnfragen = async () => {
+    const { data, error } = await supabase
+      .from('DB_AnfrageMA')
+      .select('*')
+      .eq('created_by', userId);
 
-      if (error) {
-        console.error('Fehler beim Laden:', error.message);
-        return;
-      }
-      setAnfragen(data || []);
-    };
+    if (error) {
+      console.error('Fehler beim Laden:', error.message);
+      return;
+    }
+    setAnfragen(data || []);
+  };
+
+  const ladeNachrichten = async () => {
+    const { data, error } = await supabase
+      .from('db_pushinbox')
+      .select('id, created_at, title, message, typ, context, read_at')
+      .eq('recipient_user_id', userId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (error) {
+      console.error('DB_PushInbox Fehler beim Laden:', error.message);
+      return;
+    }
+    setNachrichten(data || []);
+  };
+
+  if (userId) {
     ladeAnfragen();
-  }, [userId]);
+    ladeNachrichten();
+  }
+}, [userId]);
 
  useEffect(() => {
   if (!userId) return;
+  if (filter === "nachrichten") return;
 
   const markiere = async () => {
     let zuMarkieren = [];
@@ -97,6 +119,7 @@ const MobileMeineAnfragen = () => {
 
 
   const gefilterteAnfragen = useMemo(() => {
+    if (filter === 'nachrichten') return [];
     const base = (anfragen || []).filter(a => {
       const status = triStatus(a.genehmigt);
 
@@ -126,6 +149,12 @@ const MobileMeineAnfragen = () => {
       {/* Filterauswahl */}
       <div className="flex justify-around py-2 text-sm text-gray-900 dark:text-gray-200 bg-white dark:bg-gray-900 border-b dark:border-gray-600">
         <button
+          className={filter === 'nachrichten' ? 'text-gray-900 dark:text-gray-200 font-semibold bg-gray-600 bg-opacity-20 py-1 px-2 border border-gray-500 rounded' : ''}
+          onClick={() => setFilter('nachrichten')}
+        >
+          Nachrichten
+        </button>    
+        <button
           className={filter === 'ausstehend' ? 'text-blue-600 font-semibold bg-blue-600 bg-opacity-20 py-1 px-2 border border-blue-500 rounded' : ''}
           onClick={() => setFilter('ausstehend')}
         >
@@ -145,48 +174,86 @@ const MobileMeineAnfragen = () => {
         </button>
       </div>
 
-      {/* Liste */}
+            {/* Liste */}
       <div className="p-4 space-y-4 overflow-y-auto">
-        {gefilterteAnfragen.length === 0 && (
-          <p className="text-gray-500 dark:text-gray-300 text-sm">Keine Anfragen vorhanden.</p>
+        {/* ✅ NACHRICHTEN */}
+        {filter === "nachrichten" && (
+          <>
+            {nachrichten.length === 0 && (
+              <p className="text-gray-500 dark:text-gray-300 text-sm">Keine Nachrichten vorhanden.</p>
+            )}
+
+            {nachrichten.map((n) => (
+              <div
+                key={n.id}
+                className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow border border-gray-300 dark:border-gray-600"
+              >
+                <div className="text-xs text-gray-600 dark:text-gray-300 mb-2">
+                  {n.created_at ? dayjs(n.created_at).format("DD.MM.YYYY HH:mm") : "-"}
+                  {n.read_at ? (
+                    <span className="ml-2 text-green-600">✓ gelesen</span>
+                  ) : (
+                    <span className="ml-2 text-yellow-500">• neu</span>
+                  )}
+                </div>
+
+                <div className="text-sm text-gray-900 dark:text-white mb-1">
+                  <b>{n.title || "SchichtPilot"}</b>
+                </div>
+
+                <div className="text-sm text-gray-800 dark:text-gray-200">
+                  {n.message}
+                </div>
+              </div>
+            ))}
+          </>
         )}
 
-        {gefilterteAnfragen.map((a) => (
-          <div
-            key={a.id}
-            className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow border border-gray-300 dark:border-gray-600"
-          >
-            <div className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-              {a.datum ? dayjs(a.datum).format('DD.MM.YYYY') : '-'} –{' '}
-              <span className="font-semibold">{getSchichtName(a.schicht)}</span>
-            </div>
-
-            <div className="text-sm text-gray-800 dark:text-white mb-1">
-              Antrag: <b>{a.antrag || '-'}</b>
-            </div>
-
-            <div className="text-sm text-gray-700 dark:text-gray-400">
-              Status:{' '}
-              {triStatus(a.genehmigt) === 0
-                ? '⏳ Offen'
-                : triStatus(a.genehmigt) === 1
-                ? '✅ Genehmigt'
-                : '❌ Abgelehnt'}
-            </div>
-
-            {triStatus(a.genehmigt) === -1 && a.datum_entscheid && (
-              <div className="text-xs text-red-500 mt-1">
-                Abgelehnt am: {dayjs(a.datum_entscheid).format('DD.MM.YYYY')}
-              </div>
+        {/* ✅ ANFRAGEN (dein bestehender Kram) */}
+        {filter !== "nachrichten" && (
+          <>
+            {gefilterteAnfragen.length === 0 && (
+              <p className="text-gray-500 dark:text-gray-300 text-sm">Keine Anfragen vorhanden.</p>
             )}
 
-            {a.kommentar && (
-              <div className="text-xs text-gray-500 mt-2 italic">
-                Kommentar: {a.kommentar}
+            {gefilterteAnfragen.map((a) => (
+              <div
+                key={a.id}
+                className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow border border-gray-300 dark:border-gray-600"
+              >
+                <div className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                  {a.datum ? dayjs(a.datum).format('DD.MM.YYYY') : '-'} –{' '}
+                  <span className="font-semibold">{getSchichtName(a.schicht)}</span>
+                </div>
+
+                <div className="text-sm text-gray-800 dark:text-white mb-1">
+                  Antrag: <b>{a.antrag || '-'}</b>
+                </div>
+
+                <div className="text-sm text-gray-700 dark:text-gray-400">
+                  Status:{' '}
+                  {triStatus(a.genehmigt) === 0
+                    ? '⏳ Offen'
+                    : triStatus(a.genehmigt) === 1
+                    ? '✅ Genehmigt'
+                    : '❌ Abgelehnt'}
+                </div>
+
+                {triStatus(a.genehmigt) === -1 && a.datum_entscheid && (
+                  <div className="text-xs text-red-500 mt-1">
+                    Abgelehnt am: {dayjs(a.datum_entscheid).format('DD.MM.YYYY')}
+                  </div>
+                )}
+
+                {a.kommentar && (
+                  <div className="text-xs text-gray-500 mt-2 italic">
+                    Kommentar: {a.kommentar}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

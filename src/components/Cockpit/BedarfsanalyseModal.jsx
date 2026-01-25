@@ -9,12 +9,17 @@ import duration from 'dayjs/plugin/duration';
 dayjs.extend(duration);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
+
 import { useRollen } from '../../context/RollenContext';
 import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
+
 import { BAM_UI, BAM_InfoModal } from './BAM_UI';
 import BAM_MitarbeiterimDienst from './BAM_MitarbeiterimDienst';
 import BAM_SchichtTausch from './BAM_SchichtTausch';
 import BAM_VerfuegbareMitarbeiter from './BAM_VerfuegbareMitarbeiter';
+
+// ✅ Push ausgelagert
+import BAM_PushNachrichten, { useBamPush } from './BAM_PushNachrichten';
 
 const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlendeQualis = [], onSaved }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
@@ -28,69 +33,19 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const [notizByUser, setNotizByUser] = useState(new Map()); // uid -> row
   const [selected, setSelected] = useState(null);             // { uid, name, tel1, tel2 }
   const [notizText, setNotizText] = useState('');
-    // ✅ Push (UI first, Backend later)
-    const defaultPushText = () => {
-    const s = String(modalSchicht || '').toUpperCase();
-    const label = s === 'F' ? 'Früh' : s === 'S' ? 'Spät' : s === 'N' ? 'Nacht' : s;
-    return `❗ ${label}schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')} unterbesetzt – kannst du helfen?`;
-  };
-  const [pushText, setPushText] = useState('');
-  const [pushSending, setPushSending] = useState(false);
-  const [pushResult, setPushResult] = useState(''); // kurze Statusmeldung
-  const dbg = (...args) => console.log("[PUSH-DBG]", ...args);
-    const saveSubscription = async (sub) => {
-      const u = (await supabase.auth.getUser()).data?.user;
-      if (!u?.id) throw new Error("Kein User eingeloggt.");
 
-      const json = sub?.toJSON?.() || sub;
-      const endpoint = json?.endpoint;
-      const p256dh = json?.keys?.p256dh;
-      const auth = json?.keys?.auth;
-
-      if (!endpoint || !p256dh || !auth) throw new Error("Subscription unvollständig.");
-
-      const payload = {
-        user_id: u.id,
-        firma_id: firma ?? null,
-        unit_id: unit ?? null,
-        endpoint,
-        p256dh,
-        auth,
-        user_agent: navigator.userAgent,
-        last_seen: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-      .from("db_pushsubscription") 
-      .upsert(payload, { onConflict: "endpoint" });
-
-      if (error) throw error;
-
-      dbg("SAVE_OK", { endpoint });
-    };
-
-    const testGetSubscription = async () => {
-  try {
-    dbg("CLICK", { permission: Notification?.permission, hasSW: "serviceWorker" in navigator });
-
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    dbg("ENV", { hasKey: !!vapidPublicKey, len: vapidPublicKey?.length });
-    if (!vapidPublicKey) throw new Error("VAPID Public Key fehlt.");
-
-    if (!("serviceWorker" in navigator)) throw new Error("Service Worker nicht verfügbar.");
-
-    dbg("SW_READY_WAIT…");
-    const reg = await navigator.serviceWorker.ready;
-    dbg("SW_READY_OK", { scope: reg?.scope, active: !!reg?.active });
-
-    const sub = await ensurePushSubscription({ vapidPublicKey });
-    dbg("SUB_OK", { endpoint: sub?.endpoint });
-
-    await saveSubscription(sub);
-  } catch (e) {
-    dbg("SUB_ERR", e?.message || e);
-  }
-};
+  // ✅ Push Hook (Inbox + send-push)
+  const {
+    pushText,
+    setPushText,
+    pushSending,
+    pushResult,
+    setPushResult,
+    defaultPushText,
+    effectiveText,
+    resetPush,
+    sendPushToUsers,
+  } = useBamPush({ supabase, firma, unit, modalDatum, modalSchicht });
 
   const [tauschQuelle, setTauschQuelle] = useState(''); // 'F'|'S'|'N'
   const [shiftUserIds, setShiftUserIds] = useState({ F: [], S: [], N: [] }); // sichtbare im Tag pro Schicht
@@ -108,7 +63,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   // Schichttausch
   const [tauschAktiv, setTauschAktiv] = useState(false);
 
-  // ✅ NEU: Fensteranzeige ±3 für ALLE sichtbaren User (für Tauschliste + Kandidaten)
+  // ✅ Fensteranzeige ±3 für ALLE sichtbaren User
   const [dienstFensterByUserId, setDienstFensterByUserId] = useState({}); // { [uid]: {vor3..nach3 + helperKeys} }
 
   const [flags, setFlags] = useState({
@@ -264,22 +219,22 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       const createdBy = (await supabase.auth.getUser()).data?.user?.id ?? null;
 
       const payloadNotiz = {
-  firma_id: firma,
-  unit_id: unit,
-  user_id: selected.uid,
-  datum: modalDatum,
-  created_by: createdBy,
-  notiz: notizText || null,
+        firma_id: firma,
+        unit_id: unit,
+        user_id: selected.uid,
+        datum: modalDatum,
+        created_by: createdBy,
+        notiz: notizText || null,
 
-  // NUR Gesprächsnotiz-Flags (ohne "macht_schicht")
-  kann_heute_nicht: flags.kann_heute_nicht,
-  kann_keine_frueh: flags.kann_keine_frueh,
-  kann_keine_spaet: flags.kann_keine_spaet,
-  kann_keine_nacht: flags.kann_keine_nacht,
-  kann_nur_frueh: flags.kann_nur_frueh,
-  kann_nur_spaet: flags.kann_nur_spaet,
-  kann_nur_nacht: flags.kann_nur_nacht,
-};
+        // NUR Gesprächsnotiz-Flags (ohne "macht_schicht")
+        kann_heute_nicht: flags.kann_heute_nicht,
+        kann_keine_frueh: flags.kann_keine_frueh,
+        kann_keine_spaet: flags.kann_keine_spaet,
+        kann_keine_nacht: flags.kann_keine_nacht,
+        kann_nur_frueh: flags.kann_nur_frueh,
+        kann_nur_spaet: flags.kann_nur_spaet,
+        kann_nur_nacht: flags.kann_nur_nacht,
+      };
 
       const { error: upErr } = await supabase
         .from('DB_Gespraechsnotiz')
@@ -413,6 +368,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
       setSelected(null);
       setNotizText('');
+      resetPush(); // ✅ push state leeren
       setFlags({
         macht_schicht: false,
         kann_heute_nicht: false,
@@ -423,8 +379,9 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         kann_nur_spaet: false,
         kann_nur_nacht: false,
       });
+
       if (shouldCloseAfterSave) {
-       onClose?.();
+        onClose?.();
       }
     } finally {
       setSaving(false);
@@ -432,30 +389,30 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   };
 
   // ===== Bewertungs-Logik (bestehend) =====
-const getBewertungsStufe = (f) => getBewertungsStufeFn(f, modalSchicht);
+  const getBewertungsStufe = (f) => getBewertungsStufeFn(f, modalSchicht);
 
-useEffect(() => {
-  if (!offen || !firma || !unit) return;
+  useEffect(() => {
+    if (!offen || !firma || !unit) return;
 
-  let alive = true;
+    let alive = true;
 
-  (async () => {
-    const { data, error } = await supabase
-      .from('DB_Unit')
-      .select('bam_logik_key') 
-      .eq('firma', firma)
-      .eq('id', unit)
-      .maybeSingle();
+    (async () => {
+      const { data, error } = await supabase
+        .from('DB_Unit')
+        .select('bam_logik_key')
+        .eq('firma', firma)
+        .eq('id', unit)
+        .maybeSingle();
 
-    const key = (!error && data?.bam_logik_key) ? data.bam_logik_key : 'ROEHM_5SCHICHT';
+      const key = (!error && data?.bam_logik_key) ? data.bam_logik_key : 'ROEHM_5SCHICHT';
 
-    if (!alive) return;
-    setBamLogikKey(key);
-    setGetBewertungsStufeFn(() => resolveBamLogik(key));
-  })();
+      if (!alive) return;
+      setBamLogikKey(key);
+      setGetBewertungsStufeFn(() => resolveBamLogik(key));
+    })();
 
-  return () => { alive = false; };
-}, [offen, firma, unit]);
+    return () => { alive = false; };
+  }, [offen, firma, unit]);
 
   // ===== Daten laden =====
   useEffect(() => {
@@ -474,6 +431,7 @@ useEffect(() => {
       setDeckungBasis(null);
       setShiftUserIds({ F: [], S: [], N: [] });
       setDienstFensterByUserId({});
+      resetPush();
 
       const dates = [
         dayjs(modalDatum).subtract(3, 'day').format('YYYY-MM-DD'),
@@ -594,7 +552,7 @@ useEffect(() => {
         if (alive) setUserNameById(userNameMap);
       }
 
-      // ✅ NEU: Overrides fürs Fenster für ALLE sichtbaren IDs
+      // ✅ Overrides fürs Fenster für ALLE sichtbaren IDs
       const { data: overridesFensterAll } = await supabase
         .from('DB_Kampfliste')
         .select('user, datum, ist_schicht(kuerzel)')
@@ -610,7 +568,7 @@ useEffect(() => {
         overrideWinAll.set(`${r.datum}|${r.user}`, v);
       });
 
-      // ✅ NEU: Fensteranzeige für alle sichtbaren IDs bauen (damit Schichttausch-Liste exakt so aussieht)
+      // ✅ Fensteranzeige für alle sichtbaren IDs
       const fensterObj = {};
       for (const uid of visibleIds) {
         const profil = userNameMap[uid] || { voll: 'Unbekannt, ', tel1: '', tel2: '' };
@@ -698,7 +656,7 @@ useEffect(() => {
       if (!alive) return;
       setMitarbeiter(imDienst);
 
-      // (H) Kandidatenliste – nutzt jetzt das zentrale fensterObj (kein doppelt rechnen)
+      // (H) Kandidatenliste – nutzt fensterObj
       if (freiUserIds.length === 0) {
         setFreieMitarbeiter([]);
       } else {
@@ -749,7 +707,7 @@ useEffect(() => {
         setFreieMitarbeiter(freieZeilen);
       }
 
-      // (I) Deckung/Überbesetzung – bleibt wie bei dir (unverändert bis auf Basis-Set)
+      // (I) Deckung/Überbesetzung
       try {
         const { data: bedarfRows, error: bErr } = await supabase
           .from('DB_Bedarf')
@@ -919,13 +877,14 @@ useEffect(() => {
       } catch (e) {
         console.error('Deckung/Überbesetzung exception:', e);
       }
+
       if (!alive) return;
     };
 
     ladeDaten();
 
     return () => { alive = false; };
-  }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis, rolle, sch]);
+  }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis, rolle, sch, resetPush]);
 
   // ===== MOVE Auto-Prüfung (dein Code) =====
   const missingText = (d) => {
@@ -1102,8 +1061,8 @@ useEffect(() => {
       tel1: profil?.tel1 || '',
       tel2: profil?.tel2 || '',
     });
-    setPushText(defaultPushText());
-    setPushResult?.('');
+
+    resetPush(); // ✅ Push UI sauber
     setNotizText(n?.notiz || '');
     setFlags({
       macht_schicht: false,
@@ -1120,8 +1079,8 @@ useEffect(() => {
   const pickUserFromFreeRow = (row) => {
     const n = notizByUser.get(String(row.uid));
     setSelected({ uid: row.uid, name: row.name, tel1: row.tel1, tel2: row.tel2 });
-    setPushText(defaultPushText());
-    setPushResult?.('');
+
+    resetPush(); // ✅ Push UI sauber
     setNotizText(n?.notiz || '');
     setFlags({
       macht_schicht: false,
@@ -1134,60 +1093,6 @@ useEffect(() => {
       kann_nur_nacht: !!n?.kann_nur_nacht,
     });
   };
-
-const sendPushToUsers = async (userIds, message) => {
-    const ids = (userIds || []).map(String).filter(Boolean);
-  const msg = String(message || '').trim();
-
-  if (!ids.length) {
-    setPushResult('⚠️ Kein Empfänger ausgewählt.');
-    return;
-  }
-  if (!msg) {
-    setPushResult('⚠️ Nachricht ist leer.');
-    return;
-  }
-
-  try {
-    setPushSending(true);
-    setPushResult('📨 Sende Push…');
-
-    // 1) Eigene Subscription sicherstellen (du hast das schon – nutzen wir)
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey) throw new Error("VITE_VAPID_PUBLIC_KEY fehlt (env).");
-
-    const sub = await ensurePushSubscription({ vapidPublicKey });
-    await saveSubscription(sub);
-
-    // 2) Edge Function senden
-    const { data, error } = await supabase.functions.invoke('send-push', {
-      body: {
-        firma_id: firma ?? null,
-        unit_id: unit ?? null,
-        user_ids: ids,
-        title: "SchichtPilot",
-        message: msg,
-        url: "https://schichtpilot.com",
-      },
-    });
-
-    if (error) throw error;
-
-    const sent = data?.sent ?? 0;
-    const failed = data?.failed ?? 0;
-
-    if (sent > 0 && failed === 0) {
-      setPushResult(`✅ Push gesendet (${sent}/${ids.length})`);
-    } else {
-      setPushResult(`⚠️ Ergebnis: sent=${sent}, failed=${failed} (Logs prüfen)`);
-    }
-  } catch (e) {
-    console.error(e);
-    setPushResult(`❌ Push fehlgeschlagen: ${e?.message || e}`);
-  } finally {
-    setPushSending(false);
-  }
-};
 
   const tauschenMoeglich = !!(overByShift.F || overByShift.S || overByShift.N);
 
@@ -1279,29 +1184,19 @@ const sendPushToUsers = async (userIds, message) => {
                   maxLength={250}
                 />
               </div>
-              <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
-              <div className="text-sm font-medium mb-1">Push-Nachricht</div>
 
-              <textarea
-                rows={2}
-                value={pushText || defaultPushText()}
-                onChange={(e) => setPushText(e.target.value)}
-                className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
-                maxLength={180}
+              {/* ✅ Push-Block als eigene Komponente */}
+              <BAM_PushNachrichten
+                selectedUserId={selected.uid}
+                pushText={pushText}
+                setPushText={setPushText}
+                pushSending={pushSending}
+                pushResult={pushResult}
+                defaultPushText={defaultPushText}
+                effectiveText={effectiveText}
+                onSendPush={sendPushToUsers}
               />
 
-             <button
-              className="mt-2 w-full rounded-xl px-4 py-2 bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
-              disabled={pushSending || !(pushText || defaultPushText()).trim()}
-              onClick={() => sendPushToUsers([selected.uid], pushText || defaultPushText())}
-            >
-              {pushSending ? 'Sende…' : 'Push senden (Test)'}
-            </button>
-
-            {pushResult ? (
-              <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">{pushResult}</div>
-            ) : null}
-            </div>
               <div className="mt-4 space-y-2 text-sm">
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={flags.macht_schicht} onChange={() => toggleFlag('macht_schicht')} />
@@ -1312,6 +1207,7 @@ const sendPushToUsers = async (userIds, message) => {
                   <input type="checkbox" checked={flags.kann_heute_nicht} onChange={() => toggleFlag('kann_heute_nicht')} />
                   Kann heute nicht
                 </label>
+
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={flags.kann_keine_frueh} onChange={() => toggleFlag('kann_keine_frueh')} />
