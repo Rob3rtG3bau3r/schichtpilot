@@ -19,7 +19,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      const reg = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       console.log("[SW] registered:", reg.scope);
     } catch (e) {
       console.error("[SW] register failed:", e);
