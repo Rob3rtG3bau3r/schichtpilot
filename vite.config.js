@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
         workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
@@ -15,7 +18,7 @@ export default defineConfig({
       manifest: {
         short_name: 'SchichtPilot',
         name: 'SchichtPilot Mobile',
-        start_url: '/mobile',
+        start_url: '/mobile/login',
         display: 'standalone',
         background_color: '#1f2937',
         theme_color: '#1f2937',
