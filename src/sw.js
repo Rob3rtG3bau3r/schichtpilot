@@ -141,6 +141,7 @@ self.addEventListener("fetch", (event) => {
 // 3) PUSH: Notification anzeigen + Klick öffnen
 // ----------------------------------------------------
 self.addEventListener("push", (event) => {
+    console.log("[SW] PUSH ANGEKOMMEN");
   let data = {};
   try {
     data = event.data ? event.data.json() : {};
