@@ -14,40 +14,31 @@
     <!-- Mobile Web App Unterstützung -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
+
     <script>
-  // Setze Dark-Mode sofort, bevor React rendert (verhindert White-Flash)
-  try {
-    const t = localStorage.getItem("theme_mobile");
-    if (t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  } catch (e) {}
-</script>
-<script>
-  // Nur auf Prod/HTTPS registrieren – nicht auf localhost
-  if (location.hostname !== "localhost" && "serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker
-        .register("/sw.js")
-        .then((reg) => console.log("Service Worker registriert:", reg.scope))
-        .catch((err) => console.error("Service Worker Fehler:", err));
-    });
-  }
-</script>
-<script>
-  // Global puffern, damit dein InstallButton es nutzen kann
-  window.deferredPrompt = null;
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    window.deferredPrompt = e;
-    window.dispatchEvent(new Event("pwa-install-available"));
-  });
-  window.addEventListener("appinstalled", () => {
-    window.deferredPrompt = null;
-  });
-</script>
+      // Setze Dark-Mode sofort, bevor React rendert (verhindert White-Flash)
+      try {
+        const t = localStorage.getItem("theme_mobile");
+        if (t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      } catch (e) {}
+    </script>
+
+    <script>
+      // Global puffern, damit dein InstallButton es nutzen kann
+      window.deferredPrompt = null;
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        window.deferredPrompt = e;
+        window.dispatchEvent(new Event("pwa-install-available"));
+      });
+      window.addEventListener("appinstalled", () => {
+        window.deferredPrompt = null;
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

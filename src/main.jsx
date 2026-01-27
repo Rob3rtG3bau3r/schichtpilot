@@ -15,12 +15,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 );
 
-// ✅ Service Worker registrieren (PWA / Push Voraussetzung)
+// ✅ Service Worker registrieren (PWA / Push Voraussetzung) — NUR HIER!
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      console.log("[SW] registered:", reg.scope);
+      await navigator.serviceWorker.ready;
+      console.log("[SW] registered:", reg.scope, "active:", reg.active?.scriptURL || "none");
     } catch (e) {
       console.error("[SW] register failed:", e);
     }
