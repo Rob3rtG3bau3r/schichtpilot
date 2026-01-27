@@ -120,7 +120,7 @@ const sendBulk = () => {
         setBulkTone('info');   
       }}
     />
-    Mehrfachauswahl für Benachrichtigung
+    Mehrfachauswahl für Benachrichtigungen
   </label>
   
 
