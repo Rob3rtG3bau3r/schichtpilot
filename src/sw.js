@@ -7,17 +7,14 @@ import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
-// ----------------------------------------------------
-// 2) Dein bisheriges Cache-System (wie vorher)
-// ----------------------------------------------------
-const CACHE_VERSION = "v18-schichtpilot"; // ✅ hochgezählt, damit Updates sicher greifen
+const CACHE_VERSION = "v19-schichtpilot"; //  hochgezählt, damit Updates sicher greifen
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
 const PRECACHE_URLS = [
-  "/",                  // Root (falls jemand direkt auf / kommt)
-  "/mobile/login",      // ✅ echte Start-URL (damit Install & Offline sauber sind)
-  "/index.html",        // SPA-Shell
+  "/",                  
+  "/mobile/login",      
+  "/index.html",       
   "/manifest.json",
   "/favicon.png",
   "/icons/icon-192.png",
