@@ -161,7 +161,7 @@ export default function BAM_PushNachrichten({
         disabled={pushSending || !effectiveText}
         onClick={() => onSendPush([selectedUserId], effectiveText)}
       >
-        {pushSending ? "Sende…" : "Push senden"}
+        {pushSending ? "Sende…" : "Benachrichtigung senden"}
       </button>
 
       {pushResult ? (

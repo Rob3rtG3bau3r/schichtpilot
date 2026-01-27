@@ -282,7 +282,7 @@ export default function BAM_SchichtTausch({
                         setBulkTone('info');
                       }}
                     />
-                    Mehrfachauswahl für Push (Tauschliste)
+                    Mehrfachauswahl für Benachrichtigungen (Tauschliste)
                   </label>
 
                   {multiAktiv && (
@@ -315,11 +315,11 @@ export default function BAM_SchichtTausch({
 
                       <button
                         type="button"
-                        className="w-full rounded-xl px-4 py-2 bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
+                        className="w-full rounded-xl px-4 bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
                         disabled={!canSendBulk}
                         onClick={sendBulk}
                       >
-                        Push an Auswahl senden (Test)
+                        Benachrichtigung an Auswahl senden
                       </button>
 
                       {bulkHint ? (

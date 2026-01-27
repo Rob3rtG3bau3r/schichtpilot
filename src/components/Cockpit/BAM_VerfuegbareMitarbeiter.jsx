@@ -120,7 +120,7 @@ const sendBulk = () => {
         setBulkTone('info');   
       }}
     />
-    Mehrfachauswahl für Push
+    Mehrfachauswahl für Benachrichtigung
   </label>
   
 
@@ -156,11 +156,11 @@ const sendBulk = () => {
 
       <button
         type="button"
-        className="w-full rounded-xl px-4 py-2 bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
+        className="w-full rounded-xl px-4  bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
         disabled={!canSendBulk}
         onClick={sendBulk}
       >
-        Push an Auswahl senden (Test)
+        Benachrichtigung an Auswahl senden
       </button>
 
       {bulkHint ? (
