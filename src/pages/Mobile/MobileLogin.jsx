@@ -153,36 +153,6 @@ const MobileLogin = () => {
           >
             Einloggen
           </button>
-<button
-  onClick={async () => {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-
-      // Wenn Permission noch nicht granted ist, einmal fragen
-      if (Notification.permission === "default") {
-        await Notification.requestPermission();
-      }
-
-      if (Notification.permission !== "granted") {
-        alert("❌ Notification Permission ist NICHT erlaubt: " + Notification.permission);
-        return;
-      }
-
-      await reg.showNotification("SchichtPilot TEST", {
-        body: "Wenn du das siehst, funktioniert der Service Worker + Notification.",
-      });
-
-      alert("✅ TEST gesendet (Notification sollte jetzt erscheinen).");
-    } catch (e) {
-      console.log("[TEST_NOTIFY] error:", e);
-      alert("❌ TEST FEHLER: " + (e?.message || e));
-    }
-  }}
-  className="w-full bg-green-600 text-white p-3 rounded mt-2"
->
-  🔔 Test Notification
-</button>
-
           {/* Fehleranzeige */}
           {fehler && <p className="text-red-600 mt-2">{fehler}</p>}
         </div>

@@ -152,16 +152,16 @@ export default function BAM_PushNachrichten({
         rows={2}
         value={pushText || defaultPushText()}
         onChange={(e) => setPushText(e.target.value)}
-        className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 text-sm"
+        className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 text-sm"
         maxLength={180}
       />
 
       <button
-        className="mt-2 w-full rounded-xl px-4 py-2 bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
+        className="mt-2 w-full rounded-xl px-4  bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-60"
         disabled={pushSending || !effectiveText}
         onClick={() => onSendPush([selectedUserId], effectiveText)}
       >
-        {pushSending ? "Sende…" : "Push senden (Test)"}
+        {pushSending ? "Sende…" : "Push senden"}
       </button>
 
       {pushResult ? (

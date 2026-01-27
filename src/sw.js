@@ -7,7 +7,7 @@ import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
-const CACHE_VERSION = "v19-schichtpilot"; //  hochgezählt, damit Updates sicher greifen
+const CACHE_VERSION = "v20-schichtpilot"; //  hochgezählt, damit Updates sicher greifen
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
@@ -171,5 +171,28 @@ self.addEventListener("notificationclick", (event) => {
       if (existing) return existing.focus();
       return self.clients.openWindow(url);
     })()
+  );
+});
+// ----------------------------------------------------
+// 4) DEBUG/TEST: Notification per Message auslösen
+// (Samsung/Android zählt das dann sauber als "App hat gesendet")
+// ----------------------------------------------------
+self.addEventListener("message", (event) => {
+  const msg = event.data || {};
+  if (msg.type !== "SHOW_TEST_NOTIFICATION") return;
+
+  const title = msg.title || "SchichtPilot TEST";
+  const body  = msg.body  || "Test Nachricht";
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: "sp-test-" + Date.now(),      // immer neu
+      renotify: true,
+      requireInteraction: true,
+      data: { url: "/mobile/login" },
+    })
   );
 });
