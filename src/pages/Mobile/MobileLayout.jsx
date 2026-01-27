@@ -21,22 +21,26 @@ const MobileLayout = () => {
   const { pathname } = useLocation();
   const isAuthScreen = pathname.startsWith("/mobile/login");
   const gespeicherteId = localStorage.getItem("user_id");
+
   const [menueOffen, setMenueOffen] = useState(false);
   const [pushMsg, setPushMsg] = useState("");
   const [darkMode, setDarkMode] = useState(
     document.documentElement.classList.contains("dark")
   );
-  
+
   const [einwilligung, setEinwilligung] = useState(false);
   const [einwilligungDatum, setEinwilligungDatum] = useState(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
-  const [offeneAntworten, setOffeneAntworten] = useState(0);
 
+  const [offeneAntworten, setOffeneAntworten] = useState(0);
+  const [neueNachrichten, setNeueNachrichten] = useState(0);
 
   // 🌙 Dark-Init (aus LS / System)
   useEffect(() => {
     const t = localStorage.getItem("theme_mobile");
-    const wantsDark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const wantsDark = t
+      ? t === "dark"
+      : window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.documentElement.classList.toggle("dark", wantsDark);
     setDarkMode(wantsDark);
   }, []);
@@ -48,43 +52,75 @@ const MobileLayout = () => {
     }
   }, []);
 
-useEffect(() => {
-  const handler = () => {
-    // nach dem Gelesen-Event einfach neu laden
-    if (gespeicherteId) {
-      ladeOffeneAntworten(gespeicherteId);
+  // --- Zähler laden: offene Antworten (AnfrageMA) ---
+  const ladeOffeneAntworten = async (userId) => {
+    if (!userId) {
+      setOffeneAntworten(0);
+      return;
     }
+
+    const { count, error } = await supabase
+      .from("DB_AnfrageMA")
+      .select("id", { count: "exact", head: true })
+      .eq("created_by", userId)
+      .not("genehmigt", "is", null) // beantwortet
+      .eq("antwort_gesehen", false); // noch nicht gesehen
+
+    if (error) {
+      console.error("Fehler beim Laden offener Antworten:", error.message);
+      return;
+    }
+
+    setOffeneAntworten(count || 0);
   };
 
-  window.addEventListener('schichtpilot:anfragen_gelesen', handler);
-  return () => window.removeEventListener('schichtpilot:anfragen_gelesen', handler);
-}, [gespeicherteId]);
+  // --- Zähler laden: neue Nachrichten (PushInbox) ---
+  const ladeNeueNachrichten = async (userId) => {
+    if (!userId) {
+      setNeueNachrichten(0);
+      return;
+    }
 
-  const ladeOffeneAntworten = async (userId) => {
-  if (!userId) {
-    setOffeneAntworten(0);
-    return;
-  }
+    const { count, error } = await supabase
+      .from("db_pushinbox")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_user_id", userId)
+      .is("deleted_at", null)
+      .is("read_at", null);
 
-  const { count, error } = await supabase
-    .from('DB_AnfrageMA')
-    .select('id', { count: 'exact', head: true })
-    .eq('created_by', userId)
-    .not('genehmigt', 'is', null)           // beantwortet
-    .eq('antwort_gesehen', false);         // noch nicht gesehen
+    if (error) {
+      console.error("Fehler beim Laden neuer Nachrichten:", error.message);
+      return;
+    }
 
-  if (error) {
-    console.error('Fehler beim Laden offener Antworten:', error.message);
-    return;
-  }
+    setNeueNachrichten(count || 0);
+  };
 
-  setOffeneAntworten(count || 0);
-};
+  // 🔄 Events: Antworten gelesen
+  useEffect(() => {
+    const handler = () => {
+      if (gespeicherteId) ladeOffeneAntworten(gespeicherteId);
+    };
+    window.addEventListener("schichtpilot:anfragen_gelesen", handler);
+    return () => window.removeEventListener("schichtpilot:anfragen_gelesen", handler);
+  }, [gespeicherteId]);
 
-useEffect(() => {
-  if (!gespeicherteId) return;
-  ladeOffeneAntworten(gespeicherteId);
-}, [gespeicherteId, pathname]);
+  // 🔄 Events: Nachrichten gelesen
+  useEffect(() => {
+    const handler = () => {
+      if (gespeicherteId) ladeNeueNachrichten(gespeicherteId);
+    };
+    window.addEventListener("schichtpilot:nachrichten_gelesen", handler);
+    return () =>
+      window.removeEventListener("schichtpilot:nachrichten_gelesen", handler);
+  }, [gespeicherteId]);
+
+  // ✅ Zähler initial + bei Seitenwechsel aktualisieren
+  useEffect(() => {
+    if (!gespeicherteId) return;
+    ladeOffeneAntworten(gespeicherteId);
+    ladeNeueNachrichten(gespeicherteId);
+  }, [gespeicherteId, pathname]);
 
   // 🚪 Zugangsschutz: Wenn nicht eingeloggt → Login
   useEffect(() => {
@@ -106,7 +142,10 @@ useEffect(() => {
       if (!error && data) {
         setEinwilligung(data.consent_anfragema);
         setEinwilligungDatum(data.consent_anfragema_at);
-        localStorage.setItem("datenschutz_einwilligung_mobile", data.consent_anfragema);
+        localStorage.setItem(
+          "datenschutz_einwilligung_mobile",
+          data.consent_anfragema
+        );
       }
     })();
   }, [gespeicherteId, showConsentModal]);
@@ -118,19 +157,25 @@ useEffect(() => {
     setDarkMode(newMode === "dark");
     localStorage.setItem("theme_mobile", newMode);
     if (gespeicherteId) {
-      await supabase.from("DB_User").update({ theme_mobile: newMode }).eq("user_id", gespeicherteId);
+      await supabase
+        .from("DB_User")
+        .update({ theme_mobile: newMode })
+        .eq("user_id", gespeicherteId);
     }
   };
 
   // 🗂️ Ansicht (Kalender/Liste) setzen + persistieren + broadcasten
   const [ansicht, setAnsicht] = useState(
-    (localStorage.getItem("mobile_kalender") ?? "kalender")
+    localStorage.getItem("mobile_kalender") ?? "kalender"
   );
 
   const setMobileAnsicht = async (wert /* 'kalender' | 'liste' */) => {
     localStorage.setItem("mobile_kalender", wert);
     if (gespeicherteId) {
-      await supabase.from("DB_User").update({ mobile_kalender: wert }).eq("user_id", gespeicherteId);
+      await supabase
+        .from("DB_User")
+        .update({ mobile_kalender: wert })
+        .eq("user_id", gespeicherteId);
     }
     window.dispatchEvent(
       new CustomEvent("schichtpilot:prefchange", {
@@ -146,7 +191,8 @@ useEffect(() => {
       }
     };
     window.addEventListener("schichtpilot:prefchange", onPrefChange);
-    return () => window.removeEventListener("schichtpilot:prefchange", onPrefChange);
+    return () =>
+      window.removeEventListener("schichtpilot:prefchange", onPrefChange);
   }, []);
 
   // 🛡️ Einwilligung widerrufen
@@ -193,92 +239,91 @@ useEffect(() => {
     alert("Vielen Dank! Deine Einwilligung wurde gespeichert.");
   };
 
-  const [pushStatus, setPushStatus] = useState("unbekannt"); 
-  const [pushSince, setPushSince] = useState(null); 
+  const [pushStatus, setPushStatus] = useState("unbekannt");
+  const [pushSince, setPushSince] = useState(null);
 
-const checkPushStatus = async () => {
-  try {
-    if (!("Notification" in window)) return setPushStatus("inaktiv");
-    if (Notification.permission === "denied") return setPushStatus("blocked");
+  const checkPushStatus = async () => {
+    try {
+      if (!("Notification" in window)) return setPushStatus("inaktiv");
+      if (Notification.permission === "denied") return setPushStatus("blocked");
 
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    setPushStatus(sub ? "aktiv" : "inaktiv");
-  } catch {
-    setPushStatus("inaktiv");    
-  }
-};
-const loadPushInfoFromDb = async () => {
-  try {
-    const userId = localStorage.getItem("user_id");
-    if (!userId) return;
-
-    const { data, error } = await supabase
-      .from("db_pushsubscription")
-      .select("created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error || !data) {
-  setPushSince(null);
-  return;
-}
-setPushSince(data.created_at);
-  } catch (e) {
-    console.error("Push-Status laden fehlgeschlagen:", e);
-  }
-};
-useEffect(() => {
-  
-  if (!isAuthScreen) checkPushStatus();
-  
-
-}, [isAuthScreen, pathname]);
-
-useEffect(() => {
-  if (!isAuthScreen && menueOffen) {
-    loadPushInfoFromDb();
-  }
-}, [menueOffen, isAuthScreen]);
-
-const activatePush = async () => {
-  try {
-    setPushMsg("");
-
-    if (!("Notification" in window)) {
-      setPushMsg("❌ Push wird auf diesem Gerät nicht unterstützt.");
-      return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      setPushStatus(sub ? "aktiv" : "inaktiv");
+    } catch {
+      setPushStatus("inaktiv");
     }
-    if (Notification.permission === "denied") {
-      setPushStatus("blocked");
-      setPushMsg("❌ Benachrichtigungen sind blockiert (Browser-Einstellung).");
-      return;
-    }
+  };
 
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey) {
-      setPushMsg("❌ VAPID Public Key fehlt (ENV).");
-      return;
-    }
+  const loadPushInfoFromDb = async () => {
+    try {
+      const userId = localStorage.getItem("user_id");
+      if (!userId) return;
 
-    const sub = await ensurePushSubscription({ vapidPublicKey });
+      const { data, error } = await supabase
+        .from("db_pushsubscription")
+        .select("created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        setPushSince(null);
+        return;
+      }
+      setPushSince(data.created_at);
+    } catch (e) {
+      console.error("Push-Status laden fehlgeschlagen:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthScreen) checkPushStatus();
+  }, [isAuthScreen, pathname]);
+
+  useEffect(() => {
+    if (!isAuthScreen && menueOffen) {
+      loadPushInfoFromDb();
+    }
+  }, [menueOffen, isAuthScreen]);
+
+  const activatePush = async () => {
+    try {
+      setPushMsg("");
+
+      if (!("Notification" in window)) {
+        setPushMsg("❌ Push wird auf diesem Gerät nicht unterstützt.");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        setPushStatus("blocked");
+        setPushMsg("❌ Benachrichtigungen sind blockiert (Browser-Einstellung).");
+        return;
+      }
+
+      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        setPushMsg("❌ VAPID Public Key fehlt (ENV).");
+        return;
+      }
+
+      const sub = await ensurePushSubscription({ vapidPublicKey });
 
       // firma/unit aus LocalStorage (Mobile nutzt das ja schon)
       const firma_id = Number(localStorage.getItem("firma_id")) || null;
-      const unit_id  = Number(localStorage.getItem("unit_id")) || null;
+      const unit_id = Number(localStorage.getItem("unit_id")) || null;
 
       // ✅ in DB speichern
       await savePushSubscriptionToDb(sub, { firma_id, unit_id });
       await loadPushInfoFromDb();
-          setPushStatus("aktiv");
-          setPushMsg("✅ Push ist aktiv (dieses Gerät ist registriert).");
-        } catch (e) {
-          console.error(e);
-          setPushMsg(`❌ Aktivierung fehlgeschlagen: ${e?.message || e}`);
-        }
-      };
+      setPushStatus("aktiv");
+      setPushMsg("✅ Push ist aktiv (dieses Gerät ist registriert).");
+    } catch (e) {
+      console.error(e);
+      setPushMsg(`❌ Aktivierung fehlgeschlagen: ${e?.message || e}`);
+    }
+  };
 
   // 🧹 Logout
   const logout = async () => {
@@ -295,6 +340,8 @@ const activatePush = async () => {
     }
   };
 
+  const badgeTotal = offeneAntworten + neueNachrichten;
+
   return (
     <div className="min-h-screen flex flex-col bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       {/* Sticky Header */}
@@ -302,6 +349,7 @@ const activatePush = async () => {
         <div className="flex items-center gap-2">
           <img src={logo} alt="logo" className="h-12 object-contain" />
         </div>
+
         <div className="flex items-center gap-3 text-sm">
           <button
             onClick={() => navigate("/mobile")}
@@ -328,22 +376,21 @@ const activatePush = async () => {
           </button>
 
           <button
-  onClick={() => navigate("/mobile/anfragen")}
-  className={`relative flex items-center gap-2 px-2 py-1 ${
-    pathname.includes("/anfragen")
-      ? "bg-green-600 bg-opacity-10 border border-green-600 border-opacity-20"
-      : ""
-  }`}
-  title="Meine Anfragen"
->
-  <MailQuestion className="w-6 h-6" />
-
-  {offeneAntworten > 0 && (
-    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1">
-      {offeneAntworten > 9 ? "9+" : offeneAntworten}
-    </span>
-  )}
-</button>
+            onClick={() => navigate("/mobile/anfragen")}
+            className={`relative flex items-center gap-2 px-2 py-1 ${
+              pathname.includes("/anfragen")
+                ? "bg-green-600 bg-opacity-10 border border-green-600 border-opacity-20"
+                : ""
+            }`}
+            title="Meine Anfragen"
+          >
+            <MailQuestion className="w-6 h-6" />
+            {badgeTotal > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1">
+                {badgeTotal > 9 ? "9+" : badgeTotal}
+              </span>
+            )}
+          </button>
 
           <button onClick={() => setMenueOffen(true)} title="Menü">
             <Settings className="w-6 h-6 text-white" />
@@ -366,6 +413,7 @@ const activatePush = async () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <ul className="space-y-3 text-sm">
               {/* Dark Mode */}
               <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
@@ -410,11 +458,14 @@ const activatePush = async () => {
                 <h4 className="font-bold mb-2 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4" /> Datenschutzerklärung
                 </h4>
+
                 {einwilligung ? (
                   <>
                     <p className="text-green-600 mb-2">
                       ✅ Einwilligung erteilt am:{" "}
-                      {einwilligungDatum ? new Date(einwilligungDatum).toLocaleDateString() : "-"}
+                      {einwilligungDatum
+                        ? new Date(einwilligungDatum).toLocaleDateString()
+                        : "-"}
                     </p>
                     <button
                       onClick={widerrufeEinwilligung}
@@ -431,6 +482,7 @@ const activatePush = async () => {
                     ➕ Einwilligung erteilen
                   </button>
                 )}
+
                 <button
                   onClick={erstelleDatenschutzPDF}
                   className="w-full text-left text-blue-600 hover:underline mt-2"
@@ -438,27 +490,31 @@ const activatePush = async () => {
                   📄 Datenschutzerklärung PDF
                 </button>
               </li>
-            {/* Pushbenachrichtigungen */}
+
+              {/* Pushbenachrichtigungen */}
               <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
                 <h4 className="font-bold mb-2">🔔 Push-Benachrichtigungen</h4>
 
                 <p className="text-xs mb-2">
-              Status:{" "}
-              {pushStatus === "aktiv" ? (
-                <>
-                  <span className="text-green-600">✅ aktiv</span>
-                  {pushSince && (
-                    <span className="text-gray-500">
-                      {" "}seit {new Date(pushSince).toLocaleDateString("de-DE")}
-                    </span>
+                  Status:{" "}
+                  {pushStatus === "aktiv" ? (
+                    <>
+                      <span className="text-green-600">✅ aktiv</span>
+                      {pushSince && (
+                        <span className="text-gray-500">
+                          {" "}
+                          seit{" "}
+                          {new Date(pushSince).toLocaleDateString("de-DE")}
+                        </span>
+                      )}
+                    </>
+                  ) : pushStatus === "blocked" ? (
+                    "⛔ blockiert"
+                  ) : (
+                    "⚠️ nicht aktiv"
                   )}
-                </>
-              ) : pushStatus === "blocked" ? (
-                "⛔ blockiert"
-              ) : (
-                "⚠️ nicht aktiv"
-              )}
-            </p>
+                </p>
+
                 <button
                   onClick={activatePush}
                   className="w-full text-left text-blue-600 hover:underline"
@@ -467,27 +523,28 @@ const activatePush = async () => {
                 </button>
 
                 {pushMsg ? <p className="text-xs mt-2">{pushMsg}</p> : null}
+
                 <button
-                onClick={async () => {
-                  try {
-                    setPushMsg("");
-                    const reg = await navigator.serviceWorker.ready;
-                    const sub = await reg.pushManager.getSubscription();
-                    if (sub) await sub.unsubscribe();
-                    setPushStatus("inaktiv");
-                    setPushSince(null);  
-                    setPushMsg("✅ Push wurde auf diesem Gerät deaktiviert.");
-                  } catch (e) {
-                    console.error(e);
-                    setPushMsg("❌ Deaktivieren fehlgeschlagen.");
-                  }
-                }}
-                className="w-full text-left text-red-600 hover:underline mt-2"
-              >
-                ❌ Push auf diesem Gerät deaktivieren
-              </button>
+                  onClick={async () => {
+                    try {
+                      setPushMsg("");
+                      const reg = await navigator.serviceWorker.ready;
+                      const sub = await reg.pushManager.getSubscription();
+                      if (sub) await sub.unsubscribe();
+                      setPushStatus("inaktiv");
+                      setPushSince(null);
+                      setPushMsg("✅ Push wurde auf diesem Gerät deaktiviert.");
+                    } catch (e) {
+                      console.error(e);
+                      setPushMsg("❌ Deaktivieren fehlgeschlagen.");
+                    }
+                  }}
+                  className="w-full text-left text-red-600 hover:underline mt-2"
+                >
+                  ❌ Push auf diesem Gerät deaktivieren
+                </button>
               </li>
-            
+
               {/* Logout */}
               <li className="border border-gray-300 dark:border-gray-600 p-3 rounded-lg">
                 <button
