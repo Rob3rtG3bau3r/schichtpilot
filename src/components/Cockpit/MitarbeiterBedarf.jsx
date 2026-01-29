@@ -18,6 +18,7 @@ const FEATURE_ANALYSE = 'bedarf_analyse';
 // --- Schicht-Helpers ---
 const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
 const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
+const SHIFT_KUERZEL_SET = new Set(['F', 'S', 'N']);
 
 const isPastDay = (datum) => dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
 
@@ -601,8 +602,11 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
 
         // --- aktive User (nur nicht-ausgegraut) ---
         const dayDienste = dienste
-  .filter((d) => d.datum === datum)
-  .filter((d) => !isGrey(d.user, datum));
+          .filter((d) => d.datum === datum)
+          .filter((d) => !isGrey(d.user, datum))
+          // ✅ NUR echte Schichten zählen
+          .filter((d) => SHIFT_KUERZEL_SET.has(d.ist_schicht?.kuerzel));
+
 
 const shift = shiftTimes[schicht] || null;
 

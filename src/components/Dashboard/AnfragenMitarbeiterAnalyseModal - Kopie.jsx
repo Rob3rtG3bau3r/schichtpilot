@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import { X, Loader2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
-import { speichernInKampfliste } from '../../utils/speichernInKampfliste';
+import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
 
 /* --------------------------- Helpers --------------------------- */
 
@@ -740,29 +740,69 @@ const ampelAfter = useMemo(() => {
 
       if (upErr) throw upErr;
 
-      // 2) Wenn genehmigt => zentraler Kampfliste-Write (Verlauf -> Delete -> Insert + Recalc)
+      // 2) Wenn genehmigt => in DB_Kampfliste eintragen/aktualisieren
       if (entscheidung === true) {
         let zielKuerzel = schichtKuerzel;
+
         if (antragInfo.type === 'urlaub') zielKuerzel = 'U';
-        if (antragInfo.type === 'frei') zielKuerzel = '-';
+        if (antragInfo.type === 'frei') zielKuerzel = '-'; // falls bei dir Frei = "-"
 
-        const createdBy =
-          (await supabase.auth.getUser()).data?.user?.id || verantwortlicherUserId || null;
-          if (!createdBy) {
-          throw new Error("Kein createdBy gefunden (auth user).");
-          }
+        const { data: art, error: artErr } = await supabase
+          .from('DB_SchichtArt')
+          .select('id, startzeit, endzeit, dauer, pause_aktiv, pause_dauer')
+          .eq('firma_id', firmaId)
+          .eq('unit_id', unitId)
+          .eq('kuerzel', zielKuerzel)
+          .maybeSingle();
 
-        await speichernInKampfliste({
-          firmaId,
-          unitId,
-          userId: anfrage.created_by,
-          dates: [datum],
-          kuerzelNeu: zielKuerzel,
-          createdBy,
+        if (artErr) throw artErr;
+        if (!art?.id) throw new Error(`SchichtArt nicht gefunden für Kürzel "${zielKuerzel}".`);
+
+        const { data: existing, error: exErr } = await supabase
+          .from('DB_Kampfliste')
+          .select('id')
+          .eq('firma_id', firmaId)
+          .eq('unit_id', unitId)
+          .eq('user', anfrage.created_by)
+          .eq('datum', datum)
+          .maybeSingle();
+
+        if (exErr) throw exErr;
+
+        const payload = {
+          firma_id: firmaId,
+          unit_id: unitId,
+          user: anfrage.created_by,
+          datum,
+          ist_schicht: art.id,
+          startzeit_ist: art.startzeit,
+          endzeit_ist: art.endzeit,
+          dauer_ist: art.dauer,
+          aenderung: false,
           kommentar: kommentar || null,
-          // start/ende/pauseHours nicht nötig: Helper nutzt SchichtArt-Fallback
-          skipUrlaubOnFreeDay: true,
-        });
+          created_by: verantwortlicherUserId,
+          pausen_dauer: art.pause_aktiv ? (art.pause_dauer ?? 0) : 0,
+        };
+
+        if (existing?.id) {
+          const { error: u2 } = await supabase.from('DB_Kampfliste').update(payload).eq('id', existing.id);
+          if (u2) throw u2;
+        } else {
+          const { error: insErr } = await supabase.from('DB_Kampfliste').insert(payload);
+          if (insErr) throw insErr;
+        }
+
+        // Berechnung anstoßen
+        try {
+          await berechneUndSpeichereStunden({
+            firma_id: firmaId,
+            unit_id: unitId,
+            user_id: anfrage.created_by,
+            datum,
+          });
+        } catch (calcErr) {
+          console.error('berechneUndSpeichereStunden Fehler:', calcErr?.message || calcErr);
+        }
       }
 
       onSaved?.();
@@ -943,37 +983,37 @@ const ampelAfter = useMemo(() => {
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Genehmigung</div>
 
                 <div className="flex items-center gap-3 mb-2">
-                <button
-                  onClick={() => setEntscheidung(true)}
-                  className={`px-4 py-1 rounded-xl text-xs border ${
-                    entscheidung === true
-                      ? 'bg-green-600 text-white border-green-700'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  Ja
-                </button>
+  <button
+    onClick={() => setEntscheidung(true)}
+    className={`px-4 py-1 rounded-xl text-xs border ${
+      entscheidung === true
+        ? 'bg-green-600 text-white border-green-700'
+        : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
+    }`}
+  >
+    Ja
+  </button>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setEntscheidung(false)}
-                    className={`px-4 py-1 rounded-xl text-xs border ${
-                      entscheidung === false
-                        ? 'bg-red-600 text-white border-red-700'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
-                    }`}
-                  >
-                    Nein
-                  </button>
+  <div className="flex items-center gap-2">
+    <button
+      onClick={() => setEntscheidung(false)}
+      className={`px-4 py-1 rounded-xl text-xs border ${
+        entscheidung === false
+          ? 'bg-red-600 text-white border-red-700'
+          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
+      }`}
+    >
+      Nein
+    </button>
 
-                  {/* ✅ Mini-Info rechts neben Nein */}
-                  <div className="text-xs text-gray-500 dark:text-gray-300">
-                    {antragInfo.type === 'urlaub' && 'Bei Ja wird Urlaub (U)'}
-                    {antragInfo.type === 'frei' && 'Bei Ja wird Frei (-)'}
-                    {antragInfo.type === 'angebot' && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eintragen`}
-                  </div>
-                </div>
-              </div>
+    {/* ✅ Mini-Info rechts neben Nein */}
+    <div className="text-xs text-gray-500 dark:text-gray-300">
+      {antragInfo.type === 'urlaub' && 'Bei Ja wird Urlaub (U)'}
+      {antragInfo.type === 'frei' && 'Bei Ja wird Frei (-)'}
+      {antragInfo.type === 'angebot' && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eintragen`}
+    </div>
+  </div>
+</div>
 
 
                 <textarea

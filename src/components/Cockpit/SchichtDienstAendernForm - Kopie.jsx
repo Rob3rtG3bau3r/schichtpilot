@@ -1,13 +1,11 @@
-// src/components/Cockpit/SchichtDienstAendernForm.jsx
+// src/components/Dashboard/SchichtDienstAendernForm.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
 import duration from 'dayjs/plugin/duration';
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
-dayjs.extend(isSameOrBefore);
 import { useRollen } from '../../context/RollenContext';
 import { Info, GripVertical, PanelLeftOpen, PanelRightOpen } from 'lucide-react';
-import { speichernInKampfliste } from '../../utils/speichernInKampfliste';
+import { berechneUndSpeichereStunden, berechneUndSpeichereUrlaub } from '../../utils/berechnungen';
 
 dayjs.extend(duration);
 
@@ -614,23 +612,209 @@ const SchichtDienstAendernForm = ({
       dates.push(d.format('YYYY-MM-DD'));
     }
 
-        // ✅ Zentrales Speichern (Verlauf -> Delete -> Insert + Recalc)
-    await speichernInKampfliste({
-      firmaId: f,
-      unitId: u,
-      userId: eintrag.user,
-      dates,
-      kuerzelNeu: auswahl.kuerzel,
-      createdBy,
-      kommentar,
-      schichtgruppe: eintrag.schichtgruppe,
-      start: auswahl.start || null,
-      ende: auswahl.ende || null,
-      pauseHours: Number(pause) || 0,
-      selectedSchicht,
-      skipUrlaubOnFreeDay: true,
-      perfSkipRecalc: PERF_SKIP_RECALC,
-    });
+    // Alte Kampflisten-Zeilen für Zeitraum in 1 Query
+    const { data: oldRows, error: oldErr } = await supabase
+      .from('DB_Kampfliste')
+      .select(
+        `
+        user, datum, firma_id, unit_id, ist_schicht, soll_schicht,
+        startzeit_ist, endzeit_ist, dauer_ist, dauer_soll, kommentar,
+        created_at, created_by, schichtgruppe,
+        pausen_dauer,
+        ist_rel:ist_schicht ( id, kuerzel, startzeit, endzeit )
+      `
+      )
+      .eq('user', eintrag.user)
+      .eq('firma_id', f)
+      .eq('unit_id', u)
+      .in('datum', dates);
+
+    if (oldErr) console.error('Fehler oldRows:', oldErr);
+
+    const oldByDate = new Map((oldRows ?? []).map((r) => [r.datum, r]));
+
+    // Cache für SollPlan
+    const sollCache = new Map(); // date -> {kuerzel,start,ende,pause}
+    const getSoll = async (dateStr) => {
+      if (sollCache.has(dateStr)) return sollCache.get(dateStr);
+      const v = await ladeSollAusSollPlanFuerUser({
+        userId: eintrag.user,
+        datum: dateStr,
+        firmaId: f,
+        unitId: u,
+      });
+      sollCache.set(dateStr, v);
+      return v;
+    };
+
+    const recalcStundenSet = new Set(); // JSON.stringify({user,jahr,monat,firma,unit})
+    const recalcUrlaubSet = new Set(); // JSON.stringify({user,jahr,firma,unit})
+
+    const verlaufBatch = [];
+    const deleteDates = [];
+    const insertBatch = [];
+
+    // Basiszeiten für aenderung (nur Zeitabweichung gegenüber Standard)
+    const basisStart = selectedSchicht?.startzeit ?? null;
+    const basisEnde = selectedSchicht?.endzeit ?? null;
+
+    for (const datumStr of dates) {
+      const dObj = dayjs(datumStr);
+      const oldRow = oldByDate.get(datumStr) ?? null;
+      const oldIstKuerzel = oldRow?.ist_rel?.kuerzel ?? null;
+
+      const sollPlan = await getSoll(datumStr);
+
+      const sollK =
+        sollPlan?.kuerzel && sollPlan.kuerzel !== '-' ? sollPlan.kuerzel : oldRow?.soll_schicht ?? null;
+
+      // Urlaub auf freien Tagen überspringen
+      if ((sollK == null || sollK === '-') && auswahl.kuerzel === 'U') {
+        continue;
+      }
+
+      // Dauer_Soll (nur falls noch nicht vorhanden)
+      let dauerSoll = oldRow?.dauer_soll ?? null;
+      if (!dauerSoll && sollPlan?.start && sollPlan?.ende) {
+        const s = dayjs(`2024-01-01T${sollPlan.start}`);
+        let e = dayjs(`2024-01-01T${sollPlan.ende}`);
+        if (e.isBefore(s)) e = e.add(1, 'day');
+        dauerSoll = dayjs.duration(e.diff(s)).asHours();
+      }
+
+      // Start/Ende bestimmen
+      let aktuelleStart = auswahl.start;
+      let aktuelleEnde = auswahl.ende;
+
+      if (selectedSchicht?.ignoriert_arbeitszeit) {
+        aktuelleStart =
+          oldRow?.startzeit_ist ??
+          sollPlan?.start ??
+          selectedSchicht?.startzeit ??
+          (aktuelleStart || null);
+        aktuelleEnde =
+          oldRow?.endzeit_ist ??
+          sollPlan?.ende ??
+          selectedSchicht?.endzeit ??
+          (aktuelleEnde || null);
+      }
+
+      // Dauer + Pause
+      let aktuelleDauer = null;
+      let aktuellePause = 0;
+
+      if (selectedSchicht?.ignoriert_arbeitszeit) {
+        aktuelleDauer = oldRow?.dauer_ist ?? dauerSoll ?? null;
+        aktuellePause = 0;
+      } else if (aktuelleStart && aktuelleEnde) {
+        const roh = berechneRohDauerInStunden(aktuelleStart, aktuelleEnde);
+        let minPause = 0;
+        if (selectedSchicht?.pause_aktiv) {
+          if (roh >= 9) minPause = 0.75;
+          else if (roh >= 6) minPause = 0.5;
+        }
+        aktuellePause = Math.max(Number(pause) || 0, minPause);
+        aktuelleDauer = Math.max(roh - aktuellePause, 0);
+      }
+
+      // Dirty flags (Recalc)
+      const alterDauerIst = oldRow?.dauer_ist ?? null;
+      const jahr = dObj.year();
+      const monat = dObj.month() + 1;
+
+      if (!PERF_SKIP_RECALC && alterDauerIst !== aktuelleDauer) {
+        recalcStundenSet.add(JSON.stringify({ user: eintrag.user, jahr, monat, firma: f, unit: u }));
+      }
+      if (!PERF_SKIP_RECALC && (auswahl.kuerzel === 'U' || oldIstKuerzel === 'U')) {
+        recalcUrlaubSet.add(JSON.stringify({ user: eintrag.user, jahr, firma: f, unit: u }));
+      }
+
+      // Verlauf: alten Zustand speichern
+      if (oldRow) {
+        verlaufBatch.push({
+          user: oldRow.user,
+          datum: oldRow.datum,
+          firma_id: oldRow.firma_id,
+          unit_id: oldRow.unit_id,
+          ist_schicht: oldRow.ist_schicht,
+          soll_schicht: oldRow.soll_schicht,
+          startzeit_ist: oldRow.startzeit_ist,
+          endzeit_ist: oldRow.endzeit_ist,
+          dauer_ist: oldRow.dauer_ist,
+          dauer_soll: oldRow.dauer_soll,
+          kommentar: oldRow.kommentar,
+          pausen_dauer: oldRow.pausen_dauer ?? 0,
+          change_on: nowIso,
+          created_by: oldRow.created_by,
+          change_by: createdBy,
+          created_at: oldRow.created_at,
+          schichtgruppe: oldRow.schichtgruppe,
+        });
+      }
+
+      // Delete + Insert
+      deleteDates.push(datumStr);
+
+      const schichtId = selectedSchicht?.id ?? schichtarten.find((s) => s.kuerzel === auswahl.kuerzel)?.id ?? null;
+
+      const hatAenderung =
+        ['U', 'K', 'KO'].includes(auswahl.kuerzel)
+          ? false
+          : !((basisStart ?? null) === (aktuelleStart ?? null) && (basisEnde ?? null) === (aktuelleEnde ?? null));
+
+      insertBatch.push({
+        user: eintrag.user,
+        datum: datumStr,
+        firma_id: f,
+        unit_id: u,
+        soll_schicht: sollK ?? null,
+        ist_schicht: schichtId,
+        startzeit_ist: aktuelleStart ?? null,
+        endzeit_ist: aktuelleEnde ?? null,
+        dauer_ist: aktuelleDauer ?? null,
+        dauer_soll: dauerSoll ?? null,
+        pausen_dauer: aktuellePause ?? 0,
+        aenderung: hatAenderung,
+        created_at: nowIso,
+        created_by: createdBy,
+        schichtgruppe: eintrag.schichtgruppe,
+        kommentar,
+      });
+    }
+
+    // Batch writes
+    if (verlaufBatch.length) {
+      const vr = await supabase.from('DB_KampflisteVerlauf').insert(verlaufBatch);
+      if (vr.error) console.error('❌ Insert DB_KampflisteVerlauf:', vr.error.message);
+    }
+
+    if (deleteDates.length) {
+      const dr = await supabase
+        .from('DB_Kampfliste')
+        .delete()
+        .eq('user', eintrag.user)
+        .eq('firma_id', f)
+        .eq('unit_id', u)
+        .in('datum', deleteDates);
+      if (dr.error) console.error('❌ Delete DB_Kampfliste:', dr.error.message);
+    }
+
+    if (insertBatch.length) {
+      const ir = await supabase.from('DB_Kampfliste').insert(insertBatch);
+      if (ir.error) console.error('❌ Insert DB_Kampfliste:', ir.error.message);
+    }
+
+    // Batch recalc
+    if (!PERF_SKIP_RECALC) {
+      for (const k of recalcStundenSet) {
+        const { user, jahr, monat, firma: ff, unit: uu } = JSON.parse(k);
+        await berechneUndSpeichereStunden(user, jahr, monat, ff, uu);
+      }
+      for (const k of recalcUrlaubSet) {
+        const { user, jahr, firma: ff, unit: uu } = JSON.parse(k);
+        await berechneUndSpeichereUrlaub(user, jahr, ff, uu);
+      }
+    }
 
     setSaveMessage(`${startDatum.format('DD.MM.YYYY')} Erfolgreich gespeichert`);
     setTimeout(() => setSaveMessage(''), 1500);

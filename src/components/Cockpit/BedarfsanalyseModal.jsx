@@ -9,16 +9,12 @@ import duration from 'dayjs/plugin/duration';
 dayjs.extend(duration);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
-
 import { useRollen } from '../../context/RollenContext';
-import { berechneUndSpeichereStunden } from '../../utils/berechnungen';
-
+import { speichernInKampfliste } from '../../utils/speichernInKampfliste';
 import { BAM_UI, BAM_InfoModal } from './BAM_UI';
 import BAM_MitarbeiterimDienst from './BAM_MitarbeiterimDienst';
 import BAM_SchichtTausch from './BAM_SchichtTausch';
 import BAM_VerfuegbareMitarbeiter from './BAM_VerfuegbareMitarbeiter';
-
-// ✅ Push ausgelagert
 import BAM_PushNachrichten, { useBamPush } from './BAM_PushNachrichten';
 
 const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlendeQualis = [], onSaved }) => {
@@ -247,108 +243,29 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       }
 
       if (flags.macht_schicht) {
-        const { data: sRow, error: sErr } = await supabase
-          .from('DB_SchichtArt')
-          .select('id, startzeit, endzeit, pause_aktiv')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .eq('kuerzel', sch)
-          .single();
+  const kommentarFinal =
+    (notizText && String(notizText).trim().length > 0)
+      ? String(notizText).trim()
+      : null;
 
-        if (sErr || !sRow?.id) {
-          console.error('DB_SchichtArt:', sErr);
-          alert('SchichtArt nicht gefunden (F/S/N).');
-          return;
-        }
+  await speichernInKampfliste({
+    firmaId: firma,
+    unitId: unit,
+    userId: selected.uid,
+    dates: [modalDatum],        // genau 1 Tag
+    kuerzelNeu: sch,            // F/S/N (modalSchicht)
+    createdBy,
+    kommentar: kommentarFinal,
 
-        const start = sRow.startzeit || null;
-        const ende = sRow.endzeit || null;
+    // Zeiten nicht nötig: util nimmt Standardzeiten aus DB_SchichtArt
+    start: null,
+    ende: null,
+    pauseHours: 0,              // util erzwingt Mindestpause über pause_aktiv
 
-        const rohDauer = (() => {
-          if (!start || !ende) return null;
-          const s = dayjs(`2024-01-01T${start}`);
-          let e = dayjs(`2024-01-01T${ende}`);
-          if (e.isBefore(s)) e = e.add(1, 'day');
-          return dayjs.duration(e.diff(s)).asHours();
-        })();
-
-        let pause = 0;
-        if (rohDauer != null && sRow.pause_aktiv) {
-          if (rohDauer >= 9) pause = 0.75;
-          else if (rohDauer >= 6) pause = 0.5;
-        }
-        const dauerIst = rohDauer != null ? Math.max(rohDauer - pause, 0) : null;
-
-        const { data: oldRow } = await supabase
-          .from('DB_Kampfliste')
-          .select('*')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .eq('datum', modalDatum)
-          .eq('user', selected.uid)
-          .maybeSingle();
-
-        const now = new Date().toISOString();
-
-        if (oldRow) {
-          await supabase.from('DB_KampflisteVerlauf').insert([{
-            user: oldRow.user,
-            datum: oldRow.datum,
-            firma_id: oldRow.firma_id,
-            unit_id: oldRow.unit_id,
-            ist_schicht: oldRow.ist_schicht,
-            soll_schicht: oldRow.soll_schicht,
-            startzeit_ist: oldRow.startzeit_ist,
-            endzeit_ist: oldRow.endzeit_ist,
-            dauer_ist: oldRow.dauer_ist,
-            dauer_soll: oldRow.dauer_soll,
-            kommentar: oldRow.kommentar,
-            pausen_dauer: oldRow.pausen_dauer ?? 0,
-            change_on: now,
-            created_by: oldRow.created_by,
-            change_by: createdBy,
-            created_at: oldRow.created_at,
-            schichtgruppe: oldRow.schichtgruppe,
-          }]);
-
-          await supabase
-            .from('DB_Kampfliste')
-            .delete()
-            .eq('firma_id', firma)
-            .eq('unit_id', unit)
-            .eq('datum', modalDatum)
-            .eq('user', selected.uid);
-        }
-
-        const kommentarFinal =
-          (notizText && String(notizText).trim().length > 0)
-            ? String(notizText).trim()
-            : null;
-
-        await supabase.from('DB_Kampfliste').insert([{
-          firma_id: firma,
-          unit_id: unit,
-          datum: modalDatum,
-          user: selected.uid,
-          ist_schicht: sRow.id,
-          startzeit_ist: start,
-          endzeit_ist: ende,
-          dauer_ist: dauerIst,
-          pausen_dauer: pause,
-          aenderung: false,
-          kommentar: kommentarFinal,
-          created_at: now,
-          created_by: createdBy,
-        }]);
-
-        await berechneUndSpeichereStunden(
-          selected.uid,
-          dayjs(modalDatum).year(),
-          dayjs(modalDatum).month() + 1,
-          firma,
-          unit
-        );
-      }
+    // Regeln
+    skipUrlaubOnFreeDay: true,  // egal hier (weil nicht U), aber sauber
+  });
+}
 
       if (typeof onSaved === 'function') {
         await onSaved({
