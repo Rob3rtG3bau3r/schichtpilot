@@ -9,14 +9,13 @@ import YearView from '../components/UnitReports/YearView';
 import { MONTHS, FALLBACK_COLORS } from '../components/UnitReports/unitReportsShared';
 import { useSearchParams } from 'react-router-dom';
 
-
 export default function UnitReports({ firmaId, unitId, supabase: supabaseProp, defaultYear }) {
-const [searchParams] = useSearchParams();
-const urlFirmaId = searchParams.get('firma_id');
-const urlUnitId  = searchParams.get('unit_id');
-const urlYear    = searchParams.get('jahr');
-const supabase = supabaseProp ?? supabaseClient;
- 
+  const [searchParams] = useSearchParams();
+  const urlFirmaId = searchParams.get('firma_id');
+  const urlUnitId = searchParams.get('unit_id');
+  const urlYear = searchParams.get('jahr');
+  const supabase = supabaseProp ?? supabaseClient;
+
   // Scrollbar fix nur hier (keine globalen Änderungen)
   useEffect(() => {
     const root = document.documentElement;
@@ -24,16 +23,15 @@ const supabase = supabaseProp ?? supabaseClient;
     const prevGutter = root.style.scrollbarGutter;
     root.style.overflowY = 'scroll';
     root.style.scrollbarGutter = 'stable both-edges';
-    return () => { root.style.overflowY = prevOverflow; root.style.scrollbarGutter = prevGutter; };
+    return () => {
+      root.style.overflowY = prevOverflow;
+      root.style.scrollbarGutter = prevGutter;
+    };
   }, []);
 
   // Firma/Unit ermitteln
-  const [firmaIdState, setFirmaIdState] = useState(
-  firmaId ?? (urlFirmaId ? Number(urlFirmaId) : null)
-);
-const [unitIdState, setUnitIdState] = useState(
-  unitId ?? (urlUnitId ? Number(urlUnitId) : null)
-);
+  const [firmaIdState, setFirmaIdState] = useState(firmaId ?? (urlFirmaId ? Number(urlFirmaId) : null));
+  const [unitIdState, setUnitIdState] = useState(unitId ?? (urlUnitId ? Number(urlUnitId) : null));
 
   const [isCompanyViewer, setIsCompanyViewer] = useState(false);
   const [companyUnits, setCompanyUnits] = useState([]); // [{id, unitname}]
@@ -49,11 +47,14 @@ const [unitIdState, setUnitIdState] = useState(
         .select('firma_id, unit_id')
         .eq('user_id', uid)
         .maybeSingle();
-      if (data) { setFirmaIdState(data.firma_id); setUnitIdState(data.unit_id); }
+      if (data) {
+        setFirmaIdState(data.firma_id);
+        setUnitIdState(data.unit_id);
+      }
     })();
   }, [firmaIdState, unitIdState, supabase]);
 
-    useEffect(() => {
+  useEffect(() => {
     if (!firmaIdState) return;
 
     (async () => {
@@ -105,8 +106,11 @@ const [unitIdState, setUnitIdState] = useState(
   // Jahr Auswahl
   const now = useMemo(() => new Date(), []);
   const thisYear = now.getFullYear();
-  const [year, setYear] = useState(  defaultYear ?? (urlYear ? Number(urlYear) : thisYear));
-  const years = useMemo(() => [thisYear-2, thisYear-1, thisYear, thisYear+1].filter(y => y >= 2000), [thisYear]);
+  const [year, setYear] = useState(defaultYear ?? (urlYear ? Number(urlYear) : thisYear));
+  const years = useMemo(
+    () => [thisYear - 2, thisYear - 1, thisYear, thisYear + 1].filter((y) => y >= 2000),
+    [thisYear]
+  );
 
   // Daten
   const [months, setMonths] = useState([]);
@@ -117,7 +121,7 @@ const [unitIdState, setUnitIdState] = useState(
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [showYear, setShowYear] = useState(false);
 
-  // Sichtbarkeit der Jahres-Charts (Default: wie bei dir)
+  // Sichtbarkeit der Jahres-Charts
   const [chartVis, setChartVis] = useState({
     monthlyDiff: true,
     cumBothIncl: false,
@@ -131,43 +135,42 @@ const [unitIdState, setUnitIdState] = useState(
   });
 
   // Kürzel-Farben aus DB_SchichtArt
-  const [kuerzelColors, setKuerzelColors] = useState({}); // { KU: '#hex' }
+  const [kuerzelColors, setKuerzelColors] = useState({}); // { KU: {bg,text} }
   useEffect(() => {
-  if (!firmaIdState || !unitIdState) return;
+    if (!firmaIdState || !unitIdState) return;
 
-  (async () => {
-    const { data, error } = await supabase
-      .from('DB_SchichtArt')
-      .select('kuerzel, farbe_bg, farbe_text')
-      .eq('firma_id', firmaIdState)
-      .eq('unit_id', unitIdState);
+    (async () => {
+      const { data, error } = await supabase
+        .from('DB_SchichtArt')
+        .select('kuerzel, farbe_bg, farbe_text')
+        .eq('firma_id', firmaIdState)
+        .eq('unit_id', unitIdState);
 
-    if (error) {
-      console.error('SchichtArt Farben Fehler:', error);
-      return;
-    }
-
-    const map = {};
-    (data || []).forEach(row => {
-      if (row.kuerzel && row.farbe_bg) {
-        map[row.kuerzel] = {
-          bg: row.farbe_bg,
-          text: row.farbe_text ?? '#000000',
-        };
+      if (error) {
+        console.error('SchichtArt Farben Fehler:', error);
+        return;
       }
-    });
 
-    setKuerzelColors(map);
-  })();
-}, [firmaIdState, unitIdState, supabase]);
+      const map = {};
+      (data || []).forEach((row) => {
+        if (row.kuerzel && row.farbe_bg) {
+          map[row.kuerzel] = {
+            bg: row.farbe_bg,
+            text: row.farbe_text ?? '#000000',
+          };
+        }
+      });
 
+      setKuerzelColors(map);
+    })();
+  }, [firmaIdState, unitIdState, supabase]);
 
-  const colorFor = (k, idx) =>
-  kuerzelColors[k]?.bg || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
-
+  const colorFor = (k, idx) => kuerzelColors[k]?.bg || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
 
   const loadYear = async (y) => {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
+
     const { data, error } = await supabase
       .from('db_report_monthly')
       .select('*')
@@ -175,6 +178,7 @@ const [unitIdState, setUnitIdState] = useState(
       .eq('unit_id', unitIdState)
       .eq('jahr', y)
       .order('monat', { ascending: true });
+
     if (error) throw error;
     setMonths(data || []);
 
@@ -185,9 +189,10 @@ const [unitIdState, setUnitIdState] = useState(
       .eq('unit_id', unitIdState)
       .eq('jahr', y)
       .maybeSingle();
+
     setYtdRow(ytdData ?? null);
 
-    const finalized = (data || []).filter(r => r.finalized_at);
+    const finalized = (data || []).filter((r) => r.finalized_at);
     const last = finalized.length ? finalized[finalized.length - 1].monat : null;
     setSelectedMonth(last);
     setShowYear(false);
@@ -196,32 +201,34 @@ const [unitIdState, setUnitIdState] = useState(
 
   useEffect(() => {
     if (!firmaIdState || !unitIdState) return;
-    loadYear(year).catch(e => { setError(e.message ?? 'Fehler beim Laden'); setLoading(false); });
+    loadYear(year).catch((e) => {
+      setError(e.message ?? 'Fehler beim Laden');
+      setLoading(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year, firmaIdState, unitIdState]);
 
   const readyMap = useMemo(() => {
     const m = {};
-    months.forEach(r => { m[r.monat] = !!r.finalized_at; });
+    months.forEach((r) => {
+      m[r.monat] = !!r.finalized_at;
+    });
     return m;
   }, [months]);
 
-  const atLeastOneReady = months.some(r => !!r.finalized_at);
+  const atLeastOneReady = months.some((r) => !!r.finalized_at);
 
-  const monthRow = useMemo(
-    () => months.find(r => r.monat === selectedMonth) || null,
-    [months, selectedMonth]
-  );
+  const monthRow = useMemo(() => months.find((r) => r.monat === selectedMonth) || null, [months, selectedMonth]);
 
   const monthDiff = useMemo(() => {
     if (!monthRow || typeof monthRow.soll_stunden_sum !== 'number') return null;
     return Number(monthRow.ist_stunden_sum || 0) - Number(monthRow.soll_stunden_sum || 0);
   }, [monthRow]);
 
-  const monthK       = useMemo(() => Number(monthRow?.kuerzel_stunden?.K  ?? 0), [monthRow]);
-  const monthKO      = useMemo(() => Number(monthRow?.kuerzel_stunden?.KO ?? 0), [monthRow]);
-  const monthKCount  = useMemo(() => Number(monthRow?.kuerzel_count?.K    ?? 0), [monthRow]);
-  const monthKOCount = useMemo(() => Number(monthRow?.kuerzel_count?.KO   ?? 0), [monthRow]);
+  const monthK = useMemo(() => Number(monthRow?.kuerzel_stunden?.K ?? 0), [monthRow]);
+  const monthKO = useMemo(() => Number(monthRow?.kuerzel_stunden?.KO ?? 0), [monthRow]);
+  const monthKCount = useMemo(() => Number(monthRow?.kuerzel_count?.K ?? 0), [monthRow]);
+  const monthKOCount = useMemo(() => Number(monthRow?.kuerzel_count?.KO ?? 0), [monthRow]);
 
   const monthKQuote = useMemo(() => {
     const denom = Number(monthRow?.ist_stunden_sum ?? 0);
@@ -233,22 +240,34 @@ const [unitIdState, setUnitIdState] = useState(
     return denom > 0 ? (monthKO / denom) * 100 : null;
   }, [monthKO, monthRow]);
 
-  const monthPlanQuote = useMemo(() => (monthRow?.planerfuellung_quote ?? null), [monthRow]);
+  const monthPlanQuote = useMemo(() => monthRow?.planerfuellung_quote ?? null, [monthRow]);
 
-  const monthTopKuerzel = useMemo(() => {
+  // ✅ Alle Kürzel-Stunden (ohne slice) – wird auch für monthTopKuerzel genutzt
+  const monthKuerzelStundenAll = useMemo(() => {
     if (!monthRow?.kuerzel_stunden) return [];
     return Object.entries(monthRow.kuerzel_stunden)
-      .map(([k,v]) => ({ k, v: Number(v || 0) }))
-      .sort((a,b) => b.v - a.v)
-      .slice(0, 10);
+      .map(([k, v]) => ({ k, v: Number(v || 0) }))
+      .sort((a, b) => b.v - a.v);
   }, [monthRow]);
 
+  // ✅ Alle Kürzel-Counts (ohne slice) – optional, falls du es später brauchst
+  const monthKuerzelCountAll = useMemo(() => {
+    if (!monthRow?.kuerzel_count) return [];
+    return Object.entries(monthRow.kuerzel_count)
+      .map(([k, v]) => ({ k, v: Number(v || 0) }))
+      .sort((a, b) => b.v - a.v);
+  }, [monthRow]);
+
+  // ✅ WICHTIG: MonthsCharts braucht monthTopKuerzel.map(...)
+  // -> wir geben wieder Top10 (wie vorher), damit nix crasht und Darstellung gleich bleibt
+  const monthTopKuerzel = useMemo(() => monthKuerzelStundenAll.slice(0, 20), [monthKuerzelStundenAll]);
+
   const monthlyChangeSeries = useMemo(() => {
-    return months.map(r => ({
+    return months.map((r) => ({
       label: MONTHS[r.monat - 1],
       total: Number(r.planchg_total ?? 0),
-      off:   Number(r.planchg_off_rhythm ?? 0),
-      planQ: (r.planerfuellung_quote ?? null),
+      off: Number(r.planchg_off_rhythm ?? 0),
+      planQ: r.planerfuellung_quote ?? null,
     }));
   }, [months]);
 
@@ -259,11 +278,11 @@ const [unitIdState, setUnitIdState] = useState(
 
   // ---------- Jahresdatensätze für Diagramme ----------
   const fullYearRows = useMemo(() => {
-    const byMonth = new Map(months.map(r => [r.monat, r]));
+    const byMonth = new Map(months.map((r) => [r.monat, r]));
     return Array.from({ length: 12 }, (_, i) => {
       const m = i + 1;
       const r = byMonth.get(m) || { monat: m };
-      const kStunden  = Number(r?.kuerzel_stunden?.K  ?? 0);
+      const kStunden = Number(r?.kuerzel_stunden?.K ?? 0);
       const koStunden = Number(r?.kuerzel_stunden?.KO ?? 0);
       return {
         monat: m,
@@ -283,25 +302,25 @@ const [unitIdState, setUnitIdState] = useState(
   }, [months]);
 
   const monthlyDiffSeries = useMemo(() => {
-    return fullYearRows.map(r => ({ label: r.label, diff: Number(r.ist || 0) - Number(r.soll || 0) }));
+    return fullYearRows.map((r) => ({ label: r.label, diff: Number(r.ist || 0) - Number(r.soll || 0) }));
   }, [fullYearRows]);
 
   const monthlyShortNotice = useMemo(() => {
-    return months.map(r => ({
+    return months.map((r) => ({
       label: MONTHS[r.monat - 1],
-      le1:     Number(r.kurzfrist_1d   ?? 0),
-      gt1_le3: Number(r.kurzfrist_3d   ?? 0),
-      gt3_lt7: Number(r.kurzfrist_7d   ?? 0),
-      ge7:     Number(r.kurzfrist_gt7d ?? 0),
+      le1: Number(r.kurzfrist_1d ?? 0),
+      gt1_le3: Number(r.kurzfrist_3d ?? 0),
+      gt3_lt7: Number(r.kurzfrist_7d ?? 0),
+      ge7: Number(r.kurzfrist_gt7d ?? 0),
     }));
   }, [months]);
 
   // Startwert = Vorjahres-Übernahme (ytdRow.year_uebernahme)
   const cumBothIncl = useMemo(() => {
-    let runIst  = Number(ytdRow?.year_uebernahme ?? 0);
+    let runIst = Number(ytdRow?.year_uebernahme ?? 0);
     let runSoll = 0;
-    return fullYearRows.map(row => {
-      runIst  += Number(row.ist  || 0);
+    return fullYearRows.map((row) => {
+      runIst += Number(row.ist || 0);
       runSoll += Number(row.soll || 0);
       return { label: row.label, kumIst: runIst, kumSoll: runSoll };
     });
@@ -309,13 +328,13 @@ const [unitIdState, setUnitIdState] = useState(
 
   const availableKuerzel = useMemo(() => {
     const set = new Set();
-    fullYearRows.forEach(r => Object.keys(r.kuerzelStunden || {}).forEach(k => set.add(k)));
+    fullYearRows.forEach((r) => Object.keys(r.kuerzelStunden || {}).forEach((k) => set.add(k)));
     return Array.from(set).sort();
   }, [fullYearRows]);
 
   const top3Kuerzel = useMemo(() => {
     const totals = {};
-    fullYearRows.forEach(r => {
+    fullYearRows.forEach((r) => {
       Object.entries(r.kuerzelStunden || {}).forEach(([k, v]) => {
         totals[k] = (totals[k] || 0) + Number(v || 0);
       });
@@ -330,9 +349,11 @@ const [unitIdState, setUnitIdState] = useState(
   const chosenKuerzel = (customKuerzel.length ? customKuerzel : top3Kuerzel).slice(0, 3);
 
   const kuerzelSeriesPerMonth = useMemo(() => {
-    return fullYearRows.map(r => {
+    return fullYearRows.map((r) => {
       const base = { label: r.label };
-      chosenKuerzel.forEach(k => { base[k] = Number(r.kuerzelStunden?.[k] ?? 0); });
+      chosenKuerzel.forEach((k) => {
+        base[k] = Number(r.kuerzelStunden?.[k] ?? 0);
+      });
       return base;
     });
   }, [fullYearRows, chosenKuerzel]);
@@ -340,27 +361,64 @@ const [unitIdState, setUnitIdState] = useState(
   // CSV (Year) – Werte aus db_report_ytd
   const exportCSVYear = () => {
     if (!atLeastOneReady || !ytdRow) return;
+
     const header = [
-      'firma_id','unit_id','jahr','bis_monat',
-      'ytd_soll','ytd_ist','ytd_diff',
-      'year_soll','year_ist','year_diff',
-      'ytd_urlaub','year_urlaub','year_urlaub_soll',
-      'krank_stunden_ytd','kranktage_ytd','krank_%_ytd',
-      'dauer10_ytd','dauer11_ytd','dauer12_ytd',
-      'planchg_total_ytd','planchg_off_rhythm_ytd','planerfuellung_ytd',
-      'kurzfrist_1d_ytd','kurzfrist_3d_ytd','kurzfrist_7d_ytd','kurzfrist_gt7d_ytd'
+      'firma_id',
+      'unit_id',
+      'jahr',
+      'bis_monat',
+      'ytd_soll',
+      'ytd_ist',
+      'ytd_diff',
+      'year_soll',
+      'year_ist',
+      'year_diff',
+      'ytd_urlaub',
+      'year_urlaub',
+      'year_urlaub_soll',
+      'krank_stunden_ytd',
+      'kranktage_ytd',
+      'krank_%_ytd',
+      'dauer10_ytd',
+      'dauer11_ytd',
+      'dauer12_ytd',
+      'planchg_total_ytd',
+      'planchg_off_rhythm_ytd',
+      'planerfuellung_ytd',
+      'kurzfrist_1d_ytd',
+      'kurzfrist_3d_ytd',
+      'kurzfrist_7d_ytd',
+      'kurzfrist_gt7d_ytd',
     ];
+
     const csvHeader = header.join(';') + '\n';
     const line = [
-      firmaIdState, unitIdState, year, (ytdRow?.bis_monat ?? ''),
-      (ytdRow?.ytd_soll ?? ''), (ytdRow?.ytd_ist ?? 0), (ytdRow?.ytd_diff ?? ''),
-      (ytdRow?.year_soll ?? ''), (ytdRow?.year_ist ?? 0), (ytdRow?.year_diff ?? ''),
-      (ytdRow?.ytd_urlaub ?? 0), (ytdRow?.year_urlaub ?? 0), (ytdRow?.year_urlaub_soll ?? ''),
-      (ytdRow?.krank_stunden_ytd ?? 0), (ytdRow?.kranktage_ytd ?? 0),
-      (((ytdRow?.krank_stunden_ytd ?? 0)/(ytdRow?.ytd_ist || 1))*100).toFixed(2),
-      (ytdRow?.dauer10_ytd ?? 0), (ytdRow?.dauer11_ytd ?? 0), (ytdRow?.dauer12_ytd ?? 0),
-      (ytdRow?.planchg_total_ytd ?? 0), (ytdRow?.planchg_off_rhythm_ytd ?? 0), (ytdRow?.planerfuellung_ytd ?? ''),
-      (ytdRow?.kurzfrist_1d_ytd ?? 0), (ytdRow?.kurzfrist_3d_ytd ?? 0), (ytdRow?.kurzfrist_7d_ytd ?? 0), (ytdRow?.kurzfrist_gt7d_ytd ?? 0),
+      firmaIdState,
+      unitIdState,
+      year,
+      ytdRow?.bis_monat ?? '',
+      ytdRow?.ytd_soll ?? '',
+      ytdRow?.ytd_ist ?? 0,
+      ytdRow?.ytd_diff ?? '',
+      ytdRow?.year_soll ?? '',
+      ytdRow?.year_ist ?? 0,
+      ytdRow?.year_diff ?? '',
+      ytdRow?.ytd_urlaub ?? 0,
+      ytdRow?.year_urlaub ?? 0,
+      ytdRow?.year_urlaub_soll ?? '',
+      ytdRow?.krank_stunden_ytd ?? 0,
+      ytdRow?.kranktage_ytd ?? 0,
+      (((ytdRow?.krank_stunden_ytd ?? 0) / (ytdRow?.ytd_ist || 1)) * 100).toFixed(2),
+      ytdRow?.dauer10_ytd ?? 0,
+      ytdRow?.dauer11_ytd ?? 0,
+      ytdRow?.dauer12_ytd ?? 0,
+      ytdRow?.planchg_total_ytd ?? 0,
+      ytdRow?.planchg_off_rhythm_ytd ?? 0,
+      ytdRow?.planerfuellung_ytd ?? '',
+      ytdRow?.kurzfrist_1d_ytd ?? 0,
+      ytdRow?.kurzfrist_3d_ytd ?? 0,
+      ytdRow?.kurzfrist_7d_ytd ?? 0,
+      ytdRow?.kurzfrist_gt7d_ytd ?? 0,
     ].join(';') + '\n';
 
     const blob = new Blob([csvHeader + line], { type: 'text/csv;charset=utf-8;' });
@@ -376,7 +434,7 @@ const [unitIdState, setUnitIdState] = useState(
 
   return (
     <div className="mx-auto p-4 md:p-6 space-y-4">
-            <UnitsReportsMenue
+      <UnitsReportsMenue
         year={year}
         setYear={setYear}
         years={years}
@@ -399,7 +457,6 @@ const [unitIdState, setUnitIdState] = useState(
         setUnitId={setUnitIdState}
       />
 
-
       {!showYear && (
         <MonthView
           year={year}
@@ -414,6 +471,7 @@ const [unitIdState, setUnitIdState] = useState(
           monthPlanQuote={monthPlanQuote}
           monthTopKuerzel={monthTopKuerzel}
           colorFor={colorFor}
+          kuerzelColors={kuerzelColors}
         />
       )}
 

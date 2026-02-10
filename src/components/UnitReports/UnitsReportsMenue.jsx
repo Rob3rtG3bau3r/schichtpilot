@@ -167,7 +167,7 @@ export default function UnitsReportsMenue({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <SelectYear value={year} onChange={setYear} years={years} />
-                    {isCompanyViewer && (
+          {isCompanyViewer && (
             <div className="relative inline-flex items-center gap-2">
               <select
                 value={unitId ?? ''}
@@ -194,9 +194,9 @@ export default function UnitsReportsMenue({
       {/* fixes Raster: 7 Spalten, 2 Reihen */}
       <Card>
         <div className="grid grid-cols-7 gap-2">
-          {Array.from({ length: 12 }, (_, i) => (<MonthTile key={i+1} m={i+1} />))}
+          {Array.from({ length: 12 }, (_, i) => (<MonthTile key={i + 1} m={i + 1} />))}
           <YearTile />
-          <div className={`${TILE_H} rounded-2xl opacity-0`} />
+          <div className={`h-8 rounded-2xl opacity-0`} />
         </div>
 
         {loading && (
