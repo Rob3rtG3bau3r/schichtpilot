@@ -825,7 +825,11 @@ export default function TagesUebersicht() {
               </Section>
 
               {/* Bedarf */}
-              <Section id="bedarf" title="Bedarf heute">
+                <Section
+                  id="bedarf"
+                  title="Bedarf heute"
+                  defaultOpen={showZeitlich}   // ✅ Zeitlich -> offen, Normalbetrieb -> zu
+                >
                 {(() => {
                   const aktive = showZeitlich ? zb : nb;
 
@@ -991,12 +995,10 @@ export default function TagesUebersicht() {
 
       {/* FOKUS MODAL */}
       {focusOpen && (
-        <div
-          className="fixed inset-0 z-[9999] bg-black/30 backdrop-blur-sm flex items-center justify-center p-3"
+        <div className="fixed inset-0 z-[9999] bg-black/30 backdrop-blur-sm flex items-start justify-center p-3 overflow-y-auto"
           onMouseDown={() => setFocusOpen(false)}
         >
-          <div
-            className="w-full max-w-6xl rounded-3xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 shadow-2xl"
+          <div className="w-full max-w-6xl rounded-3xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 shadow-2xl max-h-[calc(100vh-24px)] flex flex-col"
             onMouseDown={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -1046,7 +1048,7 @@ export default function TagesUebersicht() {
             </div>
 
             {/* Modal Inhalt */}
-            <div className="p-4 max-h-[85vh] overflow-auto">
+            <div className="p-4 overflow-y-auto flex-1">
               {renderInhalt(praesiMode)}
             </div>
           </div>
