@@ -21,7 +21,7 @@ export function useBamPush({ supabase, firma, unit, modalDatum, modalSchicht }) 
     const label = s === "F" ? "Früh" : s === "S" ? "Spät" : s === "N" ? "Nacht" : s;
     return `❗ ${label}schicht am ${dayjs(modalDatum).format(
       "DD.MM.YYYY"
-    )} unterbesetzt – kannst du helfen?`;
+    )} unterbesetzt kannst du helfen?`;
   }, [modalDatum, modalSchicht]);
 
   const resetPush = useCallback(() => {
