@@ -40,6 +40,28 @@ const calcUrlaubUebrig = (yearUrlaub, yearUrlaubSoll) => {
   return us - u;
 };
 
+const ThWithTip = ({ label, tip, className = '' }) => (
+        <th className={`p-2 text-left ${className}`}>
+          <span className="relative inline-flex items-center group">
+            <span className="cursor-help underline decoration-dotted underline-offset-4">
+              {label}
+            </span>
+
+            {/* Tooltip */}
+            <span
+              className="
+                pointer-events-none absolute left-0 top-full mt-2 z-50
+                hidden group-hover:block
+                whitespace-nowrap rounded-lg border border-gray-600
+                bg-gray-900 px-2 py-1 text-[11px] text-gray-200 shadow-lg
+              "
+            >
+              {tip}
+            </span>
+          </span>
+        </th>
+      );
+      
 const KundenUnitTabelle = ({ onSelectUnit, onOpenUnitReport }) => {
   const { sichtFirma } = useRollen();
   const [units, setUnits] = useState([]);
@@ -206,10 +228,21 @@ isOverYearSoll:
                 <th className="p-2 text-left">ID</th>
                 <th className="p-2 text-left">Unit</th>
                 <th className="p-2 text-left">Standort</th>
-                <th className="p-2 text-left">MA Ziel</th>
-                <th className="p-2 text-left">MA aktiv</th>
+
+                {/* NEU: MA kombiniert */}
+                <ThWithTip
+                  label="MA"
+                  tip="Anzeige: MA aktiv / MA Ziel (Ziel = Stammdaten aus DB_Unit)"
+                />
+
                 <th className="p-2 text-left"># Teams</th>
-                <th className="p-2 text-left">Std. (Year)</th>
+
+                {/* NEU: Stunden mit Hover */}
+                <ThWithTip
+                  label="Std. (Year)"
+                  tip="Anzeige: Ist-Stunden inkl. / Soll-Stunden (aus db_report_ytd, neuester bis_monat je Unit)"
+                />
+
                 <th className="p-2 text-left">Urlaub übrig</th>
                 <th className="p-2 text-left">Krank %</th>
                 <th className="p-2 text-left">&gt;10h Dienste</th>
@@ -227,9 +260,9 @@ isOverYearSoll:
                   <td className="p-2">{unit.id}</td>
                   <td className="p-2">{unit.unitname}</td>
                   <td className="p-2">{unit.unit_standort ?? '—'}</td>
-
-                  <td className="p-2">{unit.anzahl_ma ?? '—'}</td>
-                  <td className="p-2">{unit.aktive_ma ?? 0}</td>
+                  <td className="p-2 font-semibold">
+                    {`${unit.aktive_ma ?? 0} / ${unit.anzahl_ma ?? '—'}`}
+                  </td>
                   <td className="p-2">{unit.anzahl_schichten ?? '—'}</td>
 
                   <td className={`p-2 font-semibold ${unit.isOverYearSoll ? 'text-red-500' : ''}`}>
@@ -259,7 +292,7 @@ isOverYearSoll:
 
               {units.length === 0 && (
                 <tr>
-                  <td className="p-2 text-center text-gray-400" colSpan="12">
+                  <td className="p-2 text-center text-gray-400" colSpan="11">
                     Keine Units vorhanden.
                   </td>
                 </tr>
