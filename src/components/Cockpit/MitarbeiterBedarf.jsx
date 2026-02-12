@@ -908,7 +908,7 @@ const timeIssueCount = timeIssues?.length || 0;
 
     setBedarfsLeiste(leiste);
     setBedarfStatus(status);
-  };
+   };
 
   useEffect(() => {
     ladeMitarbeiterBedarf();
