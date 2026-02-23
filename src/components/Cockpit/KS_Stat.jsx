@@ -3,12 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts';
+import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const deNumber = (v, digits = 0) => {
   const n = Number(v ?? 0);
@@ -83,13 +78,12 @@ function IstSollGauge({ ist, soll, height = 220 }) {
   const ratio = safeSoll > 0 ? safeIst / safeSoll : 0;
   const capped = Math.min(Math.max(ratio, 0), 1);
 
-  const filledPct = Math.round(capped * 1000) / 10; // %
+  const filledPct = Math.round(capped * 1000) / 10;
   const mainData = [
     { name: 'Ist', value: filledPct },
     { name: 'Rest', value: 100 - filledPct },
   ];
 
-  // Überhang als dünner Außenring (visuell cap: +100%)
   const overPct = safeSoll > 0 ? Math.min(Math.max((ratio - 1) * 100, 0), 100) : 0;
   const overData =
     overPct > 0 ? [{ name: 'Über', value: overPct }, { name: 'Leer', value: 100 - overPct }] : null;
@@ -133,7 +127,7 @@ function IstSollGauge({ ist, soll, height = 220 }) {
       </ResponsiveContainer>
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <div className="text-xs text-gray-500 dark:text-gray-300">Ist / Verfügbar</div>
+        <div className="text-xs text-gray-500 dark:text-gray-300">Ist / Soll</div>
         <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">{pctText}</div>
         <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
           {deNumber(safeIst)}h / {deNumber(safeSoll)}h
@@ -143,8 +137,8 @@ function IstSollGauge({ ist, soll, height = 220 }) {
   );
 }
 
-/* ---------------------- Bullet (flach) ---------------------- */
-function IstSollBulletFlat({ ist, soll, dense = false }) {
+/* ---------------------- Bullet: DICK + Zahlen IN der Bar ---------------------- */
+function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true }) {
   const safeSoll = Math.max(0, Number(soll ?? 0));
   const safeIst = Math.max(0, Number(ist ?? 0));
 
@@ -154,25 +148,19 @@ function IstSollBulletFlat({ ist, soll, dense = false }) {
   const fillPct = safeSoll > 0 ? Math.min(Math.max(ratio, 0), 1) * 100 : 0;
   const overPct = safeSoll > 0 ? Math.min(Math.max((ratio - 1) * 100, 0), 100) : 0;
 
-  const h = dense ? 10 : 18;
+  // ✅ Dicker: Kalender = 14px, Modal = 18px (änderbar)
+  const h = dense ? 21 : 24;
+
+  const insideText = safeSoll > 0
+    ? `${deNumber(safeIst)} / ${deNumber(safeSoll)} h`
+    : `${deNumber(safeIst)} h`;
 
   return (
     <div className="w-full">
-      {/* Zahlenzeile (flach) */}
-      <div className={`flex items-center justify-between ${dense ? 'mb-1' : 'mb-2'}`}>
-        <div className={`${dense ? 'text-[11px]' : 'text-xs'} text-gray-800 dark:text-gray-100`}>
-          <span className="font-semibold">{deNumber(safeIst)}</span>
-          <span className="text-gray-500 dark:text-gray-300"> / </span>
-          <span className="font-semibold">{deNumber(safeSoll)}</span>
-          <span className="text-gray-500 dark:text-gray-300"> h</span>
-        </div>
-        <div className={`${dense ? 'text-[11px]' : 'text-xs'} font-semibold text-gray-900 dark:text-gray-100`}>
-          {pct === null ? '—' : `${pct}%`}
-        </div>
-      </div>
-
-      {/* Bar */}
-      <div className="relative rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700" style={{ height: h }}>
+      <div
+        className="relative rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700"
+        style={{ height: h }}
+      >
         {/* Ist (bis 100%) */}
         <div
           className="absolute left-0 top-0 h-full rounded-full"
@@ -181,12 +169,25 @@ function IstSollBulletFlat({ ist, soll, dense = false }) {
 
         {/* Überhang als dünner roter Streifen oben */}
         {overPct > 0 && (
-          <div className="absolute left-0 top-0 h-[2px]" style={{ width: `${Math.min(overPct, 100)}%`, backgroundColor: '#ef4444' }} />
+          <div
+            className="absolute left-0 top-0 h-[2px]"
+            style={{ width: `${Math.min(overPct, 100)}%`, backgroundColor: '#ef4444' }}
+          />
         )}
 
         {/* Soll-Marke rechts */}
         <div className="absolute top-[-8px] right-0 flex flex-col items-end pointer-events-none">
           <div className="h-[calc(100%+16px)] w-[2px] bg-gray-900/60 dark:bg-gray-100/50" />
+        </div>
+
+        {/* ✅ Zahlen IN der Bar */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="px-2 text-[11px] font-semibold text-black/80 dark:text-gray-100/90 drop-shadow">
+            {insideText}
+            {showPercentInside && pct !== null ? (
+              <span className="ml-2 text-black/80 dark:text-gray-100/90">{pct}%</span>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -247,10 +248,9 @@ export default function KS_Stat({ jahr, monat }) {
   const [err, setErr] = useState(null);
 
   const [openModal, setOpenModal] = useState(false);
-  const [monthMode, setMonthMode] = useState('bullet'); // 'bullet' | 'gauge'
-  const [yearMode, setYearMode] = useState('gauge');    // 'bullet' | 'gauge'
+  const [monthMode, setMonthMode] = useState('bullet');
+  const [yearMode, setYearMode] = useState('gauge');
 
-  // Hover “Notizfeld”
   const anchorRef = useRef(null);
   const [openNote, setOpenNote] = useState(false);
   const [noteHover, setNoteHover] = useState(false);
@@ -264,7 +264,7 @@ export default function KS_Stat({ jahr, monat }) {
       setLoading(true);
       setErr(null);
 
-      const m = Number(monat) + 1; // db_report_monthly: 1..12
+      const m = Number(monat) + 1;
       try {
         const [{ data: mData, error: mErr }, { data: yData, error: yErr }] = await Promise.all([
           supabase
@@ -310,10 +310,7 @@ export default function KS_Stat({ jahr, monat }) {
   const yearIst = Number(ytdRow?.year_ist ?? 0);
   const yearUe = Number(ytdRow?.year_uebernahme ?? 0);
 
-  // ✅ Wunsch: Ist-Stunden inkl. Übernahme (Jahr)
   const yearIstIncl = yearIst + yearUe;
-
-  // ✅ Wunsch: Differenz inkl. Übernahme (Ist+Übernahme − Soll)
   const yearDiffIncl = yearIstIncl - yearSoll;
 
   const ytdSoll = Number(ytdRow?.ytd_soll ?? 0);
@@ -323,19 +320,16 @@ export default function KS_Stat({ jahr, monat }) {
   const hasMonthData = !!monthRow && (monthSoll > 0 || monthIst > 0 || !!monthRow?.finalized_at);
   const canOpen = hasMonthData || !!ytdRow;
 
-  // “Notiz” nur wenn wirklich Daten da
   const noteDisabled = !hasMonthData && !ytdRow;
 
-  // Hover handling: bleibt offen wenn Maus im Popover ist
   const closeNoteSafe = () => {
     setTimeout(() => {
       setOpenNote((prev) => (noteHover ? prev : false));
     }, 60);
   };
 
-  // ----------------- FLACHE KALENDER-ANSICHT -----------------
   return (
-    <div className="relative w-[480px]">
+    <div className="relative w-[320px]">
       <div
         ref={anchorRef}
         className="flex items-center gap-2"
@@ -347,17 +341,16 @@ export default function KS_Stat({ jahr, monat }) {
       >
         <div className="flex-1">
           {loading ? (
-            <div className="text-[11px] text-gray-500 dark:text-gray-300">Lade…</div>
+            <div className="text-xs text-gray-500 dark:text-gray-300">Lade…</div>
           ) : err ? (
-            <div className="text-[11px] text-red-500">{err}</div>
+            <div className="text-xs text-red-500">{err}</div>
           ) : !hasMonthData ? (
-            <div className="text-[11px] text-gray-500 dark:text-gray-300">—</div>
+            <div className="text-xs text-gray-500 dark:text-gray-300">—</div>
           ) : (
-            <IstSollBulletFlat ist={monthIst} soll={monthSoll} dense />
+            <IstSollBulletFlat ist={monthIst} soll={monthSoll} dense showPercentInside />
           )}
         </div>
 
-        {/* Icon rechts neben Bullet */}
         <button
           type="button"
           title={canOpen ? 'Groß anzeigen' : 'Keine Daten'}
@@ -374,7 +367,6 @@ export default function KS_Stat({ jahr, monat }) {
         </button>
       </div>
 
-      {/* Hover-Notizfeld */}
       <Popover
         open={openNote && !noteDisabled}
         anchorRef={anchorRef}
@@ -397,11 +389,10 @@ export default function KS_Stat({ jahr, monat }) {
             </div>
           </div>
 
-          {/* Monat Details */}
           <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-2">
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Monat</div>
             <StatLine label="Ist" value={`${deNumber(monthIst)} h`} emphasis />
-            <StatLine label="Verfügbar" value={`${deNumber(monthSoll)} h`} />
+            <StatLine label="Soll" value={`${deNumber(monthSoll)} h`} />
             <StatLine label="Quote" value={monthPct == null ? '—' : `${Math.round(monthPct)}%`} />
             <StatLine
               label={monthRest >= 0 ? 'Rest bis Soll' : 'Über Soll'}
@@ -410,14 +401,13 @@ export default function KS_Stat({ jahr, monat }) {
             />
           </div>
 
-          {/* Year/YTD Kurzinfos */}
           {ytdRow && (
             <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-2">
               <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
                 Jahr (inkl. Übernahme)
               </div>
               <StatLine label="Ist inkl. Übernahme" value={`${deNumber(yearIstIncl)} h`} emphasis />
-              <StatLine label="Verfügbar (Jahr)" value={`${deNumber(yearSoll)} h`} />
+              <StatLine label="Soll (Jahr)" value={`${deNumber(yearSoll)} h`} />
               <StatLine
                 label="Diff (Ist+Ü − Soll)"
                 value={`${yearDiffIncl >= 0 ? '+' : ''}${deNumber(yearDiffIncl)} h`}
@@ -429,21 +419,15 @@ export default function KS_Stat({ jahr, monat }) {
               </div>
             </div>
           )}
-
-          <div className="text-[11px] text-gray-500 dark:text-gray-300">
-            Tipp: Klick auf ⤢ öffnet das Modal (Bullet/Gauge + Year/YTD).
-          </div>
         </div>
       </Popover>
 
-      {/* ----------------- MODAL ----------------- */}
       <Modal
         open={openModal}
-        title="Ist Stunden vs. Verfügbare Stunden"
+        title="Ist vs. Soll"
         subtitle={`${monthName} · Jahr ${jahr}`}
         onClose={() => setOpenModal(false)}
       >
-        {/* Month Section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -458,28 +442,24 @@ export default function KS_Stat({ jahr, monat }) {
             ) : monthMode === 'gauge' ? (
               <IstSollGauge ist={monthIst} soll={monthSoll} height={360} />
             ) : (
-              <div className="max-w-3xl mx-auto">
-                {/* Bullet im Modal DARF “Rest bis Soll” zeigen */}
-                <div className="space-y-3">
-                  <IstSollBulletFlat ist={monthIst} soll={monthSoll} dense={false} />
-                  <div className="text-sm text-gray-700 dark:text-gray-200 flex items-center justify-between">
-                    <div>
-                      {monthRest >= 0 ? (
-                        <>Rest bis Soll: <span className="font-semibold">{deNumber(monthRest)} h</span></>
-                      ) : (
-                        <>Über Soll: <span className="font-semibold text-red-500">+{deNumber(Math.abs(monthRest))} h</span></>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-300">
-                      {monthRow?.finalized_at ? `final: ${fmtDateTime(monthRow.finalized_at)}` : 'nicht final'}
-                    </div>
+              <div className="max-w-3xl mx-auto space-y-3">
+                <IstSollBulletFlat ist={monthIst} soll={monthSoll} dense={false} showPercentInside />
+                <div className="text-sm text-gray-700 dark:text-gray-200 flex items-center justify-between">
+                  <div>
+                    {monthRest >= 0 ? (
+                      <>Rest bis Soll: <span className="font-semibold">{deNumber(monthRest)} h</span></>
+                    ) : (
+                      <>Über Soll: <span className="font-semibold text-red-500">+{deNumber(Math.abs(monthRest))} h</span></>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-300">
+                    {monthRow?.finalized_at ? `final: ${fmtDateTime(monthRow.finalized_at)}` : 'nicht final'}
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* YTD / YEAR Section */}
           <div className="flex items-center justify-between gap-3 pt-2">
             <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               Jahr & YTD (nur im Modal)
@@ -488,31 +468,35 @@ export default function KS_Stat({ jahr, monat }) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* 1) YTD (Gauge/Bullet) */}
-            <MiniCard title={`YTD (bis Monat ${ytdRow?.bis_monat ?? '—'})`}>
+            <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                YTD (bis Monat {ytdRow?.bis_monat ?? '—'})
+              </div>
               {!ytdRow ? (
                 <div className="text-sm text-gray-500 dark:text-gray-300">Keine YTD-Daten.</div>
               ) : yearMode === 'gauge' ? (
                 <IstSollGauge ist={ytdIst} soll={ytdSoll} height={220} />
               ) : (
                 <div className="space-y-2">
-                  <IstSollBulletFlat ist={ytdIst} soll={ytdSoll} />
+                  <IstSollBulletFlat ist={ytdIst} soll={ytdSoll} dense={false} showPercentInside />
                   <div className="text-xs text-gray-600 dark:text-gray-300">
                     Diff: <span className="font-semibold">{deNumber(Number(ytdRow?.ytd_diff ?? (ytdIst - ytdSoll)))} h</span>
                   </div>
                 </div>
               )}
-            </MiniCard>
+            </div>
 
-            {/* 2) Ist (Jahr) inkl. Übernahme */}
-            <MiniCard title="Ist (Jahr) inkl. Übernahme">
+            <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Ist (Jahr) inkl. Übernahme
+              </div>
               {!ytdRow ? (
                 <div className="text-sm text-gray-500 dark:text-gray-300">Keine Jahresdaten.</div>
               ) : yearMode === 'gauge' ? (
                 <IstSollGauge ist={yearIstIncl} soll={yearSoll} height={220} />
               ) : (
                 <div className="space-y-2">
-                  <IstSollBulletFlat ist={yearIstIncl} soll={yearSoll} />
+                  <IstSollBulletFlat ist={yearIstIncl} soll={yearSoll} dense={false} showPercentInside />
                   <div className="text-xs text-gray-600 dark:text-gray-300">
                     Ist ohne Übernahme: <span className="font-semibold">{deNumber(yearIst)} h</span>
                     <span className="mx-2 text-gray-400">|</span>
@@ -520,10 +504,12 @@ export default function KS_Stat({ jahr, monat }) {
                   </div>
                 </div>
               )}
-            </MiniCard>
+            </div>
 
-            {/* 3) Differenz inkl. Übernahme */}
-            <MiniCard title="Diff (Ist + Übernahme − Verfügbar)">
+            <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Diff (Ist + Übernahme − Soll)
+              </div>
               {!ytdRow ? (
                 <div className="text-sm text-gray-500 dark:text-gray-300">Keine Jahresdaten.</div>
               ) : (
@@ -535,7 +521,7 @@ export default function KS_Stat({ jahr, monat }) {
 
                   <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-2">
                     <StatLine label="Ist inkl. Übernahme" value={`${deNumber(yearIstIncl)} h`} emphasis />
-                    <StatLine label="Verfügbar (Jahr)" value={`${deNumber(yearSoll)} h`} />
+                    <StatLine label="Soll (Jahr)" value={`${deNumber(yearSoll)} h`} />
                   </div>
 
                   <div className="text-xs text-gray-500 dark:text-gray-300">
@@ -543,7 +529,7 @@ export default function KS_Stat({ jahr, monat }) {
                   </div>
                 </div>
               )}
-            </MiniCard>
+            </div>
           </div>
         </div>
       </Modal>
