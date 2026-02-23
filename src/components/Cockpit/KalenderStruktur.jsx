@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
+// Modal für das statistik Bullet
+import KS_Stat from './KS_Stat';
 
 const monate = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
@@ -192,21 +194,29 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
         })()}
 
         {/* Monate */}
-        <div className="flex gap-2 flex-wrap">
-          {monate.map((name, index) => (
-            <button
-              key={index}
-              onClick={() => setMonat(index)}
-              className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 ${
-                index === monat
-                  ? 'bg-blue-600 text-white dark:bg-blue-500'
-                  : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-              }`}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
+        {/* Monate + Stats rechts daneben */}
+<div className="flex items-start gap-6 flex-wrap">
+  <div className="flex gap-2 flex-wrap">
+    {monate.map((name, index) => (
+      <button
+        key={index}
+        onClick={() => setMonat(index)}
+        className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 ${
+          index === monat
+            ? 'bg-blue-600 text-white dark:bg-blue-500'
+            : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+        }`}
+      >
+        {name}
+      </button>
+    ))}
+  </div>
+
+  {/* Rechts neben Dezember – gleicher “Zeilenhöhe”-Block */}
+  <div className="mt-[2px]">
+    <KS_Stat jahr={jahr} monat={monat} />
+  </div>
+</div>
       </div>
 
       {/* Kalenderspalten */}
