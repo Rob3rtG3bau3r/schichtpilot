@@ -164,7 +164,7 @@ function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true 
         {/* Ist (bis 100%) */}
         <div
           className="absolute left-0 top-0 h-full rounded-full"
-          style={{ width: `${fillPct}%`, backgroundColor: '#10b981' }}
+          style={{ width: `${fillPct}%`, backgroundColor: '#15a776' }}
         />
 
         {/* Überhang als dünner roter Streifen oben */}

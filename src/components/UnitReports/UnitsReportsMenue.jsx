@@ -1,6 +1,9 @@
 // src/components/UnitReports/UnitsReportsMenue.jsx
-import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Download, RefreshCw, AlertCircle, CheckCircle2, Circle } from 'lucide-react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import {
+  ChevronDown, Download, RefreshCw, AlertCircle, CheckCircle2, Circle,
+  Clock, CircleDot
+} from 'lucide-react';
 import { MONTHS } from './unitReportsShared';
 
 const Card = ({ className='', children, ...rest }) => (
@@ -112,26 +115,67 @@ export default function UnitsReportsMenue({
 }) {
   const TILE_H = 'h-8';
 
+  // "Heute" für Icon-Logik (ohne dayjs-Abhängigkeit)
+  const now = useMemo(() => new Date(), []);
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
   const MonthTile = ({ m }) => {
     const ready = !!readyMap[m];
+
+    // Statusbestimmung
+    const isThisYear = year === currentYear;
+    const isCurrent = isThisYear && m === currentMonth;
+    const isFuture = (year > currentYear) || (isThisYear && m > currentMonth);
+    const isPast = (year < currentYear) || (isThisYear && m < currentMonth);
+
+    // Klick-Regeln:
+    // - Finalisierte immer klickbar
+    // - Aktueller Monat auch klickbar (Prognose, wenn nicht ready)
+    // - Zukünftige Monate klickbar (Prognose)
+    // - Vergangene Monate ohne Finalisierung bleiben gesperrt
+    const clickable = ready || isCurrent || isFuture;
+
     const selected = selectedMonth === m && !showYear;
+
+    // Icon + Tooltip
+    let icon = <Circle className="w-4 h-4" />;
+    let title = 'Noch nicht finalisiert';
+
+    if (ready) {
+      icon = <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
+      title = 'Finalisiert';
+    } else if (isCurrent) {
+      icon = <Clock className="w-4 h-4 text-amber-600" />;
+      title = 'Aktueller Monat (Prognose, nicht final)';
+    } else if (isFuture) {
+      icon = <CircleDot className="w-4 h-4 text-sky-600" />;
+      title = 'Zukünftiger Monat (Prognose, nicht final)';
+    } else if (isPast) {
+      // past + not ready
+      icon = <Circle className="w-4 h-4" />;
+      title = 'Vergangener Monat (nicht finalisiert)';
+    }
 
     return (
       <button
-        onClick={() => ready && (setSelectedMonth(m), setShowYear(false))}
+        onClick={() => clickable && (setSelectedMonth(m), setShowYear(false))}
         className={`w-full ${TILE_H} flex items-center justify-between rounded-2xl px-4 border border-gray-300 dark:border-gray-700
                     bg-gray-300 dark:bg-gray-700
-                    ${ready ? 'hover:bg-gray-400 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
-                    ${selected && ready ? 'ring-2 ring-blue-500' : 'ring-0'}
+                    ${clickable ? 'hover:bg-gray-400 hover:dark:bg-gray-500 cursor-pointer' : 'opacity-60 cursor-not-allowed'}
+                    ${selected && clickable ? 'ring-2 ring-blue-500' : 'ring-0'}
                     leading-none transition-colors`}
-        disabled={!ready}
-        title={ready ? 'Fertiger Monatsreport' : 'Noch nicht finalisiert'}
+        disabled={!clickable}
+        title={title}
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className="inline-flex w-5 justify-center">
-            {ready ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Circle className="w-4 h-4" />}
+            {icon}
           </span>
           <span className="font-medium whitespace-nowrap truncate">{MONTHS[m - 1]}</span>
+          {!ready && (isCurrent || isFuture) && (
+            <Muted className="text-[10px] ml-1 whitespace-nowrap"></Muted>
+          )}
         </div>
       </button>
     );
@@ -167,6 +211,7 @@ export default function UnitsReportsMenue({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <SelectYear value={year} onChange={setYear} years={years} />
+
           {isCompanyViewer && (
             <div className="relative inline-flex items-center gap-2">
               <select
@@ -205,6 +250,13 @@ export default function UnitsReportsMenue({
             Lade…
           </div>
         )}
+
+        {/* kleine Legende (optional, aber hilft extrem) */}
+        <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Finalisiert</span>
+          <span className="inline-flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /> Aktuell (Prognose)</span>
+          <span className="inline-flex items-center gap-2"><CircleDot className="w-4 h-4 text-sky-600" /> Zukunft (Prognose)</span>
+        </div>
       </Card>
 
       {error && (
