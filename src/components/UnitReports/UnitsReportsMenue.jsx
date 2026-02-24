@@ -254,8 +254,8 @@ export default function UnitsReportsMenue({
         {/* kleine Legende (optional, aber hilft extrem) */}
         <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
           <span className="inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Finalisiert</span>
-          <span className="inline-flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /> Aktuell (Prognose)</span>
-          <span className="inline-flex items-center gap-2"><CircleDot className="w-4 h-4 text-sky-600" /> Zukunft (Prognose)</span>
+          <span className="inline-flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /> Aktuell (Wird täglich aktualisiert)</span>
+          <span className="inline-flex items-center gap-2"><CircleDot className="w-4 h-4 text-sky-600" /> Zukunft (Wird an jedem 4. des Monats aktualisiert)</span>
         </div>
       </Card>
 

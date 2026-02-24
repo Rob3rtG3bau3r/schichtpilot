@@ -14,6 +14,11 @@ const deNumber = (v, digits = 0) => {
   }).format(n);
 };
 
+const fmtPct2 = (pct) => {
+  if (pct === null || pct === undefined || Number.isNaN(Number(pct))) return '—';
+  return `${Number(pct).toFixed(2).replace('.', ',')}%`;
+};
+
 const fmtDateTime = (ts) => {
   if (!ts) return '—';
   const d = dayjs(ts);
@@ -88,7 +93,8 @@ function IstSollGauge({ ist, soll, height = 220 }) {
   const overData =
     overPct > 0 ? [{ name: 'Über', value: overPct }, { name: 'Leer', value: 100 - overPct }] : null;
 
-  const pctText = safeSoll > 0 ? `${Math.round(ratio * 100)}%` : '—';
+  // ✅ überall 2 Nachkommastellen
+  const pctText = safeSoll > 0 ? fmtPct2(ratio * 100) : '—';
 
   return (
     <div style={{ height }} className="relative">
@@ -143,13 +149,12 @@ function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true 
   const safeIst = Math.max(0, Number(ist ?? 0));
 
   const ratio = safeSoll > 0 ? safeIst / safeSoll : 0;
-  const pct = safeSoll > 0 ? Math.round(ratio * 100) : null;
+  const pctText = safeSoll > 0 ? fmtPct2(ratio * 100) : '—';
 
   const fillPct = safeSoll > 0 ? Math.min(Math.max(ratio, 0), 1) * 100 : 0;
   const overPct = safeSoll > 0 ? Math.min(Math.max((ratio - 1) * 100, 0), 100) : 0;
 
-  // ✅ Dicker: Kalender = 14px, Modal = 18px (änderbar)
-  const h = dense ? 21 : 24;
+  const h = dense ? 14 : 18;
 
   const insideText = safeSoll > 0
     ? `${deNumber(safeIst)} / ${deNumber(safeSoll)} h`
@@ -157,17 +162,12 @@ function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true 
 
   return (
     <div className="w-full">
-      <div
-        className="relative rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700"
-        style={{ height: h }}
-      >
-        {/* Ist (bis 100%) */}
+      <div className="relative rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700" style={{ height: h }}>
         <div
           className="absolute left-0 top-0 h-full rounded-full"
-          style={{ width: `${fillPct}%`, backgroundColor: '#15a776' }}
+          style={{ width: `${fillPct}%`, backgroundColor: '#10b981' }}
         />
 
-        {/* Überhang als dünner roter Streifen oben */}
         {overPct > 0 && (
           <div
             className="absolute left-0 top-0 h-[2px]"
@@ -175,17 +175,15 @@ function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true 
           />
         )}
 
-        {/* Soll-Marke rechts */}
         <div className="absolute top-[-8px] right-0 flex flex-col items-end pointer-events-none">
           <div className="h-[calc(100%+16px)] w-[2px] bg-gray-900/60 dark:bg-gray-100/50" />
         </div>
 
-        {/* ✅ Zahlen IN der Bar */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="px-2 text-[11px] font-semibold text-black/80 dark:text-gray-100/90 drop-shadow">
+          <div className="px-2 text-[11px] font-semibold text-gray-900/90 dark:text-white/90 drop-shadow">
             {insideText}
-            {showPercentInside && pct !== null ? (
-              <span className="ml-2 text-black/80 dark:text-gray-100/90">{pct}%</span>
+            {showPercentInside ? (
+              <span className="ml-2 text-gray-800/80 dark:text-white/80">{pctText}</span>
             ) : null}
           </div>
         </div>
@@ -229,13 +227,6 @@ const StatLine = ({ label, value, emphasis = false }) => (
     <div className={`text-xs ${emphasis ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-800 dark:text-gray-100'}`}>
       {value}
     </div>
-  </div>
-);
-
-const MiniCard = ({ title, children }) => (
-  <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-    <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">{title}</div>
-    {children}
   </div>
 );
 
@@ -341,11 +332,11 @@ export default function KS_Stat({ jahr, monat }) {
       >
         <div className="flex-1">
           {loading ? (
-            <div className="text-xs text-gray-500 dark:text-gray-300">Lade…</div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-300">Lade…</div>
           ) : err ? (
-            <div className="text-xs text-red-500">{err}</div>
+            <div className="text-[11px] text-red-500">{err}</div>
           ) : !hasMonthData ? (
-            <div className="text-xs text-gray-500 dark:text-gray-300">—</div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-300">—</div>
           ) : (
             <IstSollBulletFlat ist={monthIst} soll={monthSoll} dense showPercentInside />
           )}
@@ -393,7 +384,8 @@ export default function KS_Stat({ jahr, monat }) {
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Monat</div>
             <StatLine label="Ist" value={`${deNumber(monthIst)} h`} emphasis />
             <StatLine label="Soll" value={`${deNumber(monthSoll)} h`} />
-            <StatLine label="Quote" value={monthPct == null ? '—' : `${Math.round(monthPct)}%`} />
+            {/* ✅ Quote überall 2 Nachkommastellen */}
+            <StatLine label="Quote" value={fmtPct2(monthPct)} />
             <StatLine
               label={monthRest >= 0 ? 'Rest bis Soll' : 'Über Soll'}
               value={`${monthRest >= 0 ? '' : '+'}${deNumber(Math.abs(monthRest))} h`}
@@ -415,7 +407,8 @@ export default function KS_Stat({ jahr, monat }) {
               />
               <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-300">
                 YTD bis Monat: <span className="font-semibold">{ytdRow?.bis_monat ?? '—'}</span>
-                {ytdPct == null ? '' : ` · ${Math.round(ytdPct)}%`}
+                {/* ✅ YTD Prozent überall 2 Nachkommastellen */}
+                {ytdPct == null ? '' : ` · ${fmtPct2(ytdPct)}`}
               </div>
             </div>
           )}
@@ -481,6 +474,9 @@ export default function KS_Stat({ jahr, monat }) {
                   <IstSollBulletFlat ist={ytdIst} soll={ytdSoll} dense={false} showPercentInside />
                   <div className="text-xs text-gray-600 dark:text-gray-300">
                     Diff: <span className="font-semibold">{deNumber(Number(ytdRow?.ytd_diff ?? (ytdIst - ytdSoll)))} h</span>
+                    <span className="ml-2 text-gray-500 dark:text-gray-300">
+                      ({fmtPct2(ytdPct)})
+                    </span>
                   </div>
                 </div>
               )}
@@ -522,6 +518,10 @@ export default function KS_Stat({ jahr, monat }) {
                   <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-2">
                     <StatLine label="Ist inkl. Übernahme" value={`${deNumber(yearIstIncl)} h`} emphasis />
                     <StatLine label="Soll (Jahr)" value={`${deNumber(yearSoll)} h`} />
+                    <StatLine
+                      label="Quote (Jahr)"
+                      value={yearSoll > 0 ? fmtPct2((yearIstIncl / yearSoll) * 100) : '—'}
+                    />
                   </div>
 
                   <div className="text-xs text-gray-500 dark:text-gray-300">
