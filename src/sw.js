@@ -7,7 +7,7 @@ import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
-const CACHE_VERSION = "v21-schichtpilot"; //  hochgezählt, damit Updates sicher greifen
+const CACHE_VERSION = "v22-schichtpilot"; //  hochgezählt, damit Updates sicher greifen
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
