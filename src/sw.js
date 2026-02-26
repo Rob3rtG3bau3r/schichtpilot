@@ -7,7 +7,7 @@ import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
-const CACHE_VERSION = "v22-schichtpilot"; //  hochgezählt, damit Updates sicher greifen
+const CACHE_VERSION = "v23-schichtpilot"; 
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
@@ -32,7 +32,6 @@ async function putInCache(request, response) {
   return response;
 }
 
-// Install: wichtige Assets vorcachen
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {

@@ -455,15 +455,15 @@ export default function KS_Stat({ jahr, monat }) {
 
           <div className="flex items-center justify-between gap-3 pt-2">
             <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              Jahr & YTD (nur im Modal)
+              Jahr & YTD
             </div>
             <SmallToggle value={yearMode} onChange={setYearMode} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                YTD (bis Monat {ytdRow?.bis_monat ?? '—'})
+              <div className="text-l font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                YTD (seit Jahresbeginn bis Monat {ytdRow?.bis_monat ?? '—'})
               </div>
               {!ytdRow ? (
                 <div className="text-sm text-gray-500 dark:text-gray-300">Keine YTD-Daten.</div>
@@ -483,8 +483,8 @@ export default function KS_Stat({ jahr, monat }) {
             </div>
 
             <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                Ist (Jahr) inkl. Übernahme
+              <div className="text-l font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Jahresüberblick (Prognose)
               </div>
               {!ytdRow ? (
                 <div className="text-sm text-gray-500 dark:text-gray-300">Keine Jahresdaten.</div>
@@ -503,8 +503,8 @@ export default function KS_Stat({ jahr, monat }) {
             </div>
 
             <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-              <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                Diff (Ist + Übernahme − Soll)
+              <div className="text-l font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Übersicht der Jahresstunden
               </div>
               {!ytdRow ? (
                 <div className="text-sm text-gray-500 dark:text-gray-300">Keine Jahresdaten.</div>
