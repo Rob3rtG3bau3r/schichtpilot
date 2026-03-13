@@ -1,5 +1,6 @@
 // src/components/Cockpit/KalenderStruktur.jsx
 import React, { useEffect, useState } from 'react';
+import { Check } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import dayjs from 'dayjs';
@@ -15,6 +16,7 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
   const [tage, setTage] = useState([]);
   const [eintraege, setEintraege] = useState({ feiertage: [], termine: [] });
   const [qualiMap, setQualiMap] = useState({});
+  const [monatsUnterdeckung, setMonatsUnterdeckung] = useState({});
 
   // Auswahl im Kalender
   const [selectedDates, setSelectedDates] = useState(new Set());
@@ -30,6 +32,24 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     window.addEventListener('sp:selectedDates', onSel);
     return () => window.removeEventListener('sp:selectedDates', onSel);
   }, []);
+
+      useEffect(() => {
+    const onJumpToMonth = (e) => {
+      const nextJahr = e.detail?.jahr;
+      const nextMonat = e.detail?.monat;
+
+      console.log('sp:jumpToMonth empfangen:', nextJahr, nextMonat);
+
+      if (typeof nextJahr === 'number') setJahr(nextJahr);
+      if (typeof nextMonat === 'number') setMonat(nextMonat);
+    };
+
+    window.addEventListener('sp:jumpToMonth', onJumpToMonth);
+
+    return () => {
+      window.removeEventListener('sp:jumpToMonth', onJumpToMonth);
+    };
+  }, [setJahr, setMonat]);
 
   const toggleSelectedDate = (iso) => {
     const next = new Set(selectedDates);
@@ -72,6 +92,28 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     const ladeEintraege = async () => {
       const start = startDate.format('YYYY-MM-DD');
       const ende = endDate.format('YYYY-MM-DD');
+
+            // Monats-Unterdeckung für das gewählte Jahr laden
+      const { data: unterdeckungData, error: unterdeckungError } = await supabase
+        .from('DB_MonatsUnterdeckung')
+        .select('monat, frueh_unterdeckung, spaet_unterdeckung, nacht_unterdeckung')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('jahr', jahr);
+
+      if (unterdeckungError) {
+        console.error('❌ Fehler beim Laden DB_MonatsUnterdeckung:', unterdeckungError.message);
+      } else {
+        const map = {};
+        (unterdeckungData || []).forEach((row) => {
+          map[row.monat] = {
+            frueh: row.frueh_unterdeckung ?? 0,
+            spaet: row.spaet_unterdeckung ?? 0,
+            nacht: row.nacht_unterdeckung ?? 0,
+          };
+        });
+        setMonatsUnterdeckung(map);
+      }
 
       // Land + Bundesland der Unit holen
       const { data: unitData, error: unitError } = await supabase
@@ -171,6 +213,35 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
     );
   }, [tage]);
 
+    const renderMonatsStatus = (monatIndex) => {
+    const row = monatsUnterdeckung[monatIndex];
+
+    // kein Eintrag = noch nicht berechnet / nichts anzeigen
+    if (!row) return null;
+
+    const summe = (row.frueh || 0) + (row.spaet || 0) + (row.nacht || 0);
+
+    if (summe === 0) {
+      return (
+        <span
+          className="ml-2 inline-flex items-center justify-center text-green-600 dark:text-green-400"
+          title="Keine Unterdeckung"
+        >
+          <Check size={14} strokeWidth={3} />
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="ml-2 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-red-800/80 text-white text-[10px] px-1"
+        title={`Unterdeckung: ${summe} (Früh: ${row.frueh || 0}, Spät: ${row.spaet || 0}, Nacht: ${row.nacht || 0})`}
+      >
+        {summe}
+      </span>
+    );
+  };
+
   const { feiertage, termine } = eintraege;
 
   return (
@@ -198,18 +269,19 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 <div className="flex items-start gap-6 flex-wrap">
   <div className="flex gap-2 flex-wrap">
     {monate.map((name, index) => (
-      <button
-        key={index}
-        onClick={() => setMonat(index)}
-        className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 ${
-          index === monat
-            ? 'bg-blue-600 text-white dark:bg-blue-500'
-            : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-        }`}
-      >
-        {name}
-      </button>
-    ))}
+        <button
+          key={index}
+          onClick={() => setMonat(index)}
+          className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 flex items-center ${
+            index === monat
+              ? 'bg-blue-600 text-white dark:bg-blue-500'
+              : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+          }`}
+        >
+          <span>{name}</span>
+          {renderMonatsStatus(index)}
+        </button>
+      ))}
   </div>
 
   {/* Rechts neben Dezember – gleicher “Zeilenhöhe”-Block */}

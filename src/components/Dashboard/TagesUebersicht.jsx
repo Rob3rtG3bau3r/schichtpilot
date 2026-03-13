@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 import { ChevronDown, ChevronRight, Maximize2, X, Presentation, Rows3 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 /* -------------------------------- UI Helpers -------------------------------- */
 
@@ -109,6 +110,8 @@ const AmpelDot = ({ status }) => {
 };
 
 const shiftKeyFromTitle = (t) => (t === 'Früh' ? 'F' : t === 'Spät' ? 'S' : t === 'Nacht' ? 'N' : null);
+
+const MONATE_KURZ = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 /* ----------------------------- Bedarf-Helpers ------------------------------ */
 
@@ -242,6 +245,7 @@ const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) =
 
 export default function TagesUebersicht() {
   const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
+  const navigate = useNavigate();
 
   // Gesamt-Klappzustand
   const mainStorageKey = `sp_tages_offen_${unit || 'none'}`;
@@ -264,6 +268,8 @@ export default function TagesUebersicht() {
     S: 'unknown',
     N: 'unknown',
   });
+
+  const [monateMitUnterdeckung, setMonateMitUnterdeckung] = useState([]);
 
   // Fokus-Modal State
   const [focusOpen, setFocusOpen] = useState(false);
@@ -302,12 +308,19 @@ export default function TagesUebersicht() {
 
   useEffect(() => {
     const ladeHeute = async () => {
-      if (!darfSehen || !firma || !unit) { setLoading(false); return; }
+      if (!darfSehen || !firma || !unit) {
+        setMonateMitUnterdeckung([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError('');
 
       const heute = dayjs().format('YYYY-MM-DD');
       const gestern = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
+      const heuteObj = dayjs(heute);
+      const aktuellesJahr = heuteObj.year();
+      const aktuellerMonat = heuteObj.month(); // 0-11
 
       try {
         // --- 1) Schichtarten (Mapping id -> kuerzel) ---
@@ -430,6 +443,18 @@ export default function TagesUebersicht() {
         ]);
         if (bedErr) throw bedErr;
         if (matrixErr) throw matrixErr;
+
+                // --- Monats-Unterdeckung ab aktuellem Monat laden ---
+        const { data: monatsRows, error: monatsErr } = await supabase
+          .from('DB_MonatsUnterdeckung')
+          .select('jahr, monat, frueh_unterdeckung, spaet_unterdeckung, nacht_unterdeckung')
+          .eq('firma_id', Number(firma))
+          .eq('unit_id', Number(unit))
+          .eq('jahr', aktuellesJahr)
+          .gte('monat', aktuellerMonat)
+          .order('monat', { ascending: true });
+
+        if (monatsErr) throw monatsErr;
 
         // für Anzeige (Bedarf-Tabelle in Tagesübersicht)
         const qmById = new Map();
@@ -683,6 +708,26 @@ export default function TagesUebersicht() {
           wiederholend: !!r.wiederholend,
         }));
 
+                const offeneMonate = (monatsRows || [])
+          .map((row) => {
+            const summe =
+              Number(row.frueh_unterdeckung || 0) +
+              Number(row.spaet_unterdeckung || 0) +
+              Number(row.nacht_unterdeckung || 0);
+
+            return {
+              jahr: row.jahr,
+              monat: row.monat,
+              frueh: Number(row.frueh_unterdeckung || 0),
+              spaet: Number(row.spaet_unterdeckung || 0),
+              nacht: Number(row.nacht_unterdeckung || 0),
+              summe,
+            };
+          })
+          .filter((row) => row.summe > 0);
+
+        setMonateMitUnterdeckung(offeneMonate);
+
         // --- 17) Final render state ---
         setData({
           enabled: true,
@@ -708,6 +753,7 @@ export default function TagesUebersicht() {
           S: 'unknown',
           N: 'unknown',
         });
+        setMonateMitUnterdeckung([]);
       } finally {
         setLoading(false);
       }
@@ -935,6 +981,48 @@ export default function TagesUebersicht() {
                     </div>
                   );
                 })()}
+              </Section>
+
+              <Section
+                id="unterdeckung-monate"
+                title="Monate mit Handlungsbedarf"
+                counter={monateMitUnterdeckung.length}
+                defaultOpen={monateMitUnterdeckung.length > 0}
+              >
+                {monateMitUnterdeckung.length === 0 ? (
+                  <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>
+                    Keine Unterdeckung im aktuellen oder in kommenden Monaten.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {monateMitUnterdeckung.map((m) => (
+                      <button
+                        key={`${m.jahr}-${m.monat}`}
+                        type="button"
+                        onClick={() => {
+                            sessionStorage.setItem(
+                              'sp_jump_to_month',
+                              JSON.stringify({
+                                jahr: m.jahr,
+                                monat: m.monat,
+                              })
+                            );
+
+                            navigate('/schichtcockpit');
+                          }}
+                        className="inline-flex items-center gap-2 rounded-full bg-red-600/20 text-white px-3 py-0.5 hover:bg-red-700/40 transition-colors"
+                        title={`Unterdeckung ${MONATE_KURZ[m.monat]} ${m.jahr}: ${m.summe} (F: ${m.frueh}, S: ${m.spaet}, N: ${m.nacht})`}
+                      >
+                        <span className={big ? "text-base font-medium" : "text-sm font-medium"}>
+                          {MONATE_KURZ[m.monat]}
+                        </span>
+                        <span className="inline-flex min-w-[20px] h-[20px] items-center justify-center rounded-full bg-red-400/30 px-1 text-xs">
+                          {m.summe}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </Section>
             </>
           )}

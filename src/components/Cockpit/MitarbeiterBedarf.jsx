@@ -10,7 +10,7 @@ dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
 
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
-import { Info, Clock } from 'lucide-react';
+import { Info } from 'lucide-react';
 
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
 const FEATURE_ANALYSE = 'bedarf_analyse';
@@ -148,6 +148,59 @@ const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) =
   const nichtVerwendete = (aktiveUser || []).filter((id) => !verwendeteUser.has(id));
 
   return { abdeckung, totalMissing, fehlend, topMissingKuerzel, nichtVerwendete };
+};
+
+const countMonthlyUnterdeckungen = (status, tage) => {
+  let frueh = 0;
+  let spaet = 0;
+  let nacht = 0;
+
+  for (const datum of tage || []) {
+    const f = status?.F?.[datum];
+    const s = status?.S?.[datum];
+    const n = status?.N?.[datum];
+
+    if (String(f?.farbe || '').includes('bg-red')) frueh++;
+    if (String(s?.farbe || '').includes('bg-red')) spaet++;
+    if (String(n?.farbe || '').includes('bg-red')) nacht++;
+  }
+
+  return {
+    frueh_unterdeckung: frueh,
+    spaet_unterdeckung: spaet,
+    nacht_unterdeckung: nacht,
+  };
+};
+
+const saveMonthlyUnterdeckung = async ({
+  firma,
+  unit,
+  jahr,
+  monat,
+  counts,
+}) => {
+  if (!firma || !unit || jahr == null || monat == null || !counts) return;
+
+  const payload = {
+    firma_id: firma,
+    unit_id: unit,
+    jahr,
+    monat,
+    frueh_unterdeckung: counts.frueh_unterdeckung ?? 0,
+    spaet_unterdeckung: counts.spaet_unterdeckung ?? 0,
+    nacht_unterdeckung: counts.nacht_unterdeckung ?? 0,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from('DB_MonatsUnterdeckung')
+    .upsert(payload, {
+      onConflict: 'firma_id,unit_id,jahr,monat',
+    });
+
+  if (error) {
+    console.error('❌ Fehler beim Speichern der Monats-Unterdeckung:', error.message);
+  }
 };
 
 const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
@@ -908,7 +961,17 @@ const timeIssueCount = timeIssues?.length || 0;
 
     setBedarfsLeiste(leiste);
     setBedarfStatus(status);
-   };
+
+    const monthlyCounts = countMonthlyUnterdeckungen(status, tage);
+
+    await saveMonthlyUnterdeckung({
+      firma,
+      unit,
+      jahr,
+      monat,
+      counts: monthlyCounts,
+    });
+      };
 
   useEffect(() => {
     ladeMitarbeiterBedarf();
@@ -1105,34 +1168,34 @@ const timeIssueCount = timeIssues?.length || 0;
               const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${
                 kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'
               }`;
-const timeIssue = !!cell?.meta?.timeIssue;
-const baseIsGreen = String(cell?.farbe || '').includes('bg-green');
-const splitBg = timeIssue && baseIsGreen;
+            const timeIssue = !!cell?.meta?.timeIssue;
+            const baseIsGreen = String(cell?.farbe || '').includes('bg-green');
+            const splitBg = timeIssue && baseIsGreen;
 
-              return (
-               <div
-  key={datum}
-  onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
-  onMouseEnter={(e) =>
-    allowTooltip &&
-    cell &&
-    scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
-  }
-  onMouseLeave={allowTooltip ? scheduleHide : undefined}
-  style={
-    splitBg
-      ? { backgroundImage: 'linear-gradient(to bottom, rgba(34,197,94,1) 0%, rgba(34,197,94,1) 45%, rgba(239,68,68,1) 55%, rgba(239,68,68,1) 100%)' }
-      : undefined
-  }
-  className={`relative ${allowAnalyse ? 'cursor-pointer' : 'cursor-default'}
-    w-[48px] min-w-[48px] text-center text-xs py-[2px] border
-    ${past ? '' : 'hover:opacity-80'}
-    ${cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'}
-    ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''}
-    ${selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''}
-    ${timeIssue ? 'border-gray-300 dark:border-gray-700' : 'border-gray-300 dark:border-gray-700'}
-  `}
->
+                          return (
+                          <div
+              key={datum}
+              onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
+              onMouseEnter={(e) =>
+                allowTooltip &&
+                cell &&
+                scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
+              }
+              onMouseLeave={allowTooltip ? scheduleHide : undefined}
+              style={
+                splitBg
+                  ? { backgroundImage: 'linear-gradient(to bottom, rgba(34,197,94,1) 0%, rgba(34,197,94,1) 45%, rgba(239,68,68,1) 55%, rgba(239,68,68,1) 100%)' }
+                  : undefined
+              }
+              className={`relative ${allowAnalyse ? 'cursor-pointer' : 'cursor-default'}
+                w-[48px] min-w-[48px] text-center text-xs py-[2px] border
+                ${past ? '' : 'hover:opacity-80'}
+                ${cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'}
+                ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''}
+                ${selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''}
+                ${timeIssue ? 'border-gray-300 dark:border-gray-700' : 'border-gray-300 dark:border-gray-700'}
+              `}
+            >
                   {cell?.topLeft && (
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
                   )}

@@ -1,5 +1,5 @@
 // src/pages/SchichtCockpit.jsx
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import KalenderStruktur from '../components/Cockpit/KalenderStruktur';
 import Sollplan from '../components/Cockpit/Sollplan';
 import CockpitMenue from '../components/Cockpit/CockpitMenue';
@@ -38,7 +38,24 @@ const SchichtCockpit = () => {
 
   const [jahr, setJahr] = useState(new Date().getFullYear());
   const [monat, setMonat] = useState(new Date().getMonth());
+    useEffect(() => {
+    const raw = sessionStorage.getItem('sp_jump_to_month');
+    if (!raw) return;
 
+    try {
+      const parsed = JSON.parse(raw);
+      const nextJahr = Number(parsed?.jahr);
+      const nextMonat = Number(parsed?.monat);
+
+      if (!Number.isNaN(nextJahr)) setJahr(nextJahr);
+      if (!Number.isNaN(nextMonat)) setMonat(nextMonat);
+    } catch (err) {
+      console.error('Fehler beim Lesen von sp_jump_to_month:', err);
+    } finally {
+      sessionStorage.removeItem('sp_jump_to_month');
+    }
+  }, []);
+  
   const [sollPlanAktiv, setSollPlanAktiv] = useState(false);
   const [popupOffen, setPopupOffen] = useState(false);
   const [ausgewählterDienst, setAusgewählterDienst] = useState(null);
