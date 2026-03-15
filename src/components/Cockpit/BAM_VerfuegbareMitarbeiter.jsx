@@ -202,9 +202,17 @@ const sendBulk = () => {
                 const st = getBewertungsStufe(f);
                 return st === 'grün' ? -3 : st === 'gelb' ? -2 : st === 'amber' ? -1 : 0;
               };
+
               const gA = gewicht(a);
               const gB = gewicht(b);
               if (gA !== gB) return gA - gB;
+
+              // Innerhalb derselben Farbe:
+              // größtes Minus oben, also z. B. -120 vor -40 vor 0 vor +20
+              const diffA = Number(a.stundenDifferenz ?? 999999);
+              const diffB = Number(b.stundenDifferenz ?? 999999);
+
+              if (diffA !== diffB) return diffA - diffB;
 
               const schichtGewicht = (v) => {
                 if (modalSchicht === 'F') return v.vorher === 'N' ? 2 : v.vorher === 'S' ? 1 : 0;
@@ -212,6 +220,7 @@ const sendBulk = () => {
                 if (modalSchicht === 'S') return (v.vorher === 'N' || v.nachher === 'F') ? 1 : 0;
                 return 0;
               };
+
               return schichtGewicht(a) - schichtGewicht(b);
             })
             .map((f) => {
@@ -230,6 +239,7 @@ const sendBulk = () => {
 
               const tooltip =
                 `${f.name}\n` +
+                `Std.-Diff.: ${f.stundenDifferenz != null ? `${Number(f.stundenDifferenz).toFixed(2)} h` : '—'}\n` +
                 `Tel1: ${f.tel1 || '—'}\n` +
                 `Tel2: ${f.tel2 || '—'}\n` +
                 (opt ? `Optionen: ${opt}\n` : '') +
@@ -267,7 +277,12 @@ const sendBulk = () => {
                         title={tooltip}
                         onClick={() => onPickUser(f)}
                       >
-                        <span>{f.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{f.name}</span>
+                          <span className="text-[9px] text-gray-500 dark:text-gray-400">
+                            {f.stundenDifferenz != null ? `${Number(f.stundenDifferenz).toFixed(1)} h` : ''}
+                          </span>
+                        </div>
 
                         {hasAny ? (
                           <Info

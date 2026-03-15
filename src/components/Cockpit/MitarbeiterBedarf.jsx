@@ -1287,6 +1287,7 @@ const timeIssueCount = timeIssues?.length || 0;
               <li>Hover zeigt fehlende/erfüllte Qualifikationen sowie eingesetzte Personen.</li>
               <li>⏱ Wenn in der Kampfliste <b>aenderung = true</b>, wird zusätzlich eine Zeit-Unterdeckung geprüft.</li>
               <li>Ein Halb Grünes und Halb Rotes Feld zeigt eine Zeitliche Unterdeckung.</li>
+              <li>Das BedarfsAnalyseModal kann nur am aktuellen Tag, oder an zukünftigen Tagen geöffnet werden.</li>
             </ul>
             <div className="text-right mt-4">
               <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">

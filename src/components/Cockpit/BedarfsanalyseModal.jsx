@@ -82,6 +82,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
 
   const sch = String(modalSchicht || '').toUpperCase(); // 'F' | 'S' | 'N'
+  const modalJahr = dayjs(modalDatum).year();
 
   const maskForEmployee = (kuerzel) => {
     if (rolle === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO')) return '-';
@@ -468,6 +469,30 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         });
         if (alive) setUserNameById(userNameMap);
       }
+            // (F2) Stunden-Differenz je User laden
+      let stundenDiffByUser = {};
+
+      if (alleIds.length) {
+        const { data: stundenRows, error: stErr } = await supabase
+          .from('DB_Stunden')
+          .select('user_id, summe_jahr, uebernahme_vorjahr, vorgabe_stunden')
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .eq('jahr', modalJahr)
+          .in('user_id', alleIds);
+
+        if (stErr) {
+          console.error('DB_Stunden error', stErr);
+        } else {
+          (stundenRows || []).forEach((r) => {
+            const diff =
+              (Number(r.summe_jahr ?? 0) + Number(r.uebernahme_vorjahr ?? 0)) -
+              Number(r.vorgabe_stunden ?? 0);
+
+            stundenDiffByUser[String(r.user_id)] = diff;
+          });
+        }
+      }
 
       // ✅ Overrides fürs Fenster für ALLE sichtbaren IDs
       const { data: overridesFensterAll } = await supabase
@@ -619,7 +644,18 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
             })
           : freiUserIds;
 
-        const freieZeilen = kandidaten.map((uid) => fensterObj[String(uid)]).filter(Boolean);
+        const freieZeilen = kandidaten
+          .map((uid) => {
+            const base = fensterObj[String(uid)];
+            if (!base) return null;
+
+            return {
+              ...base,
+              stundenDifferenz: stundenDiffByUser[String(uid)] ?? null,
+            };
+          })
+          .filter(Boolean);
+
         if (!alive) return;
         setFreieMitarbeiter(freieZeilen);
       }

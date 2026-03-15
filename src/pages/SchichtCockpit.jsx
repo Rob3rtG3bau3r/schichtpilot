@@ -39,7 +39,7 @@ const SchichtCockpit = () => {
   const [jahr, setJahr] = useState(new Date().getFullYear());
   const [monat, setMonat] = useState(new Date().getMonth());
     useEffect(() => {
-    const raw = sessionStorage.getItem('sp_jump_to_month');
+  const raw = sessionStorage.getItem('sp_jump_to_month');
     if (!raw) return;
 
     try {
@@ -55,7 +55,7 @@ const SchichtCockpit = () => {
       sessionStorage.removeItem('sp_jump_to_month');
     }
   }, []);
-  
+
   const [sollPlanAktiv, setSollPlanAktiv] = useState(false);
   const [popupOffen, setPopupOffen] = useState(false);
   const [ausgewählterDienst, setAusgewählterDienst] = useState(null);
