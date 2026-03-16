@@ -29,6 +29,12 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const [notizByUser, setNotizByUser] = useState(new Map()); // uid -> row
   const [selected, setSelected] = useState(null);             // { uid, name, tel1, tel2 }
   const [notizText, setNotizText] = useState('');
+  const [sucheTage, setSucheTage] = useState(1); // 1 | 2 | 3
+
+// Für Prüfung über mehrere Tage:
+const [dienstCodeByUserDate, setDienstCodeByUserDate] = useState({}); // { [uid]: { [datum]: 'F'|'S'|'N'|'-' } }
+const [ausgrauByUserDate, setAusgrauByUserDate] = useState({});       // { [uid]: { [datum]: true/false } }
+  
 
   // ✅ Push Hook (Inbox + send-push)
   const {
@@ -249,34 +255,48 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       ? String(notizText).trim()
       : null;
 
-  await speichernInKampfliste({
-    firmaId: firma,
-    unitId: unit,
-    userId: selected.uid,
-    dates: [modalDatum],        // genau 1 Tag
-    kuerzelNeu: sch,            // F/S/N (modalSchicht)
-    createdBy,
-    kommentar: kommentarFinal,
+  const tageZumSpeichern = buildPruefTage(modalDatum, sucheTage);
+  const pruefung = pruefeMehrTageUebernahme(selected.uid, sucheTage);
 
-    // Zeiten nicht nötig: util nimmt Standardzeiten aus DB_SchichtArt
-    start: null,
-    ende: null,
-    pauseHours: 0,              // util erzwingt Mindestpause über pause_aktiv
+if (!pruefung.ok) {
+  alert(`Mehrtage-Übernahme nicht möglich:\n\n${pruefung.fehler.join('\n')}`);
+  return;
+}
 
-    // Regeln
-    skipUrlaubOnFreeDay: true,  // egal hier (weil nicht U), aber sauber
-  });
+await speichernInKampfliste({
+  firmaId: firma,
+  unitId: unit,
+  userId: selected.uid,
+  dates: tageZumSpeichern,
+  kuerzelNeu: sch,            // F/S/N (modalSchicht)
+  createdBy,
+  kommentar: kommentarFinal,
+
+  // Zeiten nicht nötig: util nimmt Standardzeiten aus DB_SchichtArt
+  start: null,
+  ende: null,
+  pauseHours: 0,
+
+  // Regeln
+  skipUrlaubOnFreeDay: true,
+});
 }
 
       if (typeof onSaved === 'function') {
-        await onSaved({
-          datum: modalDatum,
-          firma_id: firma,
-          unit_id: unit,
-          user_id: selected.uid,
-          macht_schicht: !!flags.macht_schicht,
-        });
-      }
+      const tageZumMelden = flags.macht_schicht
+        ? buildPruefTage(modalDatum, sucheTage)
+        : [modalDatum];
+
+  for (const d of tageZumMelden) {
+    await onSaved({
+      datum: d,
+      firma_id: firma,
+      unit_id: unit,
+      user_id: selected.uid,
+      macht_schicht: !!flags.macht_schicht,
+    });
+  }
+}
 
       setNotizByUser((prev) => {
         const m = new Map(prev);
@@ -308,6 +328,76 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
   // ===== Bewertungs-Logik (bestehend) =====
   const getBewertungsStufe = (f) => getBewertungsStufeFn(f, modalSchicht);
+  const buildPruefTage = (startDatum, anzahl) => {
+  return Array.from({ length: Number(anzahl || 1) }, (_, i) =>
+    dayjs(startDatum).add(i, 'day').format('YYYY-MM-DD')
+  );
+};
+
+const buildFensterFuerUserUndTag = (uid, zielDatum) => {
+  const byDate = dienstCodeByUserDate[String(uid)] || {};
+
+  const minus3 = dayjs(zielDatum).subtract(3, 'day').format('YYYY-MM-DD');
+  const minus2 = dayjs(zielDatum).subtract(2, 'day').format('YYYY-MM-DD');
+  const minus1 = dayjs(zielDatum).subtract(1, 'day').format('YYYY-MM-DD');
+  const plus1  = dayjs(zielDatum).add(1, 'day').format('YYYY-MM-DD');
+  const plus2  = dayjs(zielDatum).add(2, 'day').format('YYYY-MM-DD');
+  const plus3  = dayjs(zielDatum).add(3, 'day').format('YYYY-MM-DD');
+
+  return {
+    uid: String(uid),
+    vor3: byDate[minus3] || '-',
+    vor2: byDate[minus2] || '-',
+    vor1: byDate[minus1] || '-',
+    heute: byDate[zielDatum] || '-',
+    nach1: byDate[plus1] || '-',
+    nach2: byDate[plus2] || '-',
+    nach3: byDate[plus3] || '-',
+
+    // Helper für bamLogik
+    vorvortag: byDate[minus2] || '-',
+    vorher: byDate[minus1] || '-',
+    nachher: byDate[plus1] || '-',
+    folgetagplus: byDate[plus2] || '-',
+  };
+};
+
+const pruefeMehrTageUebernahme = (uid, anzahl) => {
+  const tage = buildPruefTage(modalDatum, anzahl);
+  const fehler = [];
+
+  for (const d of tage) {
+    const istAusgegraut = !!ausgrauByUserDate?.[String(uid)]?.[d];
+    if (istAusgegraut) {
+      fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: ausgegraut`);
+      continue;
+    }
+
+    const fenster = buildFensterFuerUserUndTag(uid, d);
+    const codeHeute = fenster.heute || '-';
+
+    if (codeHeute !== '-') {
+      fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: nicht frei (${codeHeute})`);
+      continue;
+    }
+
+    const bewertung = getBewertungsStufeFn(fenster, sch);
+    if (bewertung === 'rot') {
+      fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: BAM-Bewertung rot`);
+      continue;
+    }
+  }
+
+  return {
+    ok: fehler.length === 0,
+    tage,
+    fehler,
+  };
+};
+
+const kannMehrTage = (uid, anzahl) => {
+  return pruefeMehrTageUebernahme(uid, anzahl).ok;
+};
 
   useEffect(() => {
     if (!offen || !firma || !unit) return;
@@ -349,19 +439,35 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
       setDeckungBasis(null);
       setShiftUserIds({ F: [], S: [], N: [] });
       setDienstFensterByUserId({});
+      setDienstCodeByUserDate({});
+      setAusgrauByUserDate({});
       resetPush();
 
-      const dates = [
-        dayjs(modalDatum).subtract(3, 'day').format('YYYY-MM-DD'),
-        dayjs(modalDatum).subtract(2, 'day').format('YYYY-MM-DD'),
-        dayjs(modalDatum).subtract(1, 'day').format('YYYY-MM-DD'),
-        dayjs(modalDatum).format('YYYY-MM-DD'),
-        dayjs(modalDatum).add(1, 'day').format('YYYY-MM-DD'),
-        dayjs(modalDatum).add(2, 'day').format('YYYY-MM-DD'),
-        dayjs(modalDatum).add(3, 'day').format('YYYY-MM-DD'),
-      ];
-      const windowStart = dates[0];
-      const windowEnd = dates[dates.length - 1];
+      const visibleDates = [
+  dayjs(modalDatum).subtract(3, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).subtract(2, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).subtract(1, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(1, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(2, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(3, 'day').format('YYYY-MM-DD'),
+];
+
+// Für Mehrtage-Prüfung brauchen wir mehr Zukunft
+const logicDates = [
+  dayjs(modalDatum).subtract(3, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).subtract(2, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).subtract(1, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(1, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(2, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(3, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(4, 'day').format('YYYY-MM-DD'),
+  dayjs(modalDatum).add(5, 'day').format('YYYY-MM-DD'),
+];
+
+const windowStart = logicDates[0];
+const windowEnd = logicDates[logicDates.length - 1];
 
       // (A) Soll-Plan
       const { data: soll } = await supabase
@@ -369,7 +475,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         .select('datum, schichtgruppe, kuerzel')
         .eq('firma_id', firma)
         .eq('unit_id', unit)
-        .in('datum', dates);
+        .in('datum', logicDates);
 
       const planByDate = new Map();
       (soll || []).forEach((r) => {
@@ -389,9 +495,9 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         .or(`bis_datum.is.null, bis_datum.gte.${windowStart}`);
 
       const membersByDate = new Map();
-      dates.forEach((d) => membersByDate.set(d, new Map()));
-      for (const z of zuw || []) {
-        for (const d of dates) {
+        logicDates.forEach((d) => membersByDate.set(d, new Map()));
+        for (const z of zuw || []) {
+          for (const d of logicDates) {
           if (dayjs(z.von_datum).isAfter(d, 'day')) continue;
           if (z.bis_datum && dayjs(z.bis_datum).isBefore(d, 'day')) continue;
 
@@ -432,18 +538,36 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
       // (E) Ausgrauen am Modal-Tag
       let greySet = new Set();
-      if (allUserIdsAtDay.length) {
-        const { data: aus } = await supabase
-          .from('DB_Ausgrauen')
-          .select('user_id, von, bis')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', allUserIdsAtDay)
-          .lte('von', modalDatum)
-          .or(`bis.is.null, bis.gte.${modalDatum}`);
-        (aus || []).forEach((r) => greySet.add(String(r.user_id)));
-      }
+let ausgrauMapByUserDate = {};
 
+if (allUserIdsAtDay.length) {
+  const { data: aus } = await supabase
+    .from('DB_Ausgrauen')
+    .select('user_id, von, bis')
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .in('user_id', allUserIdsAtDay)
+    .lte('von', windowEnd)
+    .or(`bis.is.null, bis.gte.${windowStart}`);
+
+  for (const r of aus || []) {
+    const uid = String(r.user_id);
+    if (!ausgrauMapByUserDate[uid]) ausgrauMapByUserDate[uid] = {};
+
+    for (const d of logicDates) {
+      const startOk = !r.von || dayjs(d).isSameOrAfter(dayjs(r.von), 'day');
+      const endOk = !r.bis || dayjs(d).isSameOrBefore(dayjs(r.bis), 'day');
+
+      if (startOk && endOk) {
+        ausgrauMapByUserDate[uid][d] = true;
+
+        if (d === modalDatum) {
+          greySet.add(uid);
+        }
+      }
+    }
+  }
+}
       const visibleIds = allUserIdsAtDay.filter((uid) => !greySet.has(String(uid)));
 
       const dienstUserIds = visibleIds.filter((uid) => finalAtDay.get(uid) === sch);
@@ -499,7 +623,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
         .from('DB_Kampfliste')
         .select('user, datum, ist_schicht(kuerzel)')
         .in('user', visibleIds)
-        .in('datum', dates)
+        .in('datum', logicDates)
         .eq('firma_id', firma)
         .eq('unit_id', unit);
 
@@ -512,6 +636,8 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
       // ✅ Fensteranzeige für alle sichtbaren IDs
       const fensterObj = {};
+      const dienstCodesByUserDateObj = {};
+
       for (const uid of visibleIds) {
         const profil = userNameMap[uid] || { voll: 'Unbekannt, ', tel1: '', tel2: '' };
 
@@ -529,26 +655,35 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
           vorvortag: '-', vorher: '-', nachher: '-', folgetagplus: '-',
         };
 
-        for (let i = 0; i < dates.length; i++) {
-          const d = dates[i];
+        dienstCodesByUserDateObj[String(uid)] = {};
+
+        for (let i = 0; i < logicDates.length; i++) {
+          const d = logicDates[i];
           const grp = membersByDate.get(d)?.get(uid)?.gruppe;
           const base = planByDate.get(d)?.get(grp) || null;
           const over = overrideWinAll.get(`${d}|${uid}`);
           const finalK = over ?? base ?? '-';
           const show = rolle === 'Employee' ? maskForEmployee(finalK) : (finalK || '-');
+          dienstCodesByUserDateObj[String(uid)][d] = show;
 
-          if (i === 0) res.vor3 = show;
-          if (i === 1) { res.vor2 = show; res.vorvortag = show; }
-          if (i === 2) { res.vor1 = show; res.vorher = show; }
-          if (i === 3) res.heute = show;
-          if (i === 4) { res.nach1 = show; res.nachher = show; }
-          if (i === 5) { res.nach2 = show; res.folgetagplus = show; }
-          if (i === 6) res.nach3 = show;
+          const idxVisible = visibleDates.indexOf(d);
+
+          if (idxVisible === 0) res.vor3 = show;
+          if (idxVisible === 1) { res.vor2 = show; res.vorvortag = show; }
+          if (idxVisible === 2) { res.vor1 = show; res.vorher = show; }
+          if (idxVisible === 3) res.heute = show;
+          if (idxVisible === 4) { res.nach1 = show; res.nachher = show; }
+          if (idxVisible === 5) { res.nach2 = show; res.folgetagplus = show; }
+          if (idxVisible === 6) res.nach3 = show;
         }
 
         fensterObj[String(uid)] = res;
       }
-      if (alive) setDienstFensterByUserId(fensterObj);
+      if (alive) {
+        setDienstFensterByUserId(fensterObj);
+        setDienstCodeByUserDate(dienstCodesByUserDateObj);
+        setAusgrauByUserDate(ausgrauMapByUserDate);
+      }
 
       // (G) Mitarbeiter im Dienst sortieren nach höchster Quali
       let bestPosByUser = {};
@@ -636,13 +771,15 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
           userKuerzelSet.set(q.user_id, set);
         }
 
-        const kandidaten = fehlendeQualis.length
+        const kandidatenBasis = fehlendeQualis.length
           ? freiUserIds.filter((uid) => {
               const set = userKuerzelSet.get(uid);
               if (!set) return false;
               return fehlendeQualis.some((k) => set.has(k));
             })
           : freiUserIds;
+
+        const kandidaten = kandidatenBasis.filter((uid) => kannMehrTage(uid, sucheTage));
 
         const freieZeilen = kandidaten
           .map((uid) => {
@@ -837,7 +974,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
     ladeDaten();
 
     return () => { alive = false; };
-  }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis, rolle, sch, resetPush]);
+  }, [offen, modalDatum, modalSchicht, firma, unit, fehlendeQualis, rolle, sch, sucheTage, resetPush]);
 
   // ===== MOVE Auto-Prüfung (dein Code) =====
   const missingText = (d) => {
@@ -1035,6 +1172,8 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
 
     resetPush(); // ✅ Push UI sauber
     setNotizText(n?.notiz || '');
+    setMehrTage(1);
+    setMehrTageCheck(pruefeMehrTageUebernahme(row.uid, 1));
     setFlags({
       macht_schicht: false,
       kann_heute_nicht: !!n?.kann_heute_nicht,
@@ -1104,7 +1243,9 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
               notizByUser={notizByUser}
               onPickUser={pickUserFromFreeRow}
               onSendPush={(userIds, msg) => sendPushToUsers(userIds, msg)}
-            />
+              sucheTage={sucheTage}
+              setSucheTage={setSucheTage}
+/>
           </div>
         </div>
 
@@ -1155,7 +1296,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
                   <input type="checkbox" checked={flags.macht_schicht} onChange={() => toggleFlag('macht_schicht')} />
                   Macht die Schicht ✅
                 </label>
-
+                
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={flags.kann_heute_nicht} onChange={() => toggleFlag('kann_heute_nicht')} />
                   Kann heute nicht

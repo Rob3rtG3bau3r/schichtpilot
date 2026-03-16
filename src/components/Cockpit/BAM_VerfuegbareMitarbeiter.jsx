@@ -12,17 +12,20 @@ export default function BAM_VerfuegbareMitarbeiter({
   getBewertungsStufe,
   flagsSummary,
   notizByUser,
-  onPickUser, 
-  onSendPush, 
+  onPickUser,
+  onSendPush,
+  sucheTage,
+  setSucheTage,
 }) {
-  const [multiAktiv, setMultiAktiv] = useState(false);
-const [selectedIds, setSelectedIds] = useState(() => new Set());
 
-const defaultBulkText = useMemo(() => {
-  const s = String(modalSchicht || '').toUpperCase();
-  const label = s === 'F' ? 'Früh' : s === 'S' ? 'Spät' : s === 'N' ? 'Nacht' : s;
-  return `❗ ${label}schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')} unterbesetzt – kannst du helfen?`;
-}, [modalDatum, modalSchicht]);
+  const [multiAktiv, setMultiAktiv] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+
+  const defaultBulkText = useMemo(() => {
+    const s = String(modalSchicht || '').toUpperCase();
+    const label = s === 'F' ? 'Früh' : s === 'S' ? 'Spät' : s === 'N' ? 'Nacht' : s;
+    return `❗ ${label}schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')} unterbesetzt – kannst du helfen?`;
+  }, [modalDatum, modalSchicht]);
 
 const [bulkText, setBulkText] = useState('');
 const [bulkHint, setBulkHint] = useState('');     // kleine Inline Meldung
@@ -94,6 +97,31 @@ const sendBulk = () => {
   return (
     <div>
           <h2 className="mt-2 px-2 py-1 border border-gray-600 rounded-xl bg-gray-900/50"> Verfügbare Mitarbeiter </h2>
+          <div className="mt-2 p-2 rounded-xl border border-gray-700/30 bg-gray-900/20">
+            <div className="text-sm mb-2">Ich suche jemanden für:</div>
+
+            <div className="flex gap-2">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setSucheTage?.(n)}
+                  className={[
+                    "px-3 py=0.5 rounded-lg text-xs border",
+                    sucheTage === n
+                      ? "bg-blue-700 text-white border-blue-700"
+                      : "bg-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+                  ].join(" ")}
+                >
+                  {n} {n === 1 ? "Tag" : "Tage"}
+                </button>
+              ))}
+            </div>
+
+            <div className="text-xs text-gray-500 mt-2">
+              Es werden nur Mitarbeiter angezeigt, die dieselbe Schicht an allen gewählten Folgetagen übernehmen können.
+            </div>
+          </div>
       {/* Kollidiert */}
       <div className="mt-2">
         <label className="text-sm flex items-center gap-2">
