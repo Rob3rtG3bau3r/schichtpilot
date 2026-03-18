@@ -14,8 +14,6 @@ import SchichtDienstAendernForm from './SchichtDienstAendernForm';
 
 dayjs.locale('de');
 
-const currentUserId = localStorage.getItem('user_id');
-
 // --- Helper: K/KO maskieren ---
 const maskKuerzelForEmployer = (kuerzel, cellUserId, role, me) => {
   if (role === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO') && String(cellUserId) !== String(me)) {
@@ -47,17 +45,58 @@ const KampfListe = ({
   sichtbareGruppen,
   setGruppenZähler,
   onRefreshMitarbeiterBedarf,
-  dayRefreshDatum, dayRefreshKey,
+  dayRefreshDatum,
+  dayRefreshKey,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
 
+  const [currentUserId, setCurrentUserId] = useState(null);
+
   const [eintraege, setEintraege] = useState([]);
-  const [tage, setTage] = useState([]); // [{ date, tag, wochentag }]
+  const [employeeSichtbarkeit, setEmployeeSichtbarkeit] = useState('unit');
+  const [meineSchichtgruppe, setMeineSchichtgruppe] = useState(null);
+  const [tage, setTage] = useState([]);
   const [popupEintrag, setPopupEintrag] = useState(null);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
 
-  // Globale Auswahl aus dem Kalender (Selection kann bleiben, nur keine Wochenlogik)
+  const darfEmployeeUserSehen = (targetUserId, targetSchichtgruppe) => {
+    if (rolle !== 'Employee') return true;
+    if (!currentUserId) return false;
+
+    if (employeeSichtbarkeit === 'self') {
+      return String(targetUserId) === String(currentUserId);
+    }
+
+    if (employeeSichtbarkeit === 'gruppe') {
+      if (!meineSchichtgruppe) return false;
+      return String(targetSchichtgruppe || '') === String(meineSchichtgruppe);
+    }
+
+    if (employeeSichtbarkeit === 'unit') {
+      return true;
+    }
+
+    return false;
+  };
+
+  // Aktuellen Supabase-User sauber laden
+  useEffect(() => {
+    const ladeCurrentUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error) {
+        console.error('❌ Fehler beim Laden des aktuellen Users:', error.message || error);
+        return;
+      }
+
+      setCurrentUserId(data?.user?.id || null);
+    };
+
+    ladeCurrentUser();
+  }, []);
+
+  // Globale Auswahl aus dem Kalender
   const [selectedDates, setSelectedDates] = useState(new Set());
   useEffect(() => {
     const onSel = (e) => setSelectedDates(new Set(e.detail?.selected || []));
@@ -68,17 +107,12 @@ const KampfListe = ({
   const [qualiModalOffen, setQualiModalOffen] = useState(false);
   const [modalUser, setModalUser] = useState({ id: null, name: '' });
 
-  // Map userId -> betriebsrelevante Quali-Anzahl
   const [qualiCountMap, setQualiCountMap] = useState({});
-
-  // Urlaub & Stunden (gesamt/summe/rest)
   const [urlaubInfoMap, setUrlaubInfoMap] = useState({});
   const [stundenInfoMap, setStundenInfoMap] = useState({});
-
-  // Ausgrauen: Map userId -> [{von, bis}]
   const [ausgrauenByUser, setAusgrauenByUser] = useState(new Map());
 
-  // 🔒 Stabiler Tooltip: Name-Spalte
+  // Tooltip Name-Spalte
   const [hoveredUserId, setHoveredUserId] = useState(null);
   const hideTimerRef = useRef(null);
   const showTipFor = (id) => {
@@ -90,8 +124,8 @@ const KampfListe = ({
     hideTimerRef.current = setTimeout(() => setHoveredUserId(null), 120);
   };
 
-  // 🔒 Stabiler Tooltip: Zellen (Datum/Zeit/Kommentar)
-  const [hoveredCellKey, setHoveredCellKey] = useState(null); // `${userId}|${datum}`
+  // Tooltip Zellen
+  const [hoveredCellKey, setHoveredCellKey] = useState(null);
   const cellHideTimerRef = useRef(null);
   const showCellTip = (key) => {
     if (cellHideTimerRef.current) clearTimeout(cellHideTimerRef.current);
@@ -102,10 +136,9 @@ const KampfListe = ({
     cellHideTimerRef.current = setTimeout(() => setHoveredCellKey(null), 120);
   };
 
-  // ---- Datum-Prefix (Monatsbasis) ----
   const prefix = `${jahr}-${String(monat + 1).padStart(2, '0')}`;
 
-  // 🔁 Spalten/Tage: immer kompletter Monat
+  // Monatstage bauen
   useEffect(() => {
     const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
     const neueTage = [];
@@ -120,7 +153,6 @@ const KampfListe = ({
     setTage(neueTage);
   }, [jahr, monat]);
 
-  // --- Quali-Counts laden (gültig am cutoff) ---
   const ladeQualiCounts = async (userIds, firmaId, unitId, cutoffIso) => {
     if (!userIds?.length) return {};
     try {
@@ -173,7 +205,6 @@ const KampfListe = ({
     }
   };
 
-  // --- Prüfen, ob User an date (YYYY-MM-DD) ausgegraut ist ---
   const isGrey = (uid, dateISO) => {
     const arr = ausgrauenByUser.get(String(uid));
     if (!arr || arr.length === 0) return false;
@@ -187,14 +218,12 @@ const KampfListe = ({
     return false;
   };
 
-  // ✅ Nur EINEN Tag nachladen und in die bestehende Tabelle "einpatchen"
   const ladeNurTag = async (dateISO) => {
     try {
       if (!firma || !unit || !dateISO) return;
 
       const d = String(dateISO).slice(0, 10);
 
-      // 1) Nur diesen Tag aus v_tagesplan
       const selectCols =
         'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
         'hat_aenderung, kommentar, ist_created_at, ist_created_by';
@@ -213,7 +242,6 @@ const KampfListe = ({
 
       const rows = viewRows || [];
 
-      // 2) Schichtarten für diesen Tag (Farben/Kürzel)
       const schichtIds = Array.from(
         new Set(rows.map((r) => r.ist_schichtart_id).filter((x) => x != null))
       );
@@ -234,7 +262,6 @@ const KampfListe = ({
         }
       }
 
-      // 3) Userinfos (nur für user_id + created_by aus diesem Tag)
       const userIds = rows.map((r) => r.user_id).filter(Boolean);
       const createdByIds = rows.map((r) => r.ist_created_by).filter(Boolean);
       const alleUserIds = Array.from(new Set([...userIds, ...createdByIds])).map(String);
@@ -253,7 +280,6 @@ const KampfListe = ({
         }
       }
 
-      // 4) Map für schnelle Updates: uid -> cellData
       const cellByUser = new Map();
       for (const r of rows) {
         const uid = String(r.user_id);
@@ -279,19 +305,15 @@ const KampfListe = ({
         });
       }
 
-      // 5) PATCH in den bestehenden State:
       setEintraege((prev) => {
         if (!Array.isArray(prev) || prev.length === 0) return prev;
 
         return prev.map(([uid, row]) => {
           const userIdStr = String(uid);
-
           const nextRow = { ...row, tage: { ...(row?.tage || {}) } };
 
-          // Tag erstmal leeren
           delete nextRow.tage[d];
 
-          // falls es Daten für diesen user gibt → setzen
           const cell = cellByUser.get(userIdStr);
           if (cell) {
             nextRow.tage[d] = cell;
@@ -307,13 +329,26 @@ const KampfListe = ({
 
   useEffect(() => {
     const ladeKampfliste = async () => {
-      if (!firma || !unit) return;
+      if (!firma || !unit || !currentUserId) return;
+
+      const { data: unitData, error: unitErr } = await supabase
+        .from('DB_Unit')
+        .select('employee_sichtbarkeit')
+        .eq('firma', firma)
+        .eq('id', unit)
+        .maybeSingle();
+
+      if (unitErr) {
+        console.error('❌ Fehler beim Laden von DB_Unit.employee_sichtbarkeit:', unitErr.message || unitErr);
+      }
+
+      const sichtbarkeit = unitData?.employee_sichtbarkeit || 'unit';
+      setEmployeeSichtbarkeit(sichtbarkeit);
 
       const daysInMonth = new Date(jahr, monat + 1, 0).getDate();
       const monthStart = `${prefix}-01`;
       const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
 
-      // ---- v_tagesplan laden: immer Monatsansicht in 4 Chunks ----
       let viewRows = [];
       const selectCols =
         'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
@@ -340,6 +375,7 @@ const KampfListe = ({
           .eq('unit_id', unit)
           .gte('datum', startDate)
           .lte('datum', endDate);
+
         if (error) {
           console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
           return [];
@@ -352,10 +388,10 @@ const KampfListe = ({
       );
       viewRows = viewChunks.flat();
 
-      // ---- Schichtarten (Farben/Kürzel) laden ----
       const schichtIds = Array.from(
         new Set((viewRows || []).map((r) => r.ist_schichtart_id).filter((x) => x != null))
       );
+
       let schichtMap = new Map();
       if (schichtIds.length) {
         const { data: schichten, error: sErr } = await supabase
@@ -364,6 +400,7 @@ const KampfListe = ({
           .eq('firma_id', firma)
           .eq('unit_id', unit)
           .in('id', schichtIds);
+
         if (sErr) {
           console.error('❌ Fehler DB_SchichtArt:', sErr.message || sErr);
         } else {
@@ -371,7 +408,6 @@ const KampfListe = ({
         }
       }
 
-      // ---- View → kampfData-Form ----
       const kampfData = (viewRows || [])
         .filter((r) => {
           if (!monthStart || !monthEnd) return true;
@@ -400,24 +436,26 @@ const KampfListe = ({
       const createdByIds = kampfData.map((e) => e.created_by).filter(Boolean);
       const alleUserIds = [...new Set([...userIds, ...createdByIds])].map(String);
       const idsSet = new Set(alleUserIds);
+
       if (alleUserIds.length === 0) {
         setEintraege([]);
         setGruppenZähler({});
+        setMeineSchichtgruppe(null);
         return;
       }
 
-      // ---- Userinfos ----
       const { data: userInfos, error: userError } = await supabase
         .from('DB_User')
         .select('user_id, vorname, nachname, rolle')
         .in('user_id', alleUserIds);
+
       if (userError) {
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
         return;
       }
+
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
 
-      // ---- Ausgrauen-Fenster laden ----
       const { data: ausRows, error: ausErr } = await supabase
         .from('DB_Ausgrauen')
         .select('user_id, von, bis')
@@ -444,12 +482,10 @@ const KampfListe = ({
       }
       setAusgrauenByUser(mapAus);
 
-      // ---- Quali-Counts ----
       const cutoffIso = dayjs(monthEnd).endOf('day').toISOString();
       const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
       setQualiCountMap(qualiMap);
 
-      // ---- Urlaub & Stunden ----
       const jahrNum = Number(jahr) || new Date().getFullYear();
 
       const [urlaubRes, stundenRes, abzugRes] = await Promise.all([
@@ -461,7 +497,6 @@ const KampfListe = ({
           .eq('unit_id', unit)
           .in('user_id', alleUserIds),
 
-        // ✅ STUNDEN: stunden_gesamt -> vorgabe_stunden
         supabase
           .from('DB_Stunden')
           .select('user_id, jahr, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
@@ -470,7 +505,6 @@ const KampfListe = ({
           .eq('unit_id', unit)
           .in('user_id', alleUserIds),
 
-        // ✅ Abzüge pro User/Jahr
         supabase
           .from('DB_StundenAbzug')
           .select('user_id, stunden')
@@ -480,8 +514,9 @@ const KampfListe = ({
           .in('user_id', alleUserIds),
       ]);
 
-      if (urlaubRes.error)
+      if (urlaubRes.error) {
         console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
+      }
 
       const urlaubInfo = {};
       for (const r of urlaubRes.data || []) {
@@ -493,24 +528,20 @@ const KampfListe = ({
       }
       setUrlaubInfoMap(urlaubInfo);
 
-      if (stundenRes.error)
+      if (stundenRes.error) {
         console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
+      }
 
-      if (abzugRes.error)
+      if (abzugRes.error) {
         console.error('❌ DB_StundenAbzug Fehler:', abzugRes.error.message || abzugRes.error);
+      }
 
-      // ✅ Abzug-Summen Map: user_id -> sum(stunden)
       const abzugSumByUser = {};
       for (const r of abzugRes.data || []) {
         const uid = String(r.user_id);
         abzugSumByUser[uid] = (abzugSumByUser[uid] || 0) + (Number(r.stunden) || 0);
       }
 
-      // ✅ StundenInfoMap bauen:
-      //   summeEffektiv = (summe_jahr - abzugSummeUser)
-      //   summeInklVorjahr = summeEffektiv + uebernahme_vorjahr
-      //   gesamt = vorgabe_stunden
-      //   rest = summeInklVorjahr - vorgabe_stunden
       const stundenInfo = {};
       for (const r of stundenRes.data || []) {
         const uid = String(r.user_id);
@@ -521,20 +552,19 @@ const KampfListe = ({
         const uebernahme = Number(r.uebernahme_vorjahr) || 0;
         const abzug = Number(abzugSumByUser[uid]) || 0;
 
-        const summeEffektiv = summeJahrRaw - abzug;          // ✅ Abzug berücksichtigen
-        const istInklVorjahr = summeEffektiv + uebernahme;   // ✅ erst dann Vorjahr addieren
+        const summeEffektiv = summeJahrRaw - abzug;
+        const istInklVorjahr = summeEffektiv + uebernahme;
         const rest = istInklVorjahr - vorgabe;
 
         stundenInfo[uid] = {
           summe: istInklVorjahr,
           gesamt: vorgabe,
           rest,
-          abzug, // optional (falls du später noch anzeigen willst)
+          abzug,
         };
       }
       setStundenInfoMap(stundenInfo);
 
-      // ---- Schichtzuweisungen (für Schichtgruppe/Position) ----
       const { data: zuwRaw, error: zuwErr } = await supabase
         .from('DB_SchichtZuweisung')
         .select('user_id, schichtgruppe, position_ingruppe, von_datum, bis_datum')
@@ -542,6 +572,7 @@ const KampfListe = ({
         .eq('unit_id', unit)
         .in('user_id', alleUserIds)
         .lte('von_datum', monthEnd);
+
       if (zuwErr) {
         console.error('❌ Fehler beim Laden der Zuweisungen:', zuwErr.message || zuwErr);
       }
@@ -549,6 +580,7 @@ const KampfListe = ({
       const zuwMonat = (zuwRaw || []).filter(
         (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(monthStart, 'day')
       );
+
       const zuwByUser = new Map();
       for (const z of zuwMonat) {
         const uid = String(z.user_id);
@@ -556,6 +588,7 @@ const KampfListe = ({
         arr.push(z);
         zuwByUser.set(uid, arr);
       }
+
       for (const [, arr] of zuwByUser) {
         arr.sort((a, b) => (a.von_datum < b.von_datum ? -1 : 1));
       }
@@ -572,7 +605,10 @@ const KampfListe = ({
         return best;
       };
 
-      // ---- Gruppieren ----
+      const myAssnToday = getAssnForDate(currentUserId, heutigesDatum);
+      const myGroupToday = myAssnToday?.schichtgruppe || null;
+      setMeineSchichtgruppe(myGroupToday);
+
       const gruppiert = {};
       for (const k of kampfData) {
         const datumIso = k.datum;
@@ -619,7 +655,11 @@ const KampfListe = ({
         };
       }
 
-      // ---- Gruppenzähler ----
+      // Debug bei Bedarf aktivieren
+      // console.log('👤 currentUserId:', currentUserId);
+      // console.log('👁️ sichtbarkeit:', sichtbarkeit);
+      // console.log('👥 myGroupToday:', myGroupToday);
+
       const zaehler = {};
       for (const [, e] of Object.entries(gruppiert)) {
         if (e.greyToday) continue;
@@ -628,14 +668,35 @@ const KampfListe = ({
       }
       setGruppenZähler(zaehler);
 
-      // Sichtbare Gruppen filtern
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
           delete gruppiert[key];
         }
       });
 
-      // Sortierung Gruppe -> Position
+      // WICHTIG: Hier lokal mit sichtbarkeit + myGroupToday filtern,
+      // nicht mit asynchronem State
+      if (rolle === 'Employee') {
+        Object.keys(gruppiert).forEach((key) => {
+          const eintrag = gruppiert[key];
+          let darfSehen = true;
+
+          if (sichtbarkeit === 'self') {
+            darfSehen = String(key) === String(currentUserId);
+          } else if (sichtbarkeit === 'gruppe') {
+            darfSehen =
+              !!myGroupToday &&
+              String(eintrag.schichtgruppe || '') === String(myGroupToday);
+          } else {
+            darfSehen = true; // unit
+          }
+
+          if (!darfSehen) {
+            delete gruppiert[key];
+          }
+        });
+      }
+
       const sortiert = Object.entries(gruppiert).sort(([, a], [, b]) => {
         const schichtSort = (a.schichtgruppe || '').localeCompare(b.schichtgruppe || '');
         return schichtSort !== 0 ? schichtSort : (a.position ?? 999) - (b.position ?? 999);
@@ -646,9 +707,18 @@ const KampfListe = ({
 
     ladeKampfliste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firma, unit, jahr, monat, reloadkey, sichtbareGruppen, setGruppenZähler]);
+  }, [
+    firma,
+    unit,
+    jahr,
+    monat,
+    reloadkey,
+    sichtbareGruppen,
+    setGruppenZähler,
+    rolle,
+    currentUserId,
+  ]);
 
-  // ✅ Tages-Refresh (nur ein Datum patchen)
   useEffect(() => {
     if (!firma || !unit) return;
     if (!dayRefreshKey) return;
@@ -662,7 +732,6 @@ const KampfListe = ({
     <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
       <div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
         <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
-          {/* linke Namensspalte */}
           <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
@@ -681,7 +750,7 @@ const KampfListe = ({
               const urlaub = urlaubInfoMap[userId] || { gesamt: null, summe: null, rest: null };
               const stunden = stundenInfoMap[userId] || { gesamt: null, summe: null, rest: null };
 
-              const darfTooltipSehen = rolle !== 'Employee' || String(userId) === String(currentUserId);
+              const darfTooltipSehen = darfEmployeeUserSehen(userId, e.schichtgruppe);
               const showTip = darfTooltipSehen && hoveredUserId === userId;
 
               return (
@@ -697,6 +766,7 @@ const KampfListe = ({
                   <span
                     className="flex-1 relative hover:underline cursor-pointer"
                     onClick={() => {
+                      if (!darfEmployeeUserSehen(userId, e.schichtgruppe)) return;
                       setModalUser({ id: userId, name: e.vollName });
                       setQualiModalOffen(true);
                     }}
@@ -713,10 +783,8 @@ const KampfListe = ({
                         onMouseLeave={scheduleHideTip}
                         style={{ pointerEvents: 'auto' }}
                       >
-                        <div className="relative w-[256px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
-                                        bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 font-mono text-xs">
-                          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
-                                          bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
+                        <div className="relative w-[256px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10 bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 font-mono text-xs">
+                          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
                           <div className="font-sans font-semibold mb-1 truncate">{e.vollName}</div>
 
                           <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-1 items-baseline">
@@ -734,7 +802,7 @@ const KampfListe = ({
 
                             <div className="font-sans text-gray-500 dark:text-gray-400">Stunden</div>
                             <div className="text-right text-gray-500 dark:text-gray-400">
-                              [ {fmt2(stunden.summe)}– {fmt2(stunden.gesamt)}]
+                              [{fmt2(stunden.summe)} – {fmt2(stunden.gesamt)}]
                             </div>
                             <div
                               className={`text-right font-semibold ${
@@ -770,7 +838,6 @@ const KampfListe = ({
             })}
           </div>
 
-          {/* rechte Kalenderspalten */}
           <div className="flex flex-col gap-[2px]" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
               const vorherige = index > 0 ? eintraege[index - 1][1] : null;
@@ -856,7 +923,11 @@ const KampfListe = ({
                           <>
                             <div
                               className="absolute top-0 right-0 w-0 h-0"
-                              style={{ borderTop: '12px solid white', borderLeft: '12px solid transparent', zIndex: 5 }}
+                              style={{
+                                borderTop: '12px solid white',
+                                borderLeft: '12px solid transparent',
+                                zIndex: 5,
+                              }}
                             />
                             <div
                               className="absolute top-0 right-0 w-0 h-0"
@@ -873,7 +944,11 @@ const KampfListe = ({
                           <>
                             <div
                               className="absolute top-0 left-0 w-0 h-0"
-                              style={{ borderTop: '12px solid white', borderRight: '12px solid transparent', zIndex: 5 }}
+                              style={{
+                                borderTop: '12px solid white',
+                                borderRight: '12px solid transparent',
+                                zIndex: 5,
+                              }}
                             />
                             <div
                               className="absolute top-0 left-0 w-0 h-0"
@@ -891,8 +966,11 @@ const KampfListe = ({
                           const show =
                             hoveredCellKey === key &&
                             (eintragTag?.beginn || eintragTag?.ende || eintragTag?.kommentar);
+
                           if (!show) return null;
+
                           const datumLabel = dayjs(zellenDatum).format('dddd DD.MM.YYYY');
+
                           return (
                             <div
                               className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"
@@ -900,10 +978,8 @@ const KampfListe = ({
                               onMouseLeave={scheduleHideCellTip}
                               style={{ pointerEvents: 'auto' }}
                             >
-                              <div className="relative w-[260px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10
-                                              bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs">
-                                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45
-                                                bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
+                              <div className="relative w-[260px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10 bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs">
+                                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
                                 <div className="text-[11px] text-gray-500 dark:text-gray-200 mb-1">{datumLabel}</div>
                                 <div className="text-xs font-sans font-semibold mb-0.5">{e.vollName}</div>
                                 {(eintragTag?.beginn || eintragTag?.ende) && (
@@ -912,7 +988,9 @@ const KampfListe = ({
                                   </div>
                                 )}
                                 {eintragTag?.kommentar && (
-                                  <div className="mt-1 whitespace-pre-wrap break-words">{eintragTag.kommentar}</div>
+                                  <div className="mt-1 whitespace-pre-wrap break-words">
+                                    {eintragTag.kommentar}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -921,7 +999,12 @@ const KampfListe = ({
 
                         {eintragTag ? (
                           <span className="text-xs font-medium">
-                            {maskKuerzelForEmployer(eintragTag.kuerzel, userId, rolle, currentUserId)}
+                            {maskKuerzelForEmployer(
+                              eintragTag.kuerzel,
+                              userId,
+                              rolle,
+                              currentUserId
+                            )}
                           </span>
                         ) : (
                           <span className="text-gray-500">–</span>
