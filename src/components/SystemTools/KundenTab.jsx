@@ -179,24 +179,25 @@ useEffect(()=> {
     const { data: urows } = await supabase
   .from('DB_Unit')
   .select(`
-    id,
-    unitname,
-    created_at,
-    anzahl_schichten,
-    land,
-    bundesland,
-    unit_standort,
-    unit_aktiv,
-    unit_inaktiv_at,
-    enabled_features,
-    disabled_features,
-    preis_monat_basis,
-    rabatt_unit_prozent,
-    rabatt_unit_fix,
-    abrechnung_notiz,
-    wochenplanung_aktiv, 
-    bam_logik_key
-  `)
+  id,
+  unitname,
+  created_at,
+  anzahl_schichten,
+  land,
+  bundesland,
+  unit_standort,
+  unit_aktiv,
+  unit_inaktiv_at,
+  enabled_features,
+  disabled_features,
+  preis_monat_basis,
+  rabatt_unit_prozent,
+  rabatt_unit_fix,
+  abrechnung_notiz,
+  wochenplanung_aktiv,
+  employee_sichtbarkeit,
+  bam_logik_key
+`)
   .eq('firma', firma.id)
   .order('unitname', { ascending: true });
 
@@ -366,17 +367,18 @@ const toggleCompanyPageAccess = async (userId, current, adminRow) => {
 useEffect(()=> {
   if (!selUnit) { setUnitEdit(null); return; }
   setUnitEdit({
-    unit_aktiv: !!selUnit.unit_aktiv,
-    unit_inaktiv_at: selUnit.unit_inaktiv_at || null,
-    enabled_features: Array.isArray(selUnit.enabled_features) ? [...selUnit.enabled_features] : [],
-    disabled_features: Array.isArray(selUnit.disabled_features) ? [...selUnit.disabled_features] : [],
-    preis_monat_basis: selUnit.preis_monat_basis ?? '',
-    rabatt_unit_prozent: selUnit.rabatt_unit_prozent ?? '',
-    rabatt_unit_fix: selUnit.rabatt_unit_fix ?? '',
-    abrechnung_notiz: selUnit.abrechnung_notiz || '',
-    wochenplanung_aktiv: !!selUnit.wochenplanung_aktiv,
-    bam_logik_key: selUnit.bam_logik_key || 'ROEHM_5SCHICHT',
-  });
+  unit_aktiv: !!selUnit.unit_aktiv,
+  unit_inaktiv_at: selUnit.unit_inaktiv_at || null,
+  enabled_features: Array.isArray(selUnit.enabled_features) ? [...selUnit.enabled_features] : [],
+  disabled_features: Array.isArray(selUnit.disabled_features) ? [...selUnit.disabled_features] : [],
+  preis_monat_basis: selUnit.preis_monat_basis ?? '',
+  rabatt_unit_prozent: selUnit.rabatt_unit_prozent ?? '',
+  rabatt_unit_fix: selUnit.rabatt_unit_fix ?? '',
+  abrechnung_notiz: selUnit.abrechnung_notiz || '',
+  wochenplanung_aktiv: !!selUnit.wochenplanung_aktiv,
+  employee_sichtbarkeit: selUnit.employee_sichtbarkeit || 'unit',
+  bam_logik_key: selUnit.bam_logik_key || 'ROEHM_5SCHICHT',
+});
 }, [selUnit]);
 
   const featureStateOf = (key) => {
@@ -411,17 +413,18 @@ const saveUnit = async () => {
     v === '' || v === null || v === undefined ? null : Number(v);
 
   const payload = {
-    unit_aktiv: unitEdit.unit_aktiv,
-    unit_inaktiv_at: unitEdit.unit_inaktiv_at || null,
-    enabled_features: unitEdit.enabled_features,
-    disabled_features: unitEdit.disabled_features,
-    preis_monat_basis: toNumOrNull(unitEdit.preis_monat_basis),
-    rabatt_unit_prozent: toNumOrNull(unitEdit.rabatt_unit_prozent),
-    rabatt_unit_fix: toNumOrNull(unitEdit.rabatt_unit_fix),
-    abrechnung_notiz: unitEdit.abrechnung_notiz || null,
-    wochenplanung_aktiv: !!unitEdit.wochenplanung_aktiv,
-    bam_logik_key: unitEdit.bam_logik_key || 'ROEHM_5SCHICHT',
-  };
+  unit_aktiv: unitEdit.unit_aktiv,
+  unit_inaktiv_at: unitEdit.unit_inaktiv_at || null,
+  enabled_features: unitEdit.enabled_features,
+  disabled_features: unitEdit.disabled_features,
+  preis_monat_basis: toNumOrNull(unitEdit.preis_monat_basis),
+  rabatt_unit_prozent: toNumOrNull(unitEdit.rabatt_unit_prozent),
+  rabatt_unit_fix: toNumOrNull(unitEdit.rabatt_unit_fix),
+  abrechnung_notiz: unitEdit.abrechnung_notiz || null,
+  wochenplanung_aktiv: !!unitEdit.wochenplanung_aktiv,
+  employee_sichtbarkeit: unitEdit.employee_sichtbarkeit || 'unit',
+  bam_logik_key: unitEdit.bam_logik_key || 'ROEHM_5SCHICHT',
+};
 
   await supabase.from('DB_Unit').update(payload).eq('id', selUnit.id);
   await loadFirmaDetails(selFirma);
@@ -444,6 +447,7 @@ const saveUnit = async () => {
       rabatt_unit_fix,
       abrechnung_notiz,
       wochenplanung_aktiv,
+      employee_sichtbarkeit,
       bam_logik_key  
     `)
     .eq('id', selUnit.id).maybeSingle()).data;
@@ -957,6 +961,59 @@ const saveUnit = async () => {
           </div>
         </div>
       </div>
+    </div>
+
+    {/* --- Cockpit DSGVO Ansicht --- */}
+    <div>
+      <SubSectionTitle>Ansicht Cockpit DSGVO Konform</SubSectionTitle>
+
+      <div className="mt-2 grid grid-cols-12 gap-3 items-start">
+        <div className="col-span-12 md:col-span-6">
+          <div className="text-xs opacity-70 mb-1">Sichtbarkeit für Employee</div>
+
+          <select
+            className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700"
+            value={unitEdit.employee_sichtbarkeit || 'unit'}
+            onChange={(e) =>
+              setUnitEdit((s) => ({
+                ...s,
+                employee_sichtbarkeit: e.target.value,
+              }))
+            }
+          >
+            <option value="unit">Unit</option>
+            <option value="gruppe">Gruppe</option>
+            <option value="self">Self</option>
+          </select>
+        </div>
+
+        <div className="col-span-12 md:col-span-6">
+          <div className="text-xs opacity-70 mb-1">Aktuelle Auswahl</div>
+          <Badge tone="info">{unitEdit.employee_sichtbarkeit || 'unit'}</Badge>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2 text-xs text-gray-300">
+        <div className="rounded-xl border border-gray-800 bg-gray-800/40 px-3 py-2">
+          <span className="font-semibold text-gray-100">Unit:</span> Employee sieht alle Mitarbeitenden
+          der eigenen Unit im Cockpit.
+        </div>
+
+        <div className="rounded-xl border border-gray-800 bg-gray-800/40 px-3 py-2">
+          <span className="font-semibold text-gray-100">Gruppe:</span> Employee sieht nur Mitarbeitende
+          der eigenen Schichtgruppe im Cockpit.
+        </div>
+
+        <div className="rounded-xl border border-gray-800 bg-gray-800/40 px-3 py-2">
+          <span className="font-semibold text-gray-100">Self:</span> Employee sieht nur sich selbst im
+          Cockpit.
+        </div>
+      </div>
+
+      <p className="mt-2 text-xs text-gray-400">
+        Diese Einstellung steuert die DSGVO-konforme Sicht eines Employees in der Cockpit-Ansicht.
+        Team_Leader, Planner, Org_Admin, Admin_Dev und SuperAdmin bleiben davon unberührt.
+      </p>
     </div>
 {/* --- BedarfsModal-Logik --- */}
 <div>
