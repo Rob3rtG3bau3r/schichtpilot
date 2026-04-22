@@ -27,7 +27,7 @@ const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlend
   const [infoOffen, setInfoOffen] = useState(false);
 
   const [notizByUser, setNotizByUser] = useState(new Map()); // uid -> row
-  const [selected, setSelected] = useState(null);             // { uid, name, tel1, tel2 }
+  const [selected, setSelected] = useState(null);             // { uid, name, tel1, tel2, mode: 'frei'|'tausch', tauschQuelle?: 'F'|'S'|'N' }
   const [notizText, setNotizText] = useState('');
   const [sucheTage, setSucheTage] = useState(1); // 1 | 2 | 3
 
@@ -256,7 +256,12 @@ const [ausgrauByUserDate, setAusgrauByUserDate] = useState({});       // { [uid]
       : null;
 
   const tageZumSpeichern = buildPruefTage(modalDatum, sucheTage);
-  const pruefung = pruefeMehrTageUebernahme(selected.uid, sucheTage);
+  const pruefung = pruefeMehrTageUebernahme(
+    selected.uid,
+    sucheTage,
+    selected?.mode || 'frei',
+    selected?.tauschQuelle || null
+  );
 
 if (!pruefung.ok) {
   alert(`Mehrtage-Übernahme nicht möglich:\n\n${pruefung.fehler.join('\n')}`);
@@ -362,7 +367,7 @@ const buildFensterFuerUserUndTag = (uid, zielDatum) => {
   };
 };
 
-const pruefeMehrTageUebernahme = (uid, anzahl) => {
+const pruefeMehrTageUebernahme = (uid, anzahl, mode = 'frei', quelle = null) => {
   const tage = buildPruefTage(modalDatum, anzahl);
   const fehler = [];
 
@@ -376,9 +381,25 @@ const pruefeMehrTageUebernahme = (uid, anzahl) => {
     const fenster = buildFensterFuerUserUndTag(uid, d);
     const codeHeute = fenster.heute || '-';
 
-    if (codeHeute !== '-') {
-      fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: nicht frei (${codeHeute})`);
-      continue;
+    if (mode === 'frei') {
+      if (codeHeute !== '-') {
+        fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: nicht frei (${codeHeute})`);
+        continue;
+      }
+    }
+
+    if (mode === 'tausch') {
+      if (!quelle) {
+        fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: Tauschquelle fehlt`);
+        continue;
+      }
+
+      if (codeHeute !== quelle) {
+        fehler.push(
+          `${dayjs(d).format('DD.MM.YYYY')}: nicht in Quellschicht (${codeHeute} statt ${quelle})`
+        );
+        continue;
+      }
     }
 
     const bewertung = getBewertungsStufeFn(fenster, sch);
@@ -395,8 +416,8 @@ const pruefeMehrTageUebernahme = (uid, anzahl) => {
   };
 };
 
-const kannMehrTage = (uid, anzahl) => {
-  return pruefeMehrTageUebernahme(uid, anzahl).ok;
+const kannMehrTage = (uid, anzahl, mode = 'frei', quelle = null) => {
+  return pruefeMehrTageUebernahme(uid, anzahl, mode, quelle).ok;
 };
 
   useEffect(() => {
@@ -1141,39 +1162,52 @@ if (allUserIdsAtDay.length) {
   }, [offen, modalDatum, firma, unit, shiftUserIds, freieMitarbeiter]);
 
   // ===== UI helper: User aus Tauschliste klicken =====
-  const pickUserById = (uid) => {
-    const profil = userNameById?.[uid];
-    const n = notizByUser.get(String(uid));
+const pickUserById = (uid) => {
+  if (!tauschQuelle) {
+    alert('Bitte zuerst eine Tausch-Quelle wählen.');
+    return;
+  }
 
-    setSelected({
-      uid,
-      name: profil?.voll || String(uid),
-      tel1: profil?.tel1 || '',
-      tel2: profil?.tel2 || '',
-    });
+  const profil = userNameById?.[uid];
+  const n = notizByUser.get(String(uid));
 
-    resetPush(); // ✅ Push UI sauber
-    setNotizText(n?.notiz || '');
-    setFlags({
-      macht_schicht: false,
-      kann_heute_nicht: !!n?.kann_heute_nicht,
-      kann_keine_frueh: !!n?.kann_keine_frueh,
-      kann_keine_spaet: !!n?.kann_keine_spaet,
-      kann_keine_nacht: !!n?.kann_keine_nacht,
-      kann_nur_frueh: !!n?.kann_nur_frueh,
-      kann_nur_spaet: !!n?.kann_nur_spaet,
-      kann_nur_nacht: !!n?.kann_nur_nacht,
-    });
-  };
+  setSelected({
+    uid,
+    name: profil?.voll || String(uid),
+    tel1: profil?.tel1 || '',
+    tel2: profil?.tel2 || '',
+    mode: 'tausch',
+    tauschQuelle,
+  });
+
+  resetPush();
+  setNotizText(n?.notiz || '');
+  setFlags({
+    macht_schicht: false,
+    kann_heute_nicht: !!n?.kann_heute_nicht,
+    kann_keine_frueh: !!n?.kann_keine_frueh,
+    kann_keine_spaet: !!n?.kann_keine_spaet,
+    kann_keine_nacht: !!n?.kann_keine_nacht,
+    kann_nur_frueh: !!n?.kann_nur_frueh,
+    kann_nur_spaet: !!n?.kann_nur_spaet,
+    kann_nur_nacht: !!n?.kann_nur_nacht,
+  });
+};
 
   const pickUserFromFreeRow = (row) => {
     const n = notizByUser.get(String(row.uid));
-    setSelected({ uid: row.uid, name: row.name, tel1: row.tel1, tel2: row.tel2 });
 
-    resetPush(); // ✅ Push UI sauber
+    setSelected({
+      uid: row.uid,
+      name: row.name,
+      tel1: row.tel1,
+      tel2: row.tel2,
+      mode: 'frei',
+      tauschQuelle: null,
+    });
+
+    resetPush();
     setNotizText(n?.notiz || '');
-    setMehrTage(1);
-    setMehrTageCheck(pruefeMehrTageUebernahme(row.uid, 1));
     setFlags({
       macht_schicht: false,
       kann_heute_nicht: !!n?.kann_heute_nicht,
