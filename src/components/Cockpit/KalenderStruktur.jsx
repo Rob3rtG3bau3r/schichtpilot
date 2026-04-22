@@ -234,7 +234,7 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
     return (
       <span
-        className="ml-2 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-red-800/80 text-white text-[10px] px-1"
+        className="ml-2 inline-flex shrink-0 min-w-[16px] h-4 items-center justify-center rounded-full bg-red-700 text-white text-[10px] font-semibold leading-none px-1.5"
         title={`Unterdeckung: ${summe} (Früh: ${row.frueh || 0}, Spät: ${row.spaet || 0}, Nacht: ${row.nacht || 0})`}
       >
         {summe}
@@ -272,11 +272,11 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
         <button
           key={index}
           onClick={() => setMonat(index)}
-          className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 flex items-center ${
-            index === monat
-              ? 'bg-blue-600 text-white dark:bg-blue-500'
-              : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-          }`}
+          className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 flex items-center gap-1.5 ${
+              index === monat
+                ? 'bg-blue-600 text-white dark:bg-blue-500'
+                : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+            }`}
         >
           <span>{name}</span>
           {renderMonatsStatus(index)}
