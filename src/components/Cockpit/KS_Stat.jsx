@@ -147,8 +147,6 @@ function IstSollGauge({ ist, soll, height = 220 }) {
 function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true }) {
   const safeSoll = Math.max(0, Number(soll ?? 0));
   const safeIst = Math.max(0, Number(ist ?? 0));
-  const isOver = safeSoll > 0 && safeIst > safeSoll;
-  const fillColor = isOver ? '#ef4444' : '#10b981';
   const ratio = safeSoll > 0 ? safeIst / safeSoll : 0;
   const pctText = safeSoll > 0 ? fmtPct2(ratio * 100) : '—';
 
@@ -156,6 +154,8 @@ function IstSollBulletFlat({ ist, soll, dense = false, showPercentInside = true 
   const overPct = safeSoll > 0 ? Math.min(Math.max((ratio - 1) * 100, 0), 100) : 0;
 
   const h = dense ? 14 : 18;
+  const isOver = safeSoll > 0 && safeIst > safeSoll;
+  const fillColor = isOver ? '#ef4444' : '#10b981';
 
   const insideText = safeSoll > 0
     ? `${deNumber(safeIst)} / ${deNumber(safeSoll)} h`
