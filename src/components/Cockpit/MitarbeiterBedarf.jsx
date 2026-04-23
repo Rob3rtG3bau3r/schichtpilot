@@ -204,8 +204,8 @@ const saveMonthlyUnterdeckung = async ({
 };
 
 const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
-  const { sichtFirma: firma, sichtUnit: unit } = useRollen();
-
+  const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
+  
   const [tage, setTage] = useState([]);
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
@@ -234,6 +234,8 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
 
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
+  const isEmployer = rolle === 'Employee';
+  const canOpenAnalyseModal = allowAnalyse && !isEmployer;  
 
   // Heute (YYYY-MM-DD) für gelbe Markierung
   const heutigesDatum = React.useMemo(() => dayjs().format('YYYY-MM-DD'), []);
@@ -1107,16 +1109,17 @@ const timeIssueCount = timeIssues?.length || 0;
   };
 
   const handleModalOeffnen = (datum, kuerzel) => {
-    if (!allowAnalyse) return;
-    const istVergangenheit = dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
-    if (istVergangenheit) return;
+  if (!canOpenAnalyseModal) return;
 
-    const cell = bedarfStatus[kuerzel]?.[datum];
-    setModalDatum(datum);
-    setModalSchicht(kuerzel);
-    setFehlendeQualis(cell?.fehlend || []);
-    setModalOffen(true);
-  };
+  const istVergangenheit = dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
+  if (istVergangenheit) return;
+
+  const cell = bedarfStatus[kuerzel]?.[datum];
+  setModalDatum(datum);
+  setModalSchicht(kuerzel);
+  setFehlendeQualis(cell?.fehlend || []);
+  setModalOffen(true);
+};
 
   return (
     <div className="overflow-x-visible relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700" style={{ overflowY: 'visible' }}>
@@ -1175,7 +1178,7 @@ const timeIssueCount = timeIssues?.length || 0;
                           return (
                           <div
               key={datum}
-              onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
+              onClick={canOpenAnalyseModal ? () => handleModalOeffnen(datum, kuerzel) : undefined}
               onMouseEnter={(e) =>
                 allowTooltip &&
                 cell &&
@@ -1187,7 +1190,7 @@ const timeIssueCount = timeIssues?.length || 0;
                   ? { backgroundImage: 'linear-gradient(to bottom, rgba(34,197,94,1) 0%, rgba(34,197,94,1) 45%, rgba(239,68,68,1) 55%, rgba(239,68,68,1) 100%)' }
                   : undefined
               }
-              className={`relative ${allowAnalyse ? 'cursor-pointer' : 'cursor-default'}
+              className={`relative ${canOpenAnalyseModal ? 'cursor-pointer' : 'cursor-default'}
                 w-[48px] min-w-[48px] text-center text-xs py-[2px] border
                 ${past ? '' : 'hover:opacity-80'}
                 ${cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'}
@@ -1250,7 +1253,7 @@ const timeIssueCount = timeIssues?.length || 0;
         )}
 
       {/* Analyse-Modal */}
-      {allowAnalyse && (
+      {canOpenAnalyseModal && (
         <BedarfsAnalyseModal
           offen={modalOffen}
           onClose={() => setModalOffen(false)}
