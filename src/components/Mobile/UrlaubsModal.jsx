@@ -52,6 +52,25 @@ const UrlaubsModal = ({ offen, onClose, tag, datum, schicht }) => {
     return () => clearTimeout(t);
   }, [errorMsg, successMsg]);
 
+  const checkUrlaubVerfuegbar = async () => {
+  const jahr = dayjs(datum).year();
+
+  const { data, error } = await supabase
+    .from("DB_Urlaub")
+    .select("urlaub_gesamt, summe_jahr")
+    .eq("user_id", user_id)
+    .eq("jahr", jahr)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const urlaubGesamt = Number(data?.urlaub_gesamt ?? 0);
+  const urlaubGenommen = Number(data?.summe_jahr ?? 0);
+  const rest = urlaubGesamt - urlaubGenommen;
+
+  return rest > 0;
+};
+
   const handleSend = async () => {
     if (sending) return;
     setErrorMsg("");
@@ -92,6 +111,13 @@ const UrlaubsModal = ({ offen, onClose, tag, datum, schicht }) => {
         return;
       }
 
+      const genugUrlaub = await checkUrlaubVerfuegbar();
+        if (!genugUrlaub) {
+          setErrorMsg("Für dieses Jahr ist kein Resturlaub mehr verfügbar.");
+          setSending(false);
+          return;
+        }
+
       // Consent speichern (falls neu)
       if (!hasConsent) {
         const { error: cErr } = await supabase
@@ -101,6 +127,21 @@ const UrlaubsModal = ({ offen, onClose, tag, datum, schicht }) => {
         if (cErr) throw cErr;
         setHasConsent(true);
       }
+
+      const { data: gruppenData, error: gruppenErr } = await supabase
+        .from("DB_SchichtZuweisung")
+        .select("schichtgruppe, von_datum, bis_datum")
+        .eq("firma_id", firma_id)
+        .eq("unit_id", unit_id)
+        .eq("user_id", user_id)
+        .lte("von_datum", datum)
+        .or(`bis_datum.is.null,bis_datum.gte.${datum}`)
+        .order("von_datum", { ascending: false })
+        .limit(1);
+
+      if (gruppenErr) throw gruppenErr;
+
+      const schichtgruppe = gruppenData?.[0]?.schichtgruppe ?? null;
 
       // Insert
       const { error: insErr } = await supabase.from("DB_AnfrageMA").insert({
@@ -112,6 +153,8 @@ const UrlaubsModal = ({ offen, onClose, tag, datum, schicht }) => {
         kommentar: "",
         firma_id,
         unit_id,
+        anfrage_von: "Mobile",
+        schichtgruppe,
       });
       if (insErr) throw insErr;
 

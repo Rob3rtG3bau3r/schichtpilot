@@ -109,6 +109,20 @@ const BieteMichAnModal = ({ offen, onClose, tag, datum, schicht }) => {
         setHasConsent(true);
       }
 
+      const { data: gruppenData, error: gruppenErr } = await supabase
+        .from("DB_SchichtZuweisung")
+        .select("schichtgruppe, von_datum, bis_datum")
+        .eq("firma_id", firma_id)
+        .eq("unit_id", unit_id)
+        .eq("user_id", user_id)
+        .lte("von_datum", datum)
+        .or(`bis_datum.is.null,bis_datum.gte.${datum}`)
+        .order("von_datum", { ascending: false })
+        .limit(1);
+
+      if (gruppenErr) throw gruppenErr;
+
+      const schichtgruppe = gruppenData?.[0]?.schichtgruppe ?? null;
       // Insert
       const { error: insErr } = await supabase.from("DB_AnfrageMA").insert({
         created_by: user_id,
@@ -119,6 +133,8 @@ const BieteMichAnModal = ({ offen, onClose, tag, datum, schicht }) => {
         kommentar: "",
         firma_id,
         unit_id,
+        anfrage_von: "Mobile",
+        schichtgruppe,
       });
       if (insErr) throw insErr;
 
