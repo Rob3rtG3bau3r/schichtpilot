@@ -10,6 +10,7 @@ dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
 
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
+import AnfrageAktionModal from './AnfrageAktionModal';
 import { Info } from 'lucide-react';
 
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
@@ -232,14 +233,36 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   const [modalSchicht, setModalSchicht] = useState('');
   const [fehlendeQualis, setFehlendeQualis] = useState([]);
 
+  const [aktionModalOffen, setAktionModalOffen] = useState(false);
+  const [aktionModalDatum, setAktionModalDatum] = useState('');
+  const [aktionModalSchicht, setAktionModalSchicht] = useState('');
+
+  const [aktionEigeneSchicht, setAktionEigeneSchicht] = useState(null);
+  const [aktionEigeneUnterdeckung, setAktionEigeneUnterdeckung] = useState(false);
+  const [aktionAngeklickteUnterdeckung, setAktionAngeklickteUnterdeckung] = useState(false);
+  const [aktionKannHelfen, setAktionKannHelfen] = useState(false);
+
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
-  const isEmployer = rolle === 'Employee';
-  const canOpenAnalyseModal = allowAnalyse && !isEmployer;  
+  const isEmployee = rolle === 'Employee';
+  const canOpenAnalyseModal = allowAnalyse && !isEmployee;
+  const canOpenAktionModal = isEmployee;
+
+  useEffect(() => {
+  if (!canOpenAnalyseModal && modalOffen) {
+    setModalOffen(false);
+  }
+}, [canOpenAnalyseModal, modalOffen]);
+
+useEffect(() => {
+  if (!canOpenAktionModal && aktionModalOffen) {
+    setAktionModalOffen(false);
+  }
+}, [canOpenAktionModal, aktionModalOffen]);
 
   // Heute (YYYY-MM-DD) für gelbe Markierung
   const heutigesDatum = React.useMemo(() => dayjs().format('YYYY-MM-DD'), []);
-
+  
   // ===== Tooltip infra =====
   const [tipData, setTipData] = useState(null); // { text, top, left, flip, header, width }
   const tipHideTimer = useRef(null);
@@ -1108,11 +1131,71 @@ const timeIssueCount = timeIssues?.length || 0;
     return lines.join('\n');
   };
 
-  const handleModalOeffnen = (datum, kuerzel) => {
-  if (!canOpenAnalyseModal) return;
+   const [authUserId, setAuthUserId] = useState(null);
 
+    useEffect(() => {
+      const loadAuthUser = async () => {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        setAuthUserId(user?.id ?? null);
+      };
+
+      loadAuthUser();
+    }, []);
+
+const handleCellClick = (datum, kuerzel) => {
   const istVergangenheit = dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
   if (istVergangenheit) return;
+
+  if (canOpenAktionModal) {
+    const clickedCell = bedarfStatus[kuerzel]?.[datum];
+
+    // eigene Schicht des Users an dem Tag ermitteln:
+    let eigeneSchicht = null;
+    for (const sch of ['F', 'S', 'N']) {
+      const c = bedarfStatus[sch]?.[datum];
+      const aktive = c?.meta?.aktiveUserIds || [];
+      if (authUserId && aktive.includes(authUserId)) {
+        eigeneSchicht = sch;
+        break;
+      }
+    }
+
+    // Unterdeckung auf eigener Schicht?
+    const eigeneCell = eigeneSchicht ? bedarfStatus[eigeneSchicht]?.[datum] : null;
+    const eigeneUnterdeckung = String(eigeneCell?.farbe || '').includes('bg-red');
+
+    // Unterdeckung auf angeklickter Schicht?
+    const angeklickteUnterdeckung = String(clickedCell?.farbe || '').includes('bg-red');
+
+    // Kann User auf angeklickter Schicht helfen?
+    let kannHelfen = false;
+    if (authUserId && clickedCell?.meta) {
+      const userQualis = clickedCell.meta.userQualiMap?.[authUserId] || [];
+      const fehlendKuerzel = clickedCell.fehlend || [];
+
+      if (fehlendKuerzel.length > 0 && userQualis.length > 0) {
+        const userQualiKuerzel = userQualis
+          .map((qid) => matrixMapState[qid]?.kuerzel)
+          .filter(Boolean);
+
+        kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
+      }
+    }
+
+    setAktionModalDatum(datum);
+    setAktionModalSchicht(kuerzel);
+    setAktionEigeneSchicht(eigeneSchicht);
+    setAktionEigeneUnterdeckung(eigeneUnterdeckung);
+    setAktionAngeklickteUnterdeckung(angeklickteUnterdeckung);
+    setAktionKannHelfen(kannHelfen);
+    setAktionModalOffen(true);
+    return;
+  }
+
+  if (!canOpenAnalyseModal) return;
 
   const cell = bedarfStatus[kuerzel]?.[datum];
   setModalDatum(datum);
@@ -1178,7 +1261,7 @@ const timeIssueCount = timeIssues?.length || 0;
                           return (
                           <div
               key={datum}
-              onClick={canOpenAnalyseModal ? () => handleModalOeffnen(datum, kuerzel) : undefined}
+              onClick={(canOpenAnalyseModal || canOpenAktionModal) ? () => handleCellClick(datum, kuerzel) : undefined}
               onMouseEnter={(e) =>
                 allowTooltip &&
                 cell &&
@@ -1190,7 +1273,7 @@ const timeIssueCount = timeIssues?.length || 0;
                   ? { backgroundImage: 'linear-gradient(to bottom, rgba(34,197,94,1) 0%, rgba(34,197,94,1) 45%, rgba(239,68,68,1) 55%, rgba(239,68,68,1) 100%)' }
                   : undefined
               }
-              className={`relative ${canOpenAnalyseModal ? 'cursor-pointer' : 'cursor-default'}
+              className={`relative ${(canOpenAnalyseModal || canOpenAktionModal) ? 'cursor-pointer' : 'cursor-default'}
                 w-[48px] min-w-[48px] text-center text-xs py-[2px] border
                 ${past ? '' : 'hover:opacity-80'}
                 ${cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'}
@@ -1260,6 +1343,20 @@ const timeIssueCount = timeIssues?.length || 0;
           modalDatum={modalDatum}
           modalSchicht={modalSchicht}
           fehlendeQualis={fehlendeQualis}
+          onSaved={onSavedForDay}
+        />
+      )}
+
+      {canOpenAktionModal && (
+        <AnfrageAktionModal
+          offen={aktionModalOffen}
+          onClose={() => setAktionModalOffen(false)}
+          datum={aktionModalDatum}
+          schicht={aktionModalSchicht}
+          eigeneSchicht={aktionEigeneSchicht}
+          eigeneSchichtUnterdeckung={aktionEigeneUnterdeckung}
+          angeklickteSchichtUnterdeckung={aktionAngeklickteUnterdeckung}
+          kannAufAngeklickterSchichtHelfen={aktionKannHelfen}
           onSaved={onSavedForDay}
         />
       )}
