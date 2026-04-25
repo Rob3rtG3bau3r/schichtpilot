@@ -7,6 +7,7 @@ export const BAM_UI = ({
   offen,
   onClose,
   onInfo,
+  onOpenAnfrage,
   title,
   children,
 }) => {
@@ -22,6 +23,15 @@ export const BAM_UI = ({
         className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-4 py-2 rounded-xl w-full max-w-4xl shadow-xl flex flex-col gap-2 relative animate-fade-in"
       >
         <div className="absolute top-3 right-4 flex gap-2 items-center">
+          {onOpenAnfrage && (
+            <button
+              onClick={onOpenAnfrage}
+              title="Anfrage stellen"
+              className="text-xs px-2 py-1 rounded-md bg-green-600 hover:bg-green-700 text-white"
+            >
+              Anfrage
+            </button>
+          )}
           <button onClick={onInfo} title="Info">
             <Info size={20} className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white" />
           </button>

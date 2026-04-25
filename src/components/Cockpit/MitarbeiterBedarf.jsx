@@ -254,12 +254,6 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   }
 }, [canOpenAnalyseModal, modalOffen]);
 
-useEffect(() => {
-  if (!canOpenAktionModal && aktionModalOffen) {
-    setAktionModalOffen(false);
-  }
-}, [canOpenAktionModal, aktionModalOffen]);
-
   // Heute (YYYY-MM-DD) für gelbe Markierung
   const heutigesDatum = React.useMemo(() => dayjs().format('YYYY-MM-DD'), []);
   
@@ -1204,6 +1198,46 @@ const handleCellClick = (datum, kuerzel) => {
   setModalOffen(true);
 };
 
+const openAktionModalFromAnalyse = ({ datum, schicht }) => {
+  const clickedCell = bedarfStatus[schicht]?.[datum];
+
+  let eigeneSchicht = null;
+  for (const sch of ['F', 'S', 'N']) {
+    const c = bedarfStatus[sch]?.[datum];
+    const aktive = c?.meta?.aktiveUserIds || [];
+    if (authUserId && aktive.includes(authUserId)) {
+      eigeneSchicht = sch;
+      break;
+    }
+  }
+
+  const eigeneCell = eigeneSchicht ? bedarfStatus[eigeneSchicht]?.[datum] : null;
+  const eigeneUnterdeckung = String(eigeneCell?.farbe || '').includes('bg-red');
+  const angeklickteUnterdeckung = String(clickedCell?.farbe || '').includes('bg-red');
+
+  let kannHelfen = false;
+  if (authUserId && clickedCell?.meta) {
+    const userQualis = clickedCell.meta.userQualiMap?.[authUserId] || [];
+    const fehlendKuerzel = clickedCell.fehlend || [];
+
+    if (fehlendKuerzel.length > 0 && userQualis.length > 0) {
+      const userQualiKuerzel = userQualis
+        .map((qid) => matrixMapState[qid]?.kuerzel)
+        .filter(Boolean);
+
+      kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
+    }
+  }
+
+  setAktionModalDatum(datum);
+  setAktionModalSchicht(schicht);
+  setAktionEigeneSchicht(eigeneSchicht);
+  setAktionEigeneUnterdeckung(eigeneUnterdeckung);
+  setAktionAngeklickteUnterdeckung(angeklickteUnterdeckung);
+  setAktionKannHelfen(kannHelfen);
+  setAktionModalOffen(true);
+};
+
   return (
     <div className="overflow-x-visible relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700" style={{ overflowY: 'visible' }}>
       {/* Info-Button */}
@@ -1344,10 +1378,13 @@ const handleCellClick = (datum, kuerzel) => {
           modalSchicht={modalSchicht}
           fehlendeQualis={fehlendeQualis}
           onSaved={onSavedForDay}
+          onOpenAktionModal={() =>
+            openAktionModalFromAnalyse({ datum: modalDatum, schicht: modalSchicht })
+          }
         />
       )}
 
-      {canOpenAktionModal && (
+      {aktionModalOffen && (
         <AnfrageAktionModal
           offen={aktionModalOffen}
           onClose={() => setAktionModalOffen(false)}

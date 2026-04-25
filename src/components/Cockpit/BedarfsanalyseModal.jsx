@@ -17,7 +17,16 @@ import BAM_SchichtTausch from './BAM_SchichtTausch';
 import BAM_VerfuegbareMitarbeiter from './BAM_VerfuegbareMitarbeiter';
 import BAM_PushNachrichten, { useBamPush } from './BAM_PushNachrichten';
 
-const BedarfsAnalyseModal = ({ offen, onClose, modalDatum, modalSchicht, fehlendeQualis = [], onSaved }) => {
+const BedarfsAnalyseModal = ({
+  offen,
+  onClose,
+  modalDatum,
+  modalSchicht,
+  fehlendeQualis = [],
+  onSaved,
+  onOpenAktionModal,
+}) => {
+
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
 
   const [mitarbeiter, setMitarbeiter] = useState([]);           // im Dienst (Ziel-Schicht)
@@ -1228,6 +1237,10 @@ const pickUserById = (uid) => {
         offen={offen}
         onClose={onClose}
         onInfo={() => setInfoOffen(true)}
+        onOpenAnfrage={() => {
+          onClose?.();
+          onOpenAktionModal?.();
+        }}
         title={`${SCH_LABEL[sch] || sch}-Schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')}`}
       >
         <p className="text-sm">❌ Fehlende Qualifikationen (Ziel): {fehlendeQualis.length ? fehlendeQualis.join(', ') : '—'}</p>
