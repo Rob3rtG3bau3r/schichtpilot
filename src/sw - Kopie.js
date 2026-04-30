@@ -7,7 +7,7 @@ import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST || []);
 
-const CACHE_VERSION = "v24-schichtpilot"; 
+const CACHE_VERSION = "v23-schichtpilot"; 
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 
 // Alles, was immer verfügbar sein soll (Start + Shell + Icons + Manifest)
@@ -58,7 +58,7 @@ self.addEventListener("activate", (event) => {
 });
 
 // Fetch-Strategien:
-// 1) Navigations-Requests (SPA): Network-First mit Fallback auf index.html
+// 1) Navigations-Requests (SPA): Network-First mit Fallback auf index.html (offline)
 // 2) Statische Assets: Cache-First
 // 3) Sonst: Network-First
 self.addEventListener("fetch", (event) => {
@@ -68,44 +68,18 @@ self.addEventListener("fetch", (event) => {
   // Nur GET behandeln
   if (req.method !== "GET") return;
 
-  const isSameOrigin = url.origin === self.location.origin;
-
   // 1) SPA-Navigation
   if (req.mode === "navigate") {
     event.respondWith(
       (async () => {
         try {
-          // Online: normale Route laden
           const netRes = await fetch(req);
-
-          // Nur erfolgreiche HTML-Antworten zurückgeben
-          if (netRes && netRes.ok) {
-            return netRes;
-          }
-
-          // Falls /dashboard etc. keine saubere Antwort gibt:
-          const indexRes = await fetch("/index.html");
-          if (indexRes && indexRes.ok) {
-            return indexRes;
-          }
-
-          // Letzter Fallback aus Cache
-          const cachedIndex = await caches.match("/index.html");
-          if (cachedIndex) return cachedIndex;
-
-          return new Response("SchichtPilot konnte nicht geladen werden.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-          });
-        } catch (e) {
-          // Offline-Fallback
-          const cachedIndex = await caches.match("/index.html");
-          if (cachedIndex) return cachedIndex;
-
-          return new Response("SchichtPilot ist offline nicht verfügbar.", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-          });
+          await putInCache(new Request("/index.html"), netRes.clone());
+          return netRes;
+        } catch {
+          const cache = await caches.open(STATIC_CACHE);
+          const cached = await cache.match("/index.html");
+          return cached || Response.error();
         }
       })()
     );
@@ -113,6 +87,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // 2) Statische First-Party-Assets -> Cache-First
+  const isSameOrigin = url.origin === self.location.origin;
   const isStaticAsset =
     isSameOrigin &&
     (url.pathname.startsWith("/assets/") ||
@@ -132,48 +107,68 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         const cached = await caches.match(req);
         if (cached) return cached;
-
         try {
           const netRes = await fetch(req);
-          if (netRes && netRes.ok) {
-            return await putInCache(req, netRes);
-          }
-
-          return new Response("", {
-            status: netRes?.status || 404,
-            statusText: netRes?.statusText || "Not Found",
-          });
-        } catch (e) {
-          return new Response("", {
-            status: 503,
-            statusText: "Service Unavailable",
-          });
+          return await putInCache(req, netRes);
+        } catch {
+          return cached || Response.error();
         }
       })()
     );
     return;
   }
 
-  // 3) Standard: Network-First mit Cache-Fallback
+  // 3) Standard: Network-First (mit Cache-Fallback)
   event.respondWith(
     (async () => {
       try {
         const netRes = await fetch(req);
-
-        if (netRes && netRes.ok && isSameOrigin) {
-          await putInCache(req, netRes.clone());
-        }
-
+        if (isSameOrigin) await putInCache(req, netRes.clone());
         return netRes;
-      } catch (e) {
+      } catch {
         const cached = await caches.match(req);
-        if (cached) return cached;
-
-        return new Response("", {
-          status: 503,
-          statusText: "Service Unavailable",
-        });
+        return cached || Response.error();
       }
+    })()
+  );
+});
+
+// ----------------------------------------------------
+// 3) PUSH: Notification anzeigen + Klick öffnen
+// ----------------------------------------------------
+self.addEventListener("push", (event) => {
+    //console.log("[SW] PUSH ANGEKOMMEN");
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {}
+
+  const title = data.title || "SchichtPilot";
+
+  // ✅ Wichtig: Fallback-url, sonst passiert beim Klick oft "nichts"
+  const url = (data?.data?.url) || "/mobile/login";
+
+  const options = {
+    body: data.body || "Neue Nachricht",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    data: { url }, // ✅ immer als {url} speichern
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification?.data?.url || "/mobile/login";
+
+  event.waitUntil(
+    (async () => {
+      // Falls schon ein Tab offen ist -> fokussieren
+      const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = allClients.find((c) => c.url.includes("/mobile"));
+      if (existing) return existing.focus();
+      return self.clients.openWindow(url);
     })()
   );
 });

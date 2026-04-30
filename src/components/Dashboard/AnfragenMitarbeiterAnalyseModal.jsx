@@ -30,6 +30,7 @@ const parseAntrag = (txt = '') => {
   const t = (txt || '').toLowerCase();
 
   if (t.includes('urlaub')) return { type: 'urlaub', label: 'Urlaub beantragt' };
+  if (t.includes('freizeitausgleich')) return { type: 'freizeitausgleich', label: 'Freizeitausgleich beantragt' };
   if (t.includes('frei beantragt') || (t.includes('frei') && !t.includes('freiwillig')))
     return { type: 'frei', label: 'Frei beantragt' };
 
@@ -238,7 +239,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
 
   // Style für "Beantragt"-Box
   const beantragtBoxStyle = useMemo(() => {
-    if (antragInfo?.type === 'urlaub') {
+    if (antragInfo?.type === 'urlaub' || antragInfo?.type === 'freizeitausgleich') {
       return { backgroundColor: '#FDE047', color: '#000000' };
     }
     if (antragInfo?.type === 'angebot' && requestedArt?.farbe_bg) {
@@ -526,14 +527,18 @@ const schKey = useMemo(() => {
   // ✅ QualiMap für Simulation ("Wenn Ja"):
 // - Basis: IST-Qualis (dayUserQualiMap)
 // - Wenn "angebot": Qualis vom Antragsteller hinzufügen (auch wenn er vorher nicht eingeteilt war)
-// - Wenn "urlaub/frei": Antragsteller entfernen
+// - Wenn "urlaub/frei/freizeitausgleich": Antragsteller entfernen
 const dayUserQualiMapAfter = useMemo(() => {
   const base = { ...(dayUserQualiMap || {}) };
   const uid = anfrage?.created_by;
   if (!uid || !datum) return base;
 
   // Urlaub/Frei => User ist nach "Ja" nicht mehr in der Schicht -> Qualis entfernen
-  if (antragInfo.type === 'urlaub' || antragInfo.type === 'frei') {
+  if (
+    antragInfo.type === 'urlaub' ||
+    antragInfo.type === 'frei' ||
+    antragInfo.type === 'freizeitausgleich'
+  ) {
     delete base[uid];
     return base;
   }
@@ -676,8 +681,11 @@ const dayUserQualiMapAfter = useMemo(() => {
 
     // Wenn KEIN "Ja" gewählt ist, trotzdem Vorschau anhand Antrag (du wolltest “Zustand wenn Ja bestätigt wird”)
     // => wir simulieren immer "Ja"-Folge, unabhängig von entscheidung-state.
-    if (antragInfo.type === 'urlaub' || antragInfo.type === 'frei') {
-      // User ist dann nicht mehr in F/S/N
+    if (
+      antragInfo.type === 'urlaub' ||
+      antragInfo.type === 'frei' ||
+      antragInfo.type === 'freizeitausgleich'
+    ) {
       removeFromAll();
     } else if (antragInfo.type === 'angebot') {
       // User soll in beantragte Schicht (F/S/N) rein
@@ -743,8 +751,9 @@ const ampelAfter = useMemo(() => {
       // 2) Wenn genehmigt => zentraler Kampfliste-Write (Verlauf -> Delete -> Insert + Recalc)
       if (entscheidung === true) {
         let zielKuerzel = schichtKuerzel;
-        if (antragInfo.type === 'urlaub') zielKuerzel = 'U';
-        if (antragInfo.type === 'frei') zielKuerzel = '-';
+          if (antragInfo.type === 'urlaub') zielKuerzel = 'U';
+          if (antragInfo.type === 'frei') zielKuerzel = '-';
+          if (antragInfo.type === 'freizeitausgleich') zielKuerzel = '-';
 
         const createdBy =
           (await supabase.auth.getUser()).data?.user?.id || verantwortlicherUserId || null;
@@ -968,9 +977,10 @@ const ampelAfter = useMemo(() => {
 
                   {/* ✅ Mini-Info rechts neben Nein */}
                   <div className="text-xs text-gray-500 dark:text-gray-300">
-                    {antragInfo.type === 'urlaub' && 'Bei Ja wird Urlaub (U)'}
-                    {antragInfo.type === 'frei' && 'Bei Ja wird Frei (-)'}
-                    {antragInfo.type === 'angebot' && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eintragen`}
+                    {antragInfo.type === 'urlaub' && 'Bei Ja wird Urlaub (U) eingetragen'}
+                    {antragInfo.type === 'frei' && 'Bei Ja wird Frei (-) eingetragen'}
+                    {antragInfo.type === 'freizeitausgleich' && 'Bei Ja wird Freizeitausgleich (-) eingetragen'}
+                    {antragInfo.type === 'angebot' && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eingetragen`}
                   </div>
                 </div>
               </div>
