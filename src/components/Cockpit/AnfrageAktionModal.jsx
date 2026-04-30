@@ -174,25 +174,26 @@ const AnfrageAktionModal = ({
     return () => clearTimeout(t);
   }, [errorMsg, successMsg]);
 
-  const checkDuplicateOpenRequest = async (zielSchicht) => {
-    if (!authUserId) throw new Error('Kein Auth-User vorhanden.');
+    const checkDuplicateOpenRequest = async (zielSchicht) => {
+      if (!authUserId) throw new Error('Kein Auth-User vorhanden.');
 
-    const windowStartISO = dayjs().subtract(3, 'day').toISOString();
+      const windowStartISO = dayjs().subtract(3, 'day').toISOString();
 
-    const { error, count } = await supabase
-      .from('DB_AnfrageMA')
-      .select('id', { count: 'exact', head: true })
-      .eq('created_by', authUserId)
-      .eq('datum', datum)
-      .eq('schicht', zielSchicht)
-      .eq('firma_id', firma_id)
-      .eq('unit_id', unit_id)
-      .is('genehmigt', null)
-      .gte('created_at', windowStartISO);
+      const { data, error } = await supabase
+        .from('DB_AnfrageMA')
+        .select('id')
+        .eq('created_by', authUserId)
+        .eq('datum', datum)
+        .eq('schicht', zielSchicht)
+        .eq('firma_id', firma_id)
+        .eq('unit_id', unit_id)
+        .is('genehmigt', null)
+        .gte('created_at', windowStartISO)
+        .limit(1);
 
-    if (error) throw error;
-    return (count ?? 0) > 0;
-  };
+      if (error) throw error;
+      return (data?.length ?? 0) > 0;
+    };
 
   const checkUrlaubVerfuegbar = async () => {
     if (!authUserId) throw new Error('Kein Auth-User vorhanden.');
