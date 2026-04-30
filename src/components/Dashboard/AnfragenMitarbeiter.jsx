@@ -10,19 +10,17 @@ const sortIcon = (activeKey, thisKey, dir) => {
   return dir === 'asc' ? <ArrowUp className="w-3 h-3.5 inline-block" /> : <ArrowDown className="w-3 h-3.5 inline-block" />;
 };
 
-const add3DaysPassed = (ts) => dayjs(ts).add(3, 'day').isBefore(dayjs());
-const dateIsTodayOrFuture = (d) => {
-  if (!d) return true; // wenn kein Datum gespeichert ist, nicht ausfiltern
-  const heute = dayjs().startOf('day');
-  const dd = dayjs(d).startOf('day');
-  return !dd.isBefore(heute);
-};
-
 // 1 = genehmigt, -1 = abgelehnt, 0 = offen (robust gegen 0/1/"true"/"false"/"t"/"f")
 const triStatus = (v) => {
   if (v === true || v === 1 || v === '1' || v === 'true' || v === 't' || v === 'TRUE' || v === 'T') return 1;
   if (v === false || v === 0 || v === '0' || v === 'false' || v === 'f' || v === 'FALSE' || v === 'F') return -1;
   return 0;
+};
+const quelleKurz = (v) => {
+  const t = (v || '').toString().trim().toLowerCase();
+  if (t === 'mobile') return 'M';
+  if (t === 'webapp') return 'W';
+  return '-';
 };
 
 const AnfragenMitarbeiter = () => {
@@ -30,10 +28,8 @@ const AnfragenMitarbeiter = () => {
 
   const [alleAnfragen, setAlleAnfragen] = useState([]);
   const [activeTab, setActiveTab] = useState('offen'); // 'offen' | 'genehmigt' | 'abgelehnt'
-  const [nurAb3Tagen, setNurAb3Tagen] = useState(false);
-  const [nurZukunft, setNurZukunft] = useState(true);
   const [modalAnfrage, setModalAnfrage] = useState(null);
-    const [bereichOffen, setBereichOffen] = useState(true);
+  const [bereichOffen, setBereichOffen] = useState(true);
   const [infoModalOffen, setInfoModalOffen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sort, setSort] = useState({ key: 'datum', dir: 'asc' }); // datum | schicht | created_at | datum_entscheid
@@ -66,79 +62,59 @@ const AnfragenMitarbeiter = () => {
   // Zähler nach Normalisierung
   const counts = useMemo(() => {
     let offen = 0, genehmigt = 0, abgelehnt = 0;
+
     (alleAnfragen || []).forEach(a => {
       const s = triStatus(a.genehmigt);
+
       if (s === 1) genehmigt++;
-      if (s === -1) abgelehnt++;
-      if (s === 0 && a.datum_entscheid == null) {
-        let ok = true;
-        if (nurAb3Tagen) ok = ok && add3DaysPassed(a.created_at);
-        if (nurZukunft) ok = ok && dateIsTodayOrFuture(a.datum);
-        if (ok) offen++;
-      }
+      else if (s === -1) abgelehnt++;
+      else if (s === 0 && a.datum_entscheid == null) offen++;
     });
+
     return { offen, genehmigt, abgelehnt };
-  }, [alleAnfragen, nurAb3Tagen, nurZukunft]);
+  }, [alleAnfragen]);
 
   // Filtern + Sortieren
   const anfragen = useMemo(() => {
     const filtered = (alleAnfragen || []).filter(a => {
       const s = triStatus(a.genehmigt);
-      if (activeTab === 'offen') {
-        if (!(s === 0 && a.datum_entscheid == null)) return false;
-        if (nurAb3Tagen && !add3DaysPassed(a.created_at)) return false;
-        if (nurZukunft && !dateIsTodayOrFuture(a.datum)) return false;
-        return true;
-      }
-      if (activeTab === 'genehmigt') return s === 1;      // zeigt auch alte 1/true/"t"
-      if (activeTab === 'abgelehnt') return s === -1;     // zeigt auch alte 0/false/"f"
+
+      if (activeTab === 'offen') return s === 0 && a.datum_entscheid == null;
+      if (activeTab === 'genehmigt') return s === 1;
+      if (activeTab === 'abgelehnt') return s === -1;
+
       return false;
     });
 
     const dirMul = sort.dir === 'asc' ? 1 : -1;
+
     return filtered.sort((a, b) => {
       const getVal = (row) => {
         switch (sort.key) {
-          case 'datum': return row.datum ? dayjs(row.datum).valueOf() : -Infinity;
-          case 'schicht': return (row.schicht || '').toString().toLowerCase();
-          case 'created_at': return dayjs(row.created_at).valueOf();
-          case 'datum_entscheid': return row.datum_entscheid ? dayjs(row.datum_entscheid).valueOf() : -Infinity;
-          default: return 0;
+          case 'datum':
+            return row.datum ? dayjs(row.datum).valueOf() : -Infinity;
+          case 'schicht':
+            return (row.schicht || '').toString().toLowerCase();
+          case 'created_at':
+            return dayjs(row.created_at).valueOf();
+          case 'datum_entscheid':
+            return row.datum_entscheid ? dayjs(row.datum_entscheid).valueOf() : -Infinity;
+          default:
+            return 0;
         }
       };
-      const va = getVal(a), vb = getVal(b);
+
+      const va = getVal(a);
+      const vb = getVal(b);
+
       if (va < vb) return -1 * dirMul;
       if (va > vb) return 1 * dirMul;
       return 0;
     });
-  }, [alleAnfragen, activeTab, sort, nurAb3Tagen, nurZukunft]);
+  }, [alleAnfragen, activeTab, sort]);
 
   const toggleSort = (key) => {
     setSort(prev => (prev.key !== key ? { key, dir: 'asc' } : { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }));
-  };
-
-  const handleSpeichern = async () => {
-    if (!modalAnfrage || entscheidung === null) return;
-    const { id } = modalAnfrage;
-
-    const { error } = await supabase
-      .from('DB_AnfrageMA')
-      .update({
-        genehmigt: entscheidung,
-        kommentar,
-        verantwortlicher: userId,
-        datum_entscheid: new Date().toISOString()
-      })
-      .eq('id', id);
-
-    if (error) {
-      console.error('Fehler beim Speichern:', error.message);
-    } else {
-      setModalAnfrage(null);
-      setEntscheidung(null);
-      setKommentar('');
-      setRefreshKey(prev => prev + 1);
-    }
   };
 
   return (
@@ -182,19 +158,6 @@ const AnfragenMitarbeiter = () => {
                 Abgelehnt ({counts.abgelehnt})
               </button>
             </div>
-
-            {activeTab === 'offen' && (
-              <div className="ml-auto flex gap-4 text-xs">
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={nurAb3Tagen} onChange={() => setNurAb3Tagen(v => !v)} />
-                  Nur ≥ 3 Tage fällig
-                </label>
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={nurZukunft} onChange={() => setNurZukunft(v => !v)} />
-                  Nur zukünftige Termine
-                </label>
-              </div>
-            )}
           </div>
 
           {/* Tabelle */}
@@ -242,7 +205,9 @@ const AnfragenMitarbeiter = () => {
                       <td>{a.schicht || '-'}</td>
                       <td>{a.created_by_user ? `${a.created_by_user.vorname} ${a.created_by_user.nachname}` : '-'}</td>
                       <td>{a.antrag || '-'}</td>
-                      <td>{dayjs(a.created_at).format('DD.MM.YY HH:mm')}</td>
+                      <td className="whitespace-nowrap">
+                      {dayjs(a.created_at).format('DD.MM.YY HH:mm')} {quelleKurz(a.anfrage_von)}
+                    </td>
                       <td>{s === 0 ? 'Offen' : s === 1 ? '✅' : '❌'}</td>
                       <td>{a.verantwortlicher_user ? `${a.verantwortlicher_user.vorname.charAt(0)}. ${a.verantwortlicher_user.nachname}` : '-'}</td>
                       <td>{a.datum_entscheid ? dayjs(a.datum_entscheid).format('DD.MM.YY HH:mm') : '-'}</td>
@@ -271,8 +236,6 @@ const AnfragenMitarbeiter = () => {
     onSaved={() => setRefreshKey(prev => prev + 1)}
     onClose={() => {
       setModalAnfrage(null);
-      setEntscheidung(null);
-      setKommentar('');
     }}
   />
 )}
@@ -284,8 +247,10 @@ const AnfragenMitarbeiter = () => {
           <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">ℹ️ Informationen</h3>
             <ul className="text-sm list-disc ml-4 space-y-2">
-              <li>Alte Werte (0/1, "true"/"false", "t"/"f") werden automatisch erkannt.</li>
-              <li>„Offen“ = kein Entscheid (optional mit ≥3 Tage & Datum ≥ heute).</li>
+              <li>Eintragungen die älter sind als 3 Tage werden Automatisch abgelehnt.</li>
+              <li>Eintragungen an einem Tag bzw. einer Schicht können nur alle 3 eingestellt werden. (Spam vermeiden)</li>
+              <li>„Offen“ = kein Entscheid und noch ohne Entscheidungsdatum.</li>
+              <li>In „Erstellt“ zeigt M = Mobile und W = WebApp.</li>
               <li>„Genehmigt“/„Abgelehnt“ zeigen alle historischen Einträge.</li>
               <li>Sortieren per Spaltenklick (Standard: Datum ↑).</li>
             </ul>
