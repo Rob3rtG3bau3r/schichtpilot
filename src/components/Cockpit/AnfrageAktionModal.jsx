@@ -22,28 +22,21 @@ const AnfrageAktionModal = ({
   datum,
   schicht,
   onSaved,
-
-  // aus MitarbeiterBedarf übergeben:
   eigeneSchicht,
   eigeneSchichtUnterdeckung = false,
   angeklickteSchichtUnterdeckung = false,
   kannAufAngeklickterSchichtHelfen = false,
+  firmaId,
+  unitId,
 }) => {
-  const rawFirmaId = localStorage.getItem('firma_id');
-  const rawUnitId = localStorage.getItem('unit_id');
 
-  const firma_id =
-    rawFirmaId && rawFirmaId !== 'null' ? Number(rawFirmaId) : null;
+  const firma_id = firmaId ?? null;
+  const unit_id = unitId ?? null;
 
-  const unit_id =
-    rawUnitId && rawUnitId !== 'null' ? Number(rawUnitId) : null;
-
-    console.log('DEBUG localStorage IDs', {
-      rawFirmaId,
-      rawUnitId,
-      firma_id,
-      unit_id,
-    });
+ console.log('DEBUG IDs aus Props', {
+  firma_id,
+  unit_id,
+});
 
   const [authUserId, setAuthUserId] = useState(null);
   const [sendingType, setSendingType] = useState('');

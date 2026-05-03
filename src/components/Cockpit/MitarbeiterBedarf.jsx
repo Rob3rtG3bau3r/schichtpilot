@@ -1386,16 +1386,18 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
 
       {aktionModalOffen && (
         <AnfrageAktionModal
-          offen={aktionModalOffen}
-          onClose={() => setAktionModalOffen(false)}
-          datum={aktionModalDatum}
-          schicht={aktionModalSchicht}
-          eigeneSchicht={aktionEigeneSchicht}
-          eigeneSchichtUnterdeckung={aktionEigeneUnterdeckung}
-          angeklickteSchichtUnterdeckung={aktionAngeklickteUnterdeckung}
-          kannAufAngeklickterSchichtHelfen={aktionKannHelfen}
-          onSaved={onSavedForDay}
-        />
+        offen={aktionModalOffen}
+        onClose={() => setAktionModalOffen(false)}
+        datum={aktionModalDatum}
+        schicht={aktionModalSchicht}
+        eigeneSchicht={aktionEigeneSchicht}
+        eigeneSchichtUnterdeckung={aktionEigeneUnterdeckung}
+        angeklickteSchichtUnterdeckung={aktionAngeklickteUnterdeckung}
+        kannAufAngeklickterSchichtHelfen={aktionKannHelfen}
+        firmaId={firma}
+        unitId={unit}
+        onSaved={onSavedForDay}
+      />
       )}
 
       {/* Legende */}
