@@ -116,6 +116,15 @@ const bedarfGiltFuerSchicht = (b, datumISO, schKey) => {
   return b.schichtart === schLabel;
 };
 
+const fmtStd = (v) => {
+  const n = Number(v ?? 0);
+  if (Number.isNaN(n)) return '—';
+  return new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(n);
+};
+
 const Badge = ({ children }) => (
   <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100">
     {children}
@@ -152,6 +161,14 @@ export default function AnfragenMitarbeiterAnalyseModal({
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [urlaubRestAktuell, setUrlaubRestAktuell] = useState(null);
+  const [offeneUrlaubsantraege, setOffeneUrlaubsantraege] = useState(0);
+  const [urlaubLoading, setUrlaubLoading] = useState(false);
+
+  const [stundenAktuell, setStundenAktuell] = useState(null);
+  const [stundenNachGenehmigung, setStundenNachGenehmigung] = useState(null);
+  const [stundenLoading, setStundenLoading] = useState(false);
 
   // Analyse-Daten
   const [userPlan7, setUserPlan7] = useState([]);        // 7-Tage Plan (nur Antragsteller)
@@ -250,10 +267,22 @@ export default function AnfragenMitarbeiterAnalyseModal({
     }
     return null;
   }, [antragInfo?.type, requestedArt?.farbe_bg, requestedArt?.farbe_text]);
-const schKey = useMemo(() => {
-  const k = (schichtKuerzel || '').trim().toUpperCase();
-  return (k === 'F' || k === 'S' || k === 'N') ? k : null;
-}, [schichtKuerzel]);
+    const schKey = useMemo(() => {
+      const k = (schichtKuerzel || '').trim().toUpperCase();
+      return (k === 'F' || k === 'S' || k === 'N') ? k : null;
+    }, [schichtKuerzel]);
+
+    useEffect(() => {
+        if (!offen) return;
+
+        setUrlaubRestAktuell(null);
+        setOffeneUrlaubsantraege(0);
+        setUrlaubLoading(false);
+
+        setStundenAktuell(null);
+        setStundenNachGenehmigung(null);
+        setStundenLoading(false);
+      }, [offen, anfrage?.id]);
 
   /* --------------------------- LOAD --------------------------- */
   useEffect(() => {
@@ -347,6 +376,91 @@ const schKey = useMemo(() => {
           setUserPlan7(plan7);
         }
 
+                /* F) Urlaubskontingent für Analyse-Modal */
+        if (anfrage?.created_by && datum) {
+          setUrlaubLoading(true);
+          try {
+            const jahr = dayjs(datum).year();
+            const jahrStart = `${jahr}-01-01`;
+            const jahrEnde = `${jahr}-12-31`;
+
+            const [{ data: urlaubData, error: urlaubErr }, { data: offeneData, error: offeneErr }] =
+              await Promise.all([
+                supabase
+                  .from('DB_Urlaub')
+                  .select('urlaub_gesamt, summe_jahr')
+                  .eq('user_id', anfrage.created_by)
+                  .eq('jahr', jahr)
+                  .maybeSingle(),
+
+                supabase
+                  .from('DB_AnfrageMA')
+                  .select('id, datum, antrag, genehmigt, datum_entscheid')
+                  .eq('created_by', anfrage.created_by)
+                  .eq('firma_id', firmaId)
+                  .eq('unit_id', unitId)
+                  .gte('datum', jahrStart)
+                  .lte('datum', jahrEnde)
+                  .is('genehmigt', null)
+                  .is('datum_entscheid', null)
+              ]);
+
+            if (urlaubErr) throw urlaubErr;
+            if (offeneErr) throw offeneErr;
+
+            const urlaubGesamt = Number(urlaubData?.urlaub_gesamt ?? 0);
+            const urlaubGenommen = Number(urlaubData?.summe_jahr ?? 0);
+            const restAktuell = urlaubGesamt - urlaubGenommen;
+
+            const offeneUrlaubeOhneDiesen = (offeneData || []).filter((r) => {
+              if (r.id === anfrage.id) return false;
+              const txt = (r.antrag || '').toLowerCase();
+              return txt.includes('urlaub');
+            }).length;
+
+            setUrlaubRestAktuell(restAktuell);
+            setOffeneUrlaubsantraege(offeneUrlaubeOhneDiesen);
+          } finally {
+            setUrlaubLoading(false);
+          }
+        }
+                /* G) Stundenkonto für Freizeitausgleich */
+        if (
+          anfrage?.created_by &&
+          datum &&
+          (antragInfo.type === 'freizeitausgleich' || antragInfo.type === 'angebot')
+        ) {
+          setStundenLoading(true);
+          try {
+            const jahr = dayjs(datum).year();
+
+            const { data: stundenData, error: stundenErr } = await supabase
+              .from('DB_Stunden')
+              .select('vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
+              .eq('user_id', anfrage.created_by)
+              .eq('jahr', jahr)
+              .maybeSingle();
+
+            if (stundenErr) throw stundenErr;
+
+            const vorgabe = Number(stundenData?.vorgabe_stunden ?? 0);
+            const summeJahr = Number(stundenData?.summe_jahr ?? 0);
+            const uebernahmeVorjahr = Number(stundenData?.uebernahme_vorjahr ?? 0);
+
+            const aktuell = summeJahr + uebernahmeVorjahr - vorgabe;
+            const schichtDauer = Number(requestedArt?.dauer ?? 0);
+
+            const nachGenehmigung =
+              antragInfo.type === 'angebot'
+                ? aktuell + schichtDauer
+                : aktuell - schichtDauer;
+
+            setStundenAktuell(aktuell);
+            setStundenNachGenehmigung(nachGenehmigung);
+          } finally {
+            setStundenLoading(false);
+          }
+        }
         /* D) Tages-Plan für Ampel (F/S/N) + Besetzung (für beantragte Schicht) */
         const { data: dayRows, error: dayErr } = await supabase
           .from('v_tagesplan')
@@ -493,7 +607,8 @@ const schKey = useMemo(() => {
     };
 
     load();
-  }, [offen, anfrage, firmaId, unitId, datum, range?.from, range?.to, schichtKuerzel]);
+  }, [offen, anfrage, firmaId, unitId, datum, range?.from, range?.to, schichtKuerzel, antragInfo.type, requestedArt?.dauer]);
+
 
   /* --------------------------- Ampel Logic --------------------------- */
 
@@ -726,9 +841,26 @@ const ampelAfter = useMemo(() => {
   if (!datum || !schKey) return null;
   return evaluateShift(datum, schKey, simulatedAssignments?.[schKey] || [], dayUserQualiMapAfter);
 }, [datum, schKey, simulatedAssignments, bedarfRows, dayUserQualiMapAfter, qualiMatrixMap]);
+
+  const urlaubRestNachGenehmigung = useMemo(() => {
+    if (urlaubRestAktuell == null) return null;
+    if (antragInfo.type !== 'urlaub') return null;
+
+    return urlaubRestAktuell - offeneUrlaubsantraege - 1;
+  }, [urlaubRestAktuell, offeneUrlaubsantraege, antragInfo.type]);
+
+  const urlaubGenehmigungBlockiert = useMemo(() => {
+    if (antragInfo.type !== 'urlaub') return false;
+    if (urlaubRestNachGenehmigung == null) return false;
+    return urlaubRestNachGenehmigung < 0;
+  }, [antragInfo.type, urlaubRestNachGenehmigung]);
+
   /* --------------------------- SAVE --------------------------- */
   const handleSpeichern = async () => {
     if (!anfrage || entscheidung === null) return;
+    if (antragInfo.type === 'urlaub' && entscheidung === true && urlaubGenehmigungBlockiert) {
+      return;
+    }
 
     const s = triStatus(anfrage.genehmigt);
     if (!(s === 0 && anfrage.datum_entscheid == null)) return;
@@ -880,9 +1012,98 @@ const ampelAfter = useMemo(() => {
                     </span>
                   ) : null}
                 </div>
-
-             
               </div>
+
+             {(
+                antragInfo.type === 'urlaub' ||
+                antragInfo.type === 'freizeitausgleich' ||
+                antragInfo.type === 'angebot'
+              ) && (
+  <div className="rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm bg-white dark:bg-gray-900/20">
+    {antragInfo.type === 'urlaub' && (
+      urlaubLoading ? (
+        <div className="text-gray-600 dark:text-gray-300">Urlaubskontingent wird geladen…</div>
+      ) : (
+        <div className="space-y-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-1">
+              <div className="text-xs text-gray-500 dark:text-gray-300">Resturlaub</div>
+              <div className="font-semibold">{urlaubRestAktuell ?? '—'} Tage</div>
+            </div>
+
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-1">
+              <div className="text-xs text-gray-500 dark:text-gray-300">Offene Anträge</div>
+              <div className="font-semibold">{offeneUrlaubsantraege}</div>
+            </div>
+
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-1">
+              <div className="text-xs text-gray-500 dark:text-gray-300">Nach Genehmigung</div>
+              <div className={`font-semibold ${urlaubGenehmigungBlockiert ? 'text-red-600' : 'text-green-600'}`}>
+                {urlaubRestNachGenehmigung ?? '—'} Tage
+              </div>
+            </div>
+          </div>
+
+          {urlaubGenehmigungBlockiert && (
+            <div className="text-red-600 font-medium text-xs">
+              Kontingent wäre negativ. Bitte erst andere offene Urlaubsanträge klären.
+            </div>
+          )}
+        </div>
+      )
+    )}
+
+    {antragInfo.type === 'freizeitausgleich' && (
+      stundenLoading ? (
+        <div className="text-gray-600 dark:text-gray-300">Stundenkonto wird geladen…</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-1">
+            <div className="text-xs text-gray-500 dark:text-gray-300">Std. Jahresende</div>
+            <div className="font-semibold">{fmtStd(stundenAktuell)} Std.</div>
+          </div>
+
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-1">
+            <div className="text-xs text-gray-500 dark:text-gray-300">Freizeitausgleich</div>
+            <div className="font-semibold">{fmtStd(requestedArt?.dauer)} Std.</div>
+          </div>
+
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-1">
+            <div className="text-xs text-gray-500 dark:text-gray-300">Nach Genehmigung</div>
+            <div className="font-semibold text-purple-700 dark:text-purple-300">
+              {fmtStd(stundenNachGenehmigung)} Std.
+            </div>
+          </div>
+        </div>
+      )
+    )}
+
+        {antragInfo.type === 'angebot' && (
+      stundenLoading ? (
+        <div className="text-gray-600 dark:text-gray-300">Stundenkonto wird geladen…</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-2">
+            <div className="text-xs text-gray-500 dark:text-gray-300">Std. Jahresende</div>
+            <div className="font-semibold">{fmtStd(stundenAktuell)} Std.</div>
+          </div>
+
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-2">
+            <div className="text-xs text-gray-500 dark:text-gray-300">+ Stunden</div>
+            <div className="font-semibold">{fmtStd(requestedArt?.dauer)} Std.</div>
+          </div>
+
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-2 py-2">
+            <div className="text-xs text-gray-500 dark:text-gray-300">Std. nach Genehmigung</div>
+            <div className="font-semibold text-green-700 dark:text-green-300">
+              {fmtStd(stundenNachGenehmigung)} Std.
+            </div>
+          </div>
+        </div>
+      )
+    )}
+  </div>
+)}
 
               {/* 7 Tage Plan */}
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-1">
@@ -954,10 +1175,13 @@ const ampelAfter = useMemo(() => {
                 <div className="flex items-center gap-3 mb-2">
                 <button
                   onClick={() => setEntscheidung(true)}
+                  disabled={urlaubGenehmigungBlockiert}
                   className={`px-4 py-1 rounded-xl text-xs border ${
-                    entscheidung === true
-                      ? 'bg-green-600 text-white border-green-700'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
+                    urlaubGenehmigungBlockiert
+                      ? 'bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed'
+                      : entscheidung === true
+                        ? 'bg-green-600 text-white border-green-700'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
                   }`}
                 >
                   Ja

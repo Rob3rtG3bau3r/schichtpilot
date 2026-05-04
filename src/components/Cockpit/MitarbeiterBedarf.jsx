@@ -232,6 +232,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   const [modalDatum, setModalDatum] = useState('');
   const [modalSchicht, setModalSchicht] = useState('');
   const [fehlendeQualis, setFehlendeQualis] = useState([]);
+  const [authUserQualis, setAuthUserQualis] = useState([]);
 
   const [aktionModalOffen, setAktionModalOffen] = useState(false);
   const [aktionModalDatum, setAktionModalDatum] = useState('');
@@ -1139,6 +1140,55 @@ const timeIssueCount = timeIssues?.length || 0;
       loadAuthUser();
     }, []);
 
+useEffect(() => {
+  if (!authUserId || !firma || !unit) return;
+
+  const loadAuthUserQualis = async () => {
+    const { data, error } = await supabase
+      .from('DB_Qualifikation')
+      .select(`
+        quali,
+        quali_start,
+        quali_endet,
+        matrix:DB_Qualifikationsmatrix!inner(
+          id,
+          quali_kuerzel,
+          firma_id,
+          unit_id,
+          aktiv
+        )
+      `)
+      .eq('user_id', authUserId)
+      .eq('matrix.firma_id', firma)
+      .eq('matrix.unit_id', unit)
+      .eq('matrix.aktiv', true);
+
+    if (error) {
+      console.error('Fehler beim Laden der User-Qualifikationen:', error.message);
+      setAuthUserQualis([]);
+      return;
+    }
+
+    setAuthUserQualis(data || []);
+  };
+
+  loadAuthUserQualis();
+}, [authUserId, firma, unit]);
+
+const getAuthUserQualiKuerzelForDay = (datum) => {
+  const tag = dayjs(datum);
+
+  return (authUserQualis || [])
+    .filter((q) => {
+      const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
+      const endOk = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
+      return startOk && endOk;
+    })
+    .map((q) => q.matrix?.quali_kuerzel)
+    .filter(Boolean)
+    .map((x) => String(x).trim().toUpperCase());
+};
+
 const handleCellClick = (datum, kuerzel) => {
   const istVergangenheit = dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
   if (istVergangenheit) return;
@@ -1166,17 +1216,23 @@ const handleCellClick = (datum, kuerzel) => {
 
     // Kann User auf angeklickter Schicht helfen?
     let kannHelfen = false;
+
     if (authUserId && clickedCell?.meta) {
-      const userQualis = clickedCell.meta.userQualiMap?.[authUserId] || [];
-      const fehlendKuerzel = clickedCell.fehlend || [];
+      const fehlendKuerzel = (clickedCell.fehlend || [])
+        .map((x) => String(x).trim().toUpperCase());
 
-      if (fehlendKuerzel.length > 0 && userQualis.length > 0) {
-        const userQualiKuerzel = userQualis
-          .map((qid) => matrixMapState[qid]?.kuerzel)
-          .filter(Boolean);
+      const userQualiKuerzel = getAuthUserQualiKuerzelForDay(datum);
 
+      if (fehlendKuerzel.length > 0 && userQualiKuerzel.length > 0) {
         kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
       }
+
+      console.log('DEBUG kannHelfen', {
+        authUserId,
+        userQualiKuerzel,
+        fehlendKuerzel,
+        kannHelfen,
+      });
     }
 
     setAktionModalDatum(datum);
@@ -1216,17 +1272,23 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
   const angeklickteUnterdeckung = String(clickedCell?.farbe || '').includes('bg-red');
 
   let kannHelfen = false;
+
   if (authUserId && clickedCell?.meta) {
-    const userQualis = clickedCell.meta.userQualiMap?.[authUserId] || [];
-    const fehlendKuerzel = clickedCell.fehlend || [];
+    const fehlendKuerzel = (clickedCell.fehlend || [])
+      .map((x) => String(x).trim().toUpperCase());
 
-    if (fehlendKuerzel.length > 0 && userQualis.length > 0) {
-      const userQualiKuerzel = userQualis
-        .map((qid) => matrixMapState[qid]?.kuerzel)
-        .filter(Boolean);
+    const userQualiKuerzel = getAuthUserQualiKuerzelForDay(datum);
 
+    if (fehlendKuerzel.length > 0 && userQualiKuerzel.length > 0) {
       kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
     }
+
+    console.log('DEBUG kannHelfen', {
+      authUserId,
+      userQualiKuerzel,
+      fehlendKuerzel,
+      kannHelfen,
+    });
   }
 
   setAktionModalDatum(datum);
