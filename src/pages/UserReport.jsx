@@ -124,7 +124,7 @@ const { data: stunden, error: stundenError } = await supabase
   .select(
     'user_id, jahr, ' +
       'm1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12, ' +
-      'summe_jahr, stunden_gesamt, uebernahme_vorjahr'
+      'summe_jahr, vorgabe_stunden, uebernahme_vorjahr'
   )
   .eq('firma_id', firmaId)
   .eq('unit_id', unitId)
@@ -340,7 +340,7 @@ const { data: urlaub, error: urlaubError } = await supabase
 
   // 🔢 Jahreswerte aus DB_Stunden
   const stundenSummeJahr = Number(stRow?.summe_jahr || 0);
-  const stundenGesamt = Number(stRow?.stunden_gesamt || 0);
+  const stundenGesamt = Number(stRow?.vorgabe_stunden || 0);
   const stundenUebernahme = Number(stRow?.uebernahme_vorjahr || 0);
 
   // 🔢 Jahreswerte aus DB_Urlaub

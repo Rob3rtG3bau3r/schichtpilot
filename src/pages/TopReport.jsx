@@ -156,7 +156,7 @@ export default function TopReport() {
 
         {!loading && !error && enabled && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Card title="Top User – Stunden" items={payload?.top_hours_users} topN={limit} />
+           {/* //<Card title="Top User – Stunden" items={payload?.top_hours_users} topN={limit} />
             {/* Früh/Spät/Nacht entfernt */}
             <Card title="Top Kürzel (Tage)" items={payload?.top_codes} topN={limit} />
             <Card title="Monate mit den meisten Stunden" items={payload?.top_months_hours_high} topN={limit} />
