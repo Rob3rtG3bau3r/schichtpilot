@@ -443,7 +443,7 @@ console.log('DEBUG DuplicateCheck', {
           <button
             onClick={() => sendeAntrag('freizeitausgleich')}
             disabled={fzaDisabled}
-            className="rounded-lg px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+            className="rounded-lg px-4 py-3 bg-purple-600 dark:bg-purple-500 dark:hover:bg-purple-800 hover:bg-purple-700 text-gray-100 dark:text-gray-white disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {sendingType === 'freizeitausgleich' ? 'Senden…' : 'Freizeitausgleich'}
           </button>

@@ -22,6 +22,8 @@ const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
 const SHIFT_KUERZEL_SET = new Set(['F', 'S', 'N']);
 
 const isPastDay = (datum) => dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
+const isOlderThanEmployeeHistoryLimit = (datum) =>
+  dayjs(datum).isBefore(dayjs().subtract(3, 'day').startOf('day'), 'day');
 
 // Zeit: "HH:mm" | "HH:mm:ss" -> Minuten
 const timeToMin = (t) => {
@@ -1353,6 +1355,8 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
             const timeIssue = !!cell?.meta?.timeIssue;
             const baseIsGreen = String(cell?.farbe || '').includes('bg-green');
             const splitBg = timeIssue && baseIsGreen;
+            const employeePastTooltipBlocked =
+              isEmployee && isOlderThanEmployeeHistoryLimit(datum);
 
                           return (
                           <div
@@ -1360,6 +1364,7 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
               onClick={(canOpenAnalyseModal || canOpenAktionModal) ? () => handleCellClick(datum, kuerzel) : undefined}
               onMouseEnter={(e) =>
                 allowTooltip &&
+                !employeePastTooltipBlocked &&
                 cell &&
                 scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
               }
