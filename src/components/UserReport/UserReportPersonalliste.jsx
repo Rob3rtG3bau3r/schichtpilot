@@ -7,6 +7,7 @@ const fmt = (v, digits = 2) =>
 
 const Th = ({ label, sortKey, current, dir, onClick, alignRight = false }) => {
   const active = current === sortKey;
+
   return (
     <th
       onClick={() => onClick(sortKey)}
@@ -47,6 +48,7 @@ const UserReportPersonalliste = ({
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Übersicht nach Mitarbeiter
         </h2>
+
         <span className="text-[11px] text-gray-500 dark:text-gray-400">
           Klick auf eine Zeile für Details
         </span>
@@ -63,6 +65,7 @@ const UserReportPersonalliste = ({
                 dir={sortDir}
                 onClick={toggleSort}
               />
+
               <Th
                 label="Gruppe"
                 sortKey="gruppe"
@@ -70,6 +73,7 @@ const UserReportPersonalliste = ({
                 dir={sortDir}
                 onClick={toggleSort}
               />
+
               <Th
                 label="Stunden"
                 sortKey="stunden"
@@ -78,6 +82,7 @@ const UserReportPersonalliste = ({
                 onClick={toggleSort}
                 alignRight
               />
+
               <Th
                 label="Urlaub"
                 sortKey="urlaub"
@@ -86,6 +91,7 @@ const UserReportPersonalliste = ({
                 onClick={toggleSort}
                 alignRight
               />
+
               <Th
                 label="Nacht Std."
                 sortKey="nacht_std"
@@ -94,6 +100,7 @@ const UserReportPersonalliste = ({
                 onClick={toggleSort}
                 alignRight
               />
+
               <Th
                 label="So Std."
                 sortKey="sonntag"
@@ -102,6 +109,7 @@ const UserReportPersonalliste = ({
                 onClick={toggleSort}
                 alignRight
               />
+
               <Th
                 label="Feiertag Std."
                 sortKey="feiertag"
@@ -110,22 +118,16 @@ const UserReportPersonalliste = ({
                 onClick={toggleSort}
                 alignRight
               />
+
               <Th
-                label="Krank ges."
-                sortKey="krank"
-                current={sortKey}
-                dir={sortDir}
-                onClick={toggleSort}
-                alignRight
-              />
-              <Th
-                label="Plan %"
+                label="Plan-Ist %"
                 sortKey="planQuote"
                 current={sortKey}
                 dir={sortDir}
                 onClick={toggleSort}
                 alignRight
               />
+
               <Th
                 label="Kurzfristigkeit"
                 sortKey="kurzfrist"
@@ -136,11 +138,12 @@ const UserReportPersonalliste = ({
               />
             </tr>
           </thead>
+
           <tbody>
             {loading ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={9}
                   className="px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400"
                 >
                   Daten werden geladen …
@@ -149,7 +152,7 @@ const UserReportPersonalliste = ({
             ) : visibleStats.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={9}
                   className="px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400"
                 >
                   Keine Daten im ausgewählten Zeitraum.
@@ -182,29 +185,30 @@ const UserReportPersonalliste = ({
                       {u.schichtgruppe || '—'}
                     </td>
 
-                    {/* Stunden / Urlaub */}
+                    {/* Stunden */}
                     <td className="px-2 py-1 text-right">
                       {u.stundenText || fmt(u.stundenIst)}
                     </td>
+
+                    {/* Urlaub */}
                     <td className="px-2 py-1 text-right">
                       {u.urlaubText || fmt(u.urlaubIst)}
                     </td>
 
-                    {/* Nacht / So / Feiertag Std. */}
+                    {/* Nachtstunden */}
                     <td className="px-2 py-1 text-right">{fmt(u.hN)}</td>
+
+                    {/* Sonntagsstunden */}
                     <td className="px-2 py-1 text-right">
                       {fmt(u.sumSonntag)}
                     </td>
+
+                    {/* Feiertagsstunden */}
                     <td className="px-2 py-1 text-right">
                       {fmt(u.sumFeiertag)}
                     </td>
 
-                    {/* Krank gesamt */}
-                    <td className="px-2 py-1 text-center">
-                      {u.krankGesamt || 0}
-                    </td>
-
-                    {/* Planerfüllung */}
+                    {/* Plan-Ist-Stabilität */}
                     <td className="px-2 py-1 text-right">
                       {u.planQuote == null
                         ? '—'
