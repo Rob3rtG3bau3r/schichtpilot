@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import BenutzerFormular from '../components/User/BenutzerFormular';
 import BenutzerTabelle from '../components/User/BenutzerTabelle';
+import BenutzerCSVImport from '../components/User/BenutzerCSVImport';
 
 const UserAnlegen = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [refresh, setRefresh] = useState(false);
 
   const ladeTabelleNeu = () => {
-    setRefresh(prev => !prev); // Toggle-Wert zum Triggern des Reloads
+    setRefresh(prev => !prev);
   };
 
   return (
-    <div className="px-6 pb-2  text-white">
+    <div className="px-6 pb-2 text-white">
+
+      <BenutzerCSVImport onImportDone={ladeTabelleNeu} />
 
       {/* Zwei-Spalten-Layout */}
       <div className="grid grid-cols-12 gap-5">
@@ -26,8 +29,8 @@ const UserAnlegen = () => {
 
         {/* Rechte Spalte: Tabelle */}
         <div className="col-span-9">
-          <BenutzerTabelle 
-            onEditUser={(user) => setSelectedUser(user)} 
+          <BenutzerTabelle
+            onEditUser={(user) => setSelectedUser(user)}
             refresh={refresh}
           />
         </div>
