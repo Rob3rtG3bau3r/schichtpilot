@@ -59,6 +59,7 @@ const Home = () => {
   const [success, setSuccess] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -235,14 +236,58 @@ const Home = () => {
             Der moderne Schichtplaner für dein Unternehmen.
           </h1>
 
-          {/* Rechts: Login */}
-          <div className="flex justify-end">
+          {/* Rechts: Menü + Login */}
+          <div className="flex justify-end items-center gap-3 relative">
+           <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="bg-gray-800/80 hover:bg-gray-700 border border-gray-600 px-4 py-2 rounded-xl text-lg leading-none text-white"
+            aria-label="Menü öffnen"
+            aria-expanded={menuOpen}
+            title="Menü öffnen"
+          >
+            ⋯
+          </button>
+
             <Link
               to="/login"
               className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-xl text-sm"
             >
               Login
             </Link>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-12 w-64 bg-gray-900/95 border border-gray-700 rounded-2xl shadow-xl p-3 z-50 text-left backdrop-blur-md">
+                <div className="text-xs uppercase tracking-wide text-gray-400 px-3 pb-2">
+                  SchichtPilot
+                </div>
+
+                {/* Onboarding bewusst noch deaktiviert */}
+                <Link
+  to="/onboarding"
+  onClick={() => setMenuOpen(false)}
+  className="block px-3 py-2 rounded-xl text-gray-200 hover:bg-gray-800"
+>
+  Onboarding
+</Link>
+
+                <Link
+                  to="/datenschutz"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-gray-200 hover:bg-gray-800"
+                >
+                  Datenschutz
+                </Link>
+
+                <Link
+                  to="/impressum"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-gray-200 hover:bg-gray-800"
+                >
+                  Impressum
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -383,9 +428,11 @@ const Home = () => {
       <section className="mt-16 px-6 max-w-4xl text-center z-20">
         <h2 className="text-3xl font-bold mb-4">Warum SchichtPilot?</h2>
         <p className="text-gray-200/80">
-          Weil wir selbst aus der Praxis kommen, unsere Lösung ist für echte Anforderungen in der Schichtplanung gemacht.
-          <h3 className="text-xl font-semibold"> Einfach, schnell, mobil. </h3>
+          Weil wir selbst aus der Praxis kommen, ist unsere Lösung für echte Anforderungen in der Schichtplanung gemacht.
         </p>
+        <h3 className="text-xl font-semibold mt-3">
+          Einfach, schnell, mobil.
+        </h3>
       </section>
 
       <p className="mt-6 text-gray-200/80 z-20">

@@ -31,6 +31,7 @@ import UserReport from './pages/UserReport.jsx';
 import UnitUserStundenPflege from './pages/UnitUserStundenPflege';
 import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 import Aenderungsprotokoll from './pages/Aenderungsprotokoll';
+import Onboarding from "./pages/Onboarding";
 
 
 const App = () => {
@@ -54,6 +55,7 @@ if (
   <Route path="/" element={<Home />} /> 
   <Route path="/impressum" element={<Impressum />} />
   <Route path="/datenschutz" element={<Datenschutz />} />
+  <Route path="/onboarding" element={<Onboarding />} />
   <Route path="/pricing" element={<Pricing />} />
   <Route path="/passwort-vergessen" element={<PasswortVergessen />} />
   <Route path="/reset-password" element={<ResetPassword />} />

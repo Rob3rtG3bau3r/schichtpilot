@@ -577,10 +577,34 @@ const SchichtDienstAendernForm = ({
     auswahl.ignoriertarbeitszeit,
   ]);
 
-  // Sperrlogik
-  const diffTage = eintrag ? dayjs().startOf('day').diff(dayjs(eintrag.datum), 'day') : 0;
-  const speichernGesperrt =
-    (rolle === 'Team_Leader' && diffTage > 3) || ((rolle === 'Planner' || rolle === 'Admin_Dev') && diffTage > 365);
+// Sperrlogik nach Rolle
+// Ziel: rückwirkende Änderungen stark begrenzen.
+// Das schützt die Nachvollziehbarkeit und ist später wichtig,
+// wenn Zeiten für Abrechnung / Zeiterfassung genutzt werden.
+const diffTage = eintrag ? dayjs().startOf('day').diff(dayjs(eintrag.datum), 'day') : 0;
+
+const getRueckwirkendeTageLimit = () => {
+  if (rolle === 'Employee') return -1; // kein Zugriff / kein Speichern
+
+  if (rolle === 'Team_Leader') return 3;
+
+  if (rolle === 'Planner') return 3;
+
+  // Sicherheit: beide Schreibweisen abfangen
+  if (rolle === 'Admin_Dev' || rolle === 'Admin_dev') return 30;
+
+  // SuperAdmin bleibt unbegrenzt für absolute Ausnahmefälle
+  if (rolle === 'SuperAdmin') return null;
+
+  // unbekannte Rollen sicherheitshalber sperren
+  return -1;
+};
+
+const rueckLimit = getRueckwirkendeTageLimit();
+
+const speichernGesperrt =
+  rueckLimit === -1 ||
+  (rueckLimit !== null && diffTage > rueckLimit);
 
   /* --------------------------------- Save --------------------------------- */
 
@@ -603,7 +627,6 @@ const SchichtDienstAendernForm = ({
     const u = unit;
 
     const selectedSchicht = schichtByKuerzel.get(auswahl.kuerzel) || null;
-    const nowIso = new Date().toISOString();
 
     const startDatum = dayjs(eintrag.datum);
     const endDatum = mehrereTage && enddatum ? dayjs(enddatum) : startDatum;
@@ -983,6 +1006,16 @@ const SchichtDienstAendernForm = ({
             placeholder="Kommentar max. 150 Zeichen"
           />
         </div>
+                {speichernGesperrt && (
+                <div className="mb-3 rounded-xl border border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 px-3 py-2 text-xs">
+                  Dieser Dienst kann mit deiner Rolle nicht mehr gespeichert werden.
+                  {rolle === 'Employee' && ' Mitarbeitende haben keinen Zugriff auf diese Änderungsfunktion.'}
+                  {(rolle === 'Team_Leader' || rolle === 'Planner') &&
+                    ' Team-Leader und Planner dürfen maximal 3 Tage rückwirkend ändern.'}
+                  {(rolle === 'Admin_Dev' || rolle === 'Admin_dev') &&
+                    ' Admin_Dev darf maximal 30 Tage rückwirkend ändern.'}
+                </div>
+                )}
 
         {/* Footer */}
         <div className="flex justify-between items-start mt-6 gap-3 text-sm text-gray-500 dark:text-gray-400">
@@ -1039,53 +1072,139 @@ const SchichtDienstAendernForm = ({
       </div>
 
       {/* Info-Modal */}
-      {infoOffen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
-          <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-xl p-6 w-[520px] relative">
-            <h2 className="text-lg font-bold mb-3">Infos zu diesem Modul</h2>
-            <ul className="text-sm list-disc pl-5 space-y-2 mb-4">
-              <li>Dienst für Mitarbeitende ändern (Schichtart + Zeiten).</li>
-              <li>
-                <b>U/K/KO</b> mit <i>ignoriert_arbeitszeit</i> übernehmen alte Zeiten.
-              </li>
-              <li>Dauer-Berechnung inkl. Nacht-Übergang &amp; Pause.</li>
-              <li>Mehrere Tage eintragen möglich.</li>
-              <li>Alter Eintrag wird in den Verlauf archiviert.</li>
-              <li>Soll kommt aus DB_SollPlan (über die Schichtgruppe).</li>
-              <li>Mit ← / → Tage wechseln.</li>
-              <li>Ruhezeit-Prüfung: Vortag→Heute und Heute→Folgetag (min. 11h).</li>
-            </ul>
+{infoOffen && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
+    <div className="bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-xl p-6 w-[620px] max-h-[85vh] overflow-y-auto relative">
+      <h2 className="text-lg font-bold mb-3">Infos zu diesem Modul</h2>
 
-            <div className="text-sm space-y-2">
-              <div className="font-semibold text-gray-700 dark:text-gray-300">Bedienung</div>
-              <ul className="space-y-2">
-                <li className="flex items-start gap-2">
-                  <GripVertical className="w-4 h-4 mt-0.5 text-gray-500" />
-                  <span>
-                    <b>Verschieben:</b> Griff gedrückt halten.
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <PanelLeftOpen className="w-4 h-4 mt-0.5 text-gray-500" />
-                  <span>
-                    <b>Links andocken</b>
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <PanelRightOpen className="w-4 h-4 mt-0.5 text-gray-500" />
-                  <span>
-                    <b>Rechts andocken</b>
-                  </span>
-                </li>
-              </ul>
-            </div>
+      <div className="text-sm space-y-4">
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Zweck
+          </div>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>Dienst für Mitarbeitende ändern, z. B. Schichtart, Beginn, Ende und Pause.</li>
+            <li>Änderungen werden nicht einfach überschrieben, sondern nachvollziehbar gespeichert.</li>
+            <li>Der ursprüngliche bzw. vorherige Zustand wird im Änderungsverlauf archiviert.</li>
+            <li>Soll-Daten werden aus dem Sollplan über die gültige Schichtgruppe geladen.</li>
+          </ul>
+        </div>
 
-            <button onClick={() => setInfoOffen(false)} className="absolute top-2 right-3 text-gray-400 hover:text-white">
-              ✕
-            </button>
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Änderungsfristen nach Rolle
+          </div>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>
+              <b>Mitarbeitende:</b> kein Zugriff auf diese Änderungsfunktion.
+            </li>
+            <li>
+              <b>Team-Leader:</b> Änderungen maximal 3 Tage rückwirkend.
+            </li>
+            <li>
+              <b>Planner:</b> Änderungen maximal 3 Tage rückwirkend.
+            </li>
+            <li>
+              <b>Admin_Dev:</b> Änderungen maximal 30 Tage rückwirkend.
+            </li>
+            <li>
+              <b>SuperAdmin:</b> unbegrenzt, nur für Ausnahmefälle und technische Korrekturen.
+            </li>
+          </ul>
+
+          <div className="mt-2 rounded-xl border border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 px-3 py-2 text-xs">
+            Die kurzen Änderungsfristen schützen die Nachvollziehbarkeit der Planung und sind besonders wichtig,
+            wenn Zeiten später für Auswertungen, Zeiterfassung oder abrechnungsnahe Funktionen genutzt werden.
           </div>
         </div>
-      )}
+
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Zeiten, Pause und Arbeitszeit
+          </div>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>Dauer-Berechnung erfolgt netto inklusive Nacht-Übergang.</li>
+            <li>Die Rohdauer wird zusätzlich angezeigt.</li>
+            <li>Mindestpausen werden berücksichtigt, wenn die Schichtart <i>pause_aktiv</i> gesetzt hat.</li>
+            <li>
+              <b>U/K/KO</b> oder andere Schichtarten mit <i>ignoriert_arbeitszeit</i> überschreiben die Arbeitszeitlogik.
+            </li>
+            <li>Bei langen Diensten werden Hinweise zur Arbeitszeit angezeigt.</li>
+          </ul>
+        </div>
+
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Ruhezeitprüfung
+          </div>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>Es wird geprüft, ob zwischen Vortag und heutigem Dienst mindestens 11 Stunden Ruhezeit liegen.</li>
+            <li>Es wird zusätzlich geprüft, ob zwischen heutigem Dienst und Folgetag mindestens 11 Stunden Ruhezeit liegen.</li>
+            <li>Bei möglichem Verstoß erscheint eine rote Warnung im Formular.</li>
+          </ul>
+        </div>
+
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Mehrere Tage
+          </div>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>Ein Dienst kann über mehrere Tage eingetragen werden.</li>
+            <li>Bei Urlaub wird nur auf passende Arbeitstage geschrieben, freie Tage werden geschützt.</li>
+            <li>Nach dem Speichern werden relevante Übersichten aktualisiert.</li>
+          </ul>
+        </div>
+
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Änderungsverlauf
+          </div>
+          <ul className="list-disc pl-5 space-y-2">
+            <li>Über „Änderungsverlauf anzeigen“ können die letzten Änderungen eingesehen werden.</li>
+            <li>Der aktuelle Stand wird oben mit dem Hinweis „neu“ angezeigt.</li>
+            <li>Gespeichert werden unter anderem Kürzel, Zeiten, Pause, Kommentar, Ersteller und Zeitpunkt.</li>
+          </ul>
+        </div>
+
+        <div>
+          <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            Bedienung
+          </div>
+          <ul className="space-y-2">
+            <li className="flex items-start gap-2">
+              <GripVertical className="w-4 h-4 mt-0.5 text-gray-500" />
+              <span>
+                <b>Verschieben:</b> Griff gedrückt halten.
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <PanelLeftOpen className="w-4 h-4 mt-0.5 text-gray-500" />
+              <span>
+                <b>Links andocken:</b> Formular links am Bildschirm fixieren.
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <PanelRightOpen className="w-4 h-4 mt-0.5 text-gray-500" />
+              <span>
+                <b>Rechts andocken:</b> Formular rechts am Bildschirm fixieren.
+              </span>
+            </li>
+            <li>
+              <b>← / →:</b> Einen Tag zurück oder einen Tag vor wechseln.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <button
+        onClick={() => setInfoOffen(false)}
+        className="absolute top-2 right-3 text-gray-400 hover:text-white"
+      >
+        ✕
+      </button>
+    </div>
+  </div>
+)}
 
       {/* Verlauf-Modal */}
       {verlaufOffen && (
