@@ -828,23 +828,10 @@ export default function TagesUebersicht() {
               </Section>
 
 
-              {/* Krank */}
-              <Section id="krank" title="Krankmeldungen" defaultOpen={false}>
-                {krank.length === 0 ? (
-                  <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>Keine Krankmeldungen heute.</div>
-                ) : (
-                  <div className="flex flex-wrap">
-                    {krank.map((k, i) => (
-                      <Pill key={i} title={k.neu ? 'Neu seit heute' : 'Bereits krank'} big={big}>
-                        {k.name}{k.neu ? ' • neu' : ''}
-                      </Pill>
-                    ))}
-                  </div>
-                )}
-              </Section>
+
 
               {/* Termine */}
-              <Section id="termine" title="Termine heute" counter={`${termine.length}`} >
+              <Section id="termine" title="Termine heute" counter={`${termine.length}`} defaultOpen={false}>
                 {termine.length === 0 ? (
                   <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>Keine Termine heute.</div>
                 ) : (
@@ -866,6 +853,21 @@ export default function TagesUebersicht() {
                           <div className={big ? "text-sm mt-1" : "text-xs mt-1"}>{t.quali_ids.join(', ')}</div>
                         )}
                       </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+
+              {/* Krank */}
+              <Section id="krank" title="Krankmeldungen" defaultOpen={false}>
+                {krank.length === 0 ? (
+                  <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>Keine Krankmeldungen heute.</div>
+                ) : (
+                  <div className="flex flex-wrap">
+                    {krank.map((k, i) => (
+                      <Pill key={i} title={k.neu ? 'Neu seit heute' : 'Bereits krank'} big={big}>
+                        {k.name}{k.neu ? ' • neu' : ''}
+                      </Pill>
                     ))}
                   </div>
                 )}
