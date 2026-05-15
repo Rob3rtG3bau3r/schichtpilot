@@ -827,8 +827,9 @@ export default function TagesUebersicht() {
                 )}
               </Section>
 
+
               {/* Krank */}
-              <Section id="krank" title="Krankmeldungen">
+              <Section id="krank" title="Krankmeldungen" defaultOpen={false}>
                 {krank.length === 0 ? (
                   <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>Keine Krankmeldungen heute.</div>
                 ) : (
@@ -843,7 +844,7 @@ export default function TagesUebersicht() {
               </Section>
 
               {/* Termine */}
-              <Section id="termine" title="Termine heute" counter={`${termine.length}`}>
+              <Section id="termine" title="Termine heute" counter={`${termine.length}`} >
                 {termine.length === 0 ? (
                   <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>Keine Termine heute.</div>
                 ) : (
