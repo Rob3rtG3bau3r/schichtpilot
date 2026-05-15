@@ -63,6 +63,17 @@ const quelleKurz = (v) => {
   return '-';
 };
 
+const istAngebot = (a) => {
+  const txt = (a?.antrag || '').toLowerCase();
+
+  return (
+    txt.includes('freiwillig') ||
+    txt.includes('biete') ||
+    txt.includes('einspring') ||
+    txt.includes('angeboten')
+  );
+};
+
 const AnfragenMitarbeiter = () => {
   const { userId, rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
 
@@ -186,6 +197,62 @@ const AnfragenMitarbeiter = () => {
       return 0;
     });
   }, [alleAnfragen, activeTab, sort]);
+
+  // Offene Einspring-Angebote pro Datum + Schicht bündeln
+const anfragenGebündelt = useMemo(() => {
+  const gruppen = new Map();
+
+  for (const a of anfragen || []) {
+    const s = triStatus(a.genehmigt);
+    const istOffen = s === 0 && a.datum_entscheid == null;
+
+    // Nur offene Angebote bündeln.
+    // Urlaub/Frei/Freizeitausgleich bleiben einzelne Einträge.
+    if (!istOffen || !istAngebot(a)) {
+      gruppen.set(`single_${a.id}`, {
+        ...a,
+        gruppenAnfragen: [a],
+        gruppenAnzahl: 1,
+        istGebündelt: false,
+      });
+      continue;
+    }
+
+    const datumKey = a.datum
+      ? dayjs(a.datum).format('YYYY-MM-DD')
+      : 'kein_datum';
+
+    const schichtKey = (a.schicht || '').trim() || 'keine_schicht';
+
+    const key = `angebot_${datumKey}_${schichtKey}`;
+
+    if (!gruppen.has(key)) {
+      gruppen.set(key, {
+        ...a,
+        gruppenAnfragen: [a],
+        gruppenAnzahl: 1,
+        istGebündelt: false,
+      });
+    } else {
+      const vorhandeneGruppe = gruppen.get(key);
+
+      const neueGruppe = [...vorhandeneGruppe.gruppenAnfragen, a].sort((x, y) =>
+        dayjs(x.created_at).valueOf() - dayjs(y.created_at).valueOf()
+      );
+
+      const hauptAnfrage = neueGruppe[0];
+
+      gruppen.set(key, {
+        ...hauptAnfrage,
+        gruppenAnfragen: neueGruppe,
+        gruppenAnzahl: neueGruppe.length,
+        istGebündelt: neueGruppe.length > 1,
+      });
+    }
+  }
+
+  return Array.from(gruppen.values());
+}, [anfragen]);
 
   const toggleSort = (key) => {
     setSort((prev) =>
@@ -367,7 +434,7 @@ const AnfragenMitarbeiter = () => {
               </thead>
 
               <tbody>
-                {anfragen.map((a) => {
+                {anfragenGebündelt.map((a) => {
                   const s = triStatus(a.genehmigt);
                   const istOffen = s === 0 && a.datum_entscheid == null;
                   const darfZurueckziehen = istOffen && a.created_by === userId;
@@ -405,7 +472,17 @@ const AnfragenMitarbeiter = () => {
                           : '-'}
                       </td>
 
-                      <td>{a.antrag || '-'}</td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <span>{a.antrag || '-'}</span>
+
+                          {a.istGebündelt && (
+                            <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
+                              {a.gruppenAnzahl} Angebote
+                            </span>
+                          )}
+                        </div>
+                      </td>
 
                       <td className="whitespace-nowrap">
                         {a.created_at
@@ -453,7 +530,7 @@ const AnfragenMitarbeiter = () => {
                   );
                 })}
 
-                {anfragen.length === 0 && (
+                {anfragenGebündelt.length === 0 && (
                   <tr>
                     <td
                       colSpan={9}
@@ -474,6 +551,7 @@ const AnfragenMitarbeiter = () => {
         <AnfragenMitarbeiterAnalyseModal
           offen={!!modalAnfrage}
           anfrage={modalAnfrage}
+          gruppenAnfragen={modalAnfrage.gruppenAnfragen || [modalAnfrage]}
           firmaId={firma}
           unitId={unit}
           verantwortlicherUserId={userId}
