@@ -4,7 +4,6 @@ import dayjs from 'dayjs';
 import { X, Loader2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { speichernInKampfliste } from '../../utils/speichernInKampfliste';
-import AMAMKandidatenliste from './AMAMKandidatenliste';
 
 /* --------------------------- Helpers --------------------------- */
 
@@ -196,6 +195,8 @@ export default function AnfragenMitarbeiterAnalyseModal({
     setEntscheidung(null);
     setKommentar('');
   }, [anfrage]);
+  const [kandidatenLoading, setKandidatenLoading] = useState(false);
+  const [kandidaten, setKandidaten] = useState([]);
   const [ruhezeitLoading, setRuhezeitLoading] = useState(false);
   const [ruhezeitCheck, setRuhezeitCheck] = useState(null);
   const [urlaubRestAktuell, setUrlaubRestAktuell] = useState(null);
@@ -667,7 +668,335 @@ export default function AnfragenMitarbeiterAnalyseModal({
       antragInfo.type,
       requestedArt?.dauer,
     ]);
-  
+    /* --------------------------- Kandidaten / Fairness-Liste --------------------------- */
+  useEffect(() => {
+    if (!offen || !analyseGeladen || !firmaId || !unitId || !datum || !schichtKuerzel) return;
+
+    const ladeKandidaten = async () => {
+      setKandidatenLoading(true);
+
+      try {
+        const jahr = dayjs(datum).year();
+
+        // 1) Offene Angebote für denselben Tag und dieselbe Schicht laden
+        const { data: angebotRows, error: angebotErr } = await supabase
+          .from('DB_AnfrageMA')
+          .select(
+            `
+            id,
+            created_by,
+            antrag,
+            created_at,
+            created_by_user:created_by (
+              vorname,
+              nachname
+            )
+          `
+          )
+          .eq('firma_id', firmaId)
+          .eq('unit_id', unitId)
+          .eq('datum', datum)
+          .eq('schicht', schichtKuerzel)
+          .is('genehmigt', null)
+          .is('datum_entscheid', null);
+
+        if (angebotErr) throw angebotErr;
+
+        const angebotGefiltert = (angebotRows || []).filter((r) => {
+          const txt = (r.antrag || '').toLowerCase();
+
+          return (
+            txt.includes('freiwillig') ||
+            txt.includes('biete') ||
+            txt.includes('einspring') ||
+            txt.includes('angeboten')
+          );
+        });
+
+        const angebotUserIds = new Set(
+          angebotGefiltert
+            .map((r) => r.created_by)
+            .filter(Boolean)
+            .map(String)
+        );
+
+        // 2) Tagesplan laden, um Soll-Frei zu erkennen
+        const { data: planRows, error: planErr } = await supabase
+          .from('v_tagesplan')
+          .select('user_id, soll_schichtart_id, ist_schichtart_id')
+          .eq('firma_id', firmaId)
+          .eq('unit_id', unitId)
+          .eq('datum', datum);
+
+        if (planErr) throw planErr;
+
+        const schichtArtIds = [
+          ...new Set(
+            (planRows || [])
+              .flatMap((r) => [r.soll_schichtart_id, r.ist_schichtart_id])
+              .filter(Boolean)
+          ),
+        ];
+
+        let artsById = new Map();
+
+        if (schichtArtIds.length) {
+          const { data: arts, error: artsErr } = await supabase
+            .from('DB_SchichtArt')
+            .select('id, kuerzel')
+            .eq('firma_id', firmaId)
+            .eq('unit_id', unitId)
+            .in('id', schichtArtIds);
+
+          if (artsErr) throw artsErr;
+
+          (arts || []).forEach((a) => {
+            artsById.set(a.id, a);
+          });
+        }
+
+const verfuegbarUserIds = new Set();
+
+(planRows || []).forEach((r) => {
+  const sollKuerzel = artsById.get(r.soll_schichtart_id)?.kuerzel || null;
+  const istKuerzel = r.ist_schichtart_id
+    ? artsById.get(r.ist_schichtart_id)?.kuerzel || null
+    : null;
+
+  // Wichtig:
+  // Nur anzeigen, wenn Soll wirklich frei ist.
+  // Wenn IST vorhanden ist, muss IST ebenfalls frei sein.
+  // Beispiel:
+  // Soll = '-' und IST = null  => verfügbar
+  // Soll = '-' und IST = '-'   => verfügbar
+  // Soll = 'F' und IST = '-'   => NICHT anzeigen, weil ursprünglich Soll-Schicht
+  // Soll = '-' und IST = 'S'   => NICHT anzeigen, weil bereits eingeteilt/geändert
+  const istVerfuegbar =
+    sollKuerzel === '-' &&
+    (istKuerzel === null || istKuerzel === '-');
+
+  if (istVerfuegbar) {
+    verfuegbarUserIds.add(String(r.user_id));
+  }
+});
+
+// 3) Kandidaten = nur wirklich verfügbare Personen
+// Angebote zählen nur, wenn die Person auch wirklich verfügbar ist.
+let alleKandidatenIds = [
+  ...new Set(
+    [...verfuegbarUserIds].filter((uid) => {
+      return verfuegbarUserIds.has(String(uid));
+    })
+  ),
+];
+
+        if (!alleKandidatenIds.length) {
+          setKandidaten([]);
+          return;
+        }
+
+        // 3b) Ruhezeitprüfung für Kandidaten:
+// Wer die 11 Stunden vor/nach der Zielschicht nicht einhält, wird gar nicht angezeigt.
+const zielIntervall = requestedArt?.startzeit && requestedArt?.endzeit
+  ? buildShiftInterval(datum, requestedArt.startzeit, requestedArt.endzeit)
+  : null;
+
+if (zielIntervall && alleKandidatenIds.length) {
+  const vonRuhe = dayjs(datum).subtract(1, 'day').format('YYYY-MM-DD');
+  const bisRuhe = dayjs(datum).add(1, 'day').format('YYYY-MM-DD');
+
+  const { data: ruheRows, error: ruheErr } = await supabase
+    .from('v_tagesplan')
+    .select(
+      `
+      datum,
+      user_id,
+      soll_schichtart_id,
+      soll_startzeit,
+      soll_endzeit,
+      ist_schichtart_id,
+      ist_startzeit,
+      ist_endzeit
+    `
+    )
+    .eq('firma_id', firmaId)
+    .eq('unit_id', unitId)
+    .in('user_id', alleKandidatenIds)
+    .gte('datum', vonRuhe)
+    .lte('datum', bisRuhe);
+
+  if (ruheErr) throw ruheErr;
+
+  const ruheArtIds = [
+    ...new Set(
+      (ruheRows || [])
+        .flatMap((r) => [r.soll_schichtart_id, r.ist_schichtart_id])
+        .filter(Boolean)
+    ),
+  ];
+
+  let ruheArtsById = new Map();
+
+  if (ruheArtIds.length) {
+    const { data: ruheArts, error: ruheArtsErr } = await supabase
+      .from('DB_SchichtArt')
+      .select('id, kuerzel, startzeit, endzeit')
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId)
+      .in('id', ruheArtIds);
+
+    if (ruheArtsErr) throw ruheArtsErr;
+
+    (ruheArts || []).forEach((a) => {
+      ruheArtsById.set(a.id, a);
+    });
+  }
+
+  const hatGenugRuhezeit = (uid) => {
+    const rowsUser = (ruheRows || []).filter((r) => String(r.user_id) === String(uid));
+    const vorhandeneIntervalle = [];
+
+    rowsUser.forEach((r) => {
+      const rowDatum = dayjs(r.datum).format('YYYY-MM-DD');
+
+      // Zieltag ignorieren, weil an diesem Tag ja die neue Schicht geprüft wird.
+      if (rowDatum === datum) return;
+
+      const useIst = !!r.ist_schichtart_id;
+      const artId = useIst ? r.ist_schichtart_id : r.soll_schichtart_id;
+      const art = ruheArtsById.get(artId);
+
+      if (!art) return;
+
+      // Nur echte Arbeitsschichten bewerten.
+      // Seminar, Urlaub, Frei usw. zählen hier nicht als F/S/N-Arbeitszeit.
+      if (!['F', 'S', 'N'].includes(art.kuerzel)) return;
+
+      const startzeit = useIst
+        ? r.ist_startzeit || art.startzeit
+        : r.soll_startzeit || art.startzeit;
+
+      const endzeit = useIst
+        ? r.ist_endzeit || art.endzeit
+        : r.soll_endzeit || art.endzeit;
+
+      const intervall = buildShiftInterval(rowDatum, startzeit, endzeit);
+
+      if (intervall) {
+        vorhandeneIntervalle.push(intervall);
+      }
+    });
+
+    const letzteVorher = vorhandeneIntervalle
+      .filter((x) => x.ende.isBefore(zielIntervall.start) || x.ende.isSame(zielIntervall.start))
+      .sort((a, b) => b.ende.valueOf() - a.ende.valueOf())[0];
+
+    const ersteNachher = vorhandeneIntervalle
+      .filter((x) => x.start.isAfter(zielIntervall.ende) || x.start.isSame(zielIntervall.ende))
+      .sort((a, b) => a.start.valueOf() - b.start.valueOf())[0];
+
+    const stundenVorher = letzteVorher
+      ? zielIntervall.start.diff(letzteVorher.ende, 'minute') / 60
+      : null;
+
+    const stundenNachher = ersteNachher
+      ? ersteNachher.start.diff(zielIntervall.ende, 'minute') / 60
+      : null;
+
+    const vorherOk = stundenVorher == null || stundenVorher >= 11;
+    const nachherOk = stundenNachher == null || stundenNachher >= 11;
+
+    return vorherOk && nachherOk;
+  };
+
+  alleKandidatenIds = alleKandidatenIds.filter((uid) => hatGenugRuhezeit(uid));
+}
+
+        // 4) Namen laden
+        const { data: userRows, error: userErr } = await supabase
+          .from('DB_User')
+          .select('user_id, vorname, nachname')
+          .in('user_id', alleKandidatenIds);
+
+        if (userErr) throw userErr;
+
+        const userMap = new Map();
+
+        (userRows || []).forEach((u) => {
+          userMap.set(String(u.user_id), u);
+        });
+
+        // 5) Stundenkonto laden
+        const { data: stundenRows, error: stundenErr } = await supabase
+          .from('DB_Stunden')
+          .select('user_id, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
+          .eq('jahr', jahr)
+          .in('user_id', alleKandidatenIds);
+
+        if (stundenErr) throw stundenErr;
+
+        const stundenMap = new Map();
+
+        (stundenRows || []).forEach((s) => {
+          const vorgabe = Number(s.vorgabe_stunden ?? 0);
+          const summe = Number(s.summe_jahr ?? 0);
+          const uebernahme = Number(s.uebernahme_vorjahr ?? 0);
+
+          stundenMap.set(String(s.user_id), summe + uebernahme - vorgabe);
+        });
+
+        const angebotByUser = new Map();
+
+        angebotGefiltert.forEach((r) => {
+          angebotByUser.set(String(r.created_by), r);
+        });
+
+        const rows = alleKandidatenIds.map((uid) => {
+          const id = String(uid);
+          const u = userMap.get(id);
+          const angebot = angebotByUser.get(id);
+
+        return {
+          user_id: id,
+          name: u ? `${u.vorname} ${u.nachname}` : '—',
+          vorname: u?.vorname || '',
+          nachname: u?.nachname || '',
+          hatAngebot: angebotUserIds.has(id),
+          freiSoll: verfuegbarUserIds.has(id),
+          stunden: stundenMap.get(id) ?? 0,
+          antragId: angebot?.id || null,
+          antragText: angebot?.antrag || null,
+          angebotenAm: angebot?.created_at || null,
+        };
+        });
+
+        // Fairness-Sortierung:
+        // 1. aktive Angebote zuerst
+        // 2. niedrigste Stunden zuerst
+        // 3. Name als stabile Sortierung
+        rows.sort((a, b) => {
+          if (a.hatAngebot !== b.hatAngebot) {
+            return a.hatAngebot ? -1 : 1;
+          }
+
+          if (a.stunden !== b.stunden) {
+            return a.stunden - b.stunden;
+          }
+
+          return a.name.localeCompare(b.name);
+        });
+
+        setKandidaten(rows);
+      } catch (e) {
+        console.error('Kandidaten laden Fehler:', e?.message || e);
+        setKandidaten([]);
+      } finally {
+        setKandidatenLoading(false);
+      }
+    };
+
+    ladeKandidaten();
+  }, [offen, analyseGeladen, firmaId, unitId, datum, schichtKuerzel]);
 
   /* --------------------------- Ruhezeitprüfung --------------------------- */
 useEffect(() => {
@@ -906,7 +1235,7 @@ const dayUserQualiMapAfter = useMemo(() => {
   }
 
   return base;
-}, [dayUserQualiMap, basisAnfrage?.created_by, antragInfo.type, requesterQualis, datum, qualiMatrixMap]);
+}, [dayUserQualiMap, anfrage?.created_by, antragInfo.type, requesterQualis, datum, qualiMatrixMap]);
 
 
   // Bedarf für Datum+Schicht bestimmen (Override Normalbetrieb/zeitlich begrenzt) + nur relevant
@@ -931,26 +1260,24 @@ const dayUserQualiMapAfter = useMemo(() => {
     return relevant;
   };
 
-const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
-  const bedarfSortiert = getBedarfFor(datumISO, schKey);
+  const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
+    const bedarfSortiert = getBedarfFor(datumISO, schKey);
 
-  // kein relevanter Bedarf -> grau
-  if (!bedarfSortiert.length) {
-    return {
-      state: 'grey',
-      needed: 0,
-      active: activeUserIds.length,
-      missing: 0,
-      missingTop: null,
-      missingQualiIds: [],
-    };
-  }
+    // kein relevanter Bedarf -> grau
+    if (!bedarfSortiert.length) {
+      return {
+        state: 'grey',
+        needed: 0,
+        active: activeUserIds.length,
+        missing: 0,
+        missingTop: null,
+      };
+    }
 
-  // --- Zuweisung: jede Person deckt max. 1 Quali ---
-  const verwendete = new Set();
-  const abdeckung = {}; // qualiId -> [uids]
-  const fehlendKuerzel = [];
-  const fehlendQualiIds = [];
+    // --- Zuweisung: jede Person deckt max. 1 Quali ---
+    const verwendete = new Set();
+    const abdeckung = {}; // qualiId -> [uids]
+    const fehlendKuerzel = [];
 
     // User Reihenfolge (wenige Qualis zuerst)
     const userOrder = [...activeUserIds]
@@ -979,7 +1306,6 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
           abdeckung[qid].push(found);
         } else {
           fehlendKuerzel.push(b.kuerzel || '???');
-          fehlendQualiIds.push(Number(qid));
         }
       }
     }
@@ -990,35 +1316,11 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
 
     // Status wie “Ampel”: rot / grün / dunkelgrün
     if (missing > 0 || active < neededTotal) {
-      return {
-        state: 'red',
-        needed: neededTotal,
-        active,
-        missing,
-        missingTop: fehlendKuerzel[0] || null,
-        missingQualiIds: [...new Set(fehlendQualiIds)],
-      };
+      return { state: 'red', needed: neededTotal, active, missing, missingTop: fehlendKuerzel[0] || null };
     }
     const over = active - neededTotal;
-    if (over >= 2) {
-      return {
-        state: 'darkgreen',
-        needed: neededTotal,
-        active,
-        missing: 0,
-        missingTop: null,
-        missingQualiIds: [],
-      };
-    }
-
-    return {
-      state: 'green',
-      needed: neededTotal,
-      active,
-      missing: 0,
-      missingTop: null,
-      missingQualiIds: [],
-    };
+    if (over >= 2) return { state: 'darkgreen', needed: neededTotal, active, missing: 0, missingTop: null };
+    return { state: 'green', needed: neededTotal, active, missing: 0, missingTop: null };
   };
 
   // Aktueller Kürzel des Antragstellers am Tag (F/S/N oder null)
@@ -1068,7 +1370,7 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
       }
     }
     return base;
-  }, [dayAssignments, basisAnfrage?.created_by, antragInfo.type, schichtKuerzel]);
+  }, [dayAssignments, anfrage?.created_by, antragInfo.type, schichtKuerzel]);
 // ✅ Ampel nur anzeigen, wenn die wichtigen Daten geladen sind
 const ampelReady = useMemo(() => {
   if (loading) return false;      // solange load() läuft -> keine Ampel zeigen
@@ -1091,15 +1393,6 @@ const ampelReady = useMemo(() => {
   return evaluateShift(datum, schKey, dayAssignments?.[schKey] || [], dayUserQualiMap);
 
 }, [datum, schKey, dayAssignments, bedarfRows, dayUserQualiMap, qualiMatrixMap]);
-  const fehlendeQualiIds = useMemo(() => {
-    return [
-      ...new Set(
-        (ampelNow?.missingQualiIds || [])
-          .map((id) => Number(id))
-          .filter(Boolean)
-      ),
-    ];
-  }, [ampelNow]);
 
 const ampelAfter = useMemo(() => {
   if (!datum || !schKey) return null;
@@ -1196,23 +1489,91 @@ const ampelAfter = useMemo(() => {
   <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center backdrop-blur-sm">
     <div className="flex items-stretch gap-3 mx-3 w-full max-w-6xl">
 
-      <AMAMKandidatenliste
-        offen={offen}
-        analyseGeladen={analyseGeladen}
-        firmaId={firmaId}
-        unitId={unitId}
-        datum={datum}
-        schichtKuerzel={schichtKuerzel}
-        requestedArt={requestedArt}
-        basisAnfrage={basisAnfrage}
-        fehlendeQualiIds={fehlendeQualiIds}
-        onKandidatAuswahl={(neueAnfrage) => {
-          setAktiveAnfrage(neueAnfrage);
-          setAnalyseGeladen(false);
-          setEntscheidung(null);
-          setKommentar('');
-        }}
-      />
+      {/* Linkes Kandidaten-Modal */}
+      <div className="hidden lg:flex w-80 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl overflow-hidden flex-col">
+        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+          <div className="text-sm font-semibold text-gray-900 dark:text-white">
+            Faire Kandidatenempfehlung
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-300">
+            Freie Kandidaten • nach Stunden sortiert
+          </div>
+        </div>
+
+        <div className="p-2 overflow-auto max-h-[78vh]">
+          {kandidatenLoading ? (
+            <div className="text-sm text-gray-500 dark:text-gray-300 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Lädt Kandidaten…
+            </div>
+          ) : kandidaten.length === 0 ? (
+            <div className="text-sm text-gray-500 dark:text-gray-300">
+              Keine Kandidaten gefunden.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {kandidaten.map((k) => (
+            <button
+              type="button"
+              key={k.user_id}
+              onClick={() => {
+                setAktiveAnfrage({
+                  ...basisAnfrage,
+                  id: k.antragId || basisAnfrage.id,
+                  created_by: k.user_id,
+                  created_by_user: {
+                    vorname: k.vorname,
+                    nachname: k.nachname,
+                  },
+                  antrag: k.antragText || `Kandidat ist frei für ${schichtKuerzel}`,
+                  _nurKandidat: !k.antragId,
+                });
+
+                setAnalyseGeladen(false);
+                setEntscheidung(null);
+                setKommentar('');
+              }}
+              className={[
+                    'w-full text-left rounded-xl border px-3 py-2 text-sm hover:scale-[1.01] transition',
+                    k.hatAngebot
+                      ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
+                      : 'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20',
+                  ].join(' ')}
+                  title={k.antragText || ''}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-gray-900 dark:text-white">
+                      {k.name}
+                    </div>
+
+                    <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                      {fmtStd(k.stunden)} Std.
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {k.hatAngebot && (
+                      <span className="inline-flex rounded-full bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-100 px-2 py-0.5 text-[11px] font-semibold">
+                        angeboten
+                      </span>
+                    )}
+                    </div>
+
+                  {k.angebotenAm && (
+                    <div className="text-[11px] text-gray-500 dark:text-gray-300 mt-1">
+                      Angebot: {dayjs(k.angebotenAm).format('DD.MM.YY HH:mm')}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-[11px] text-gray-500 dark:text-gray-300">
+          Der SchichtPilot entscheidet nicht automatisch. Die Auswahl bleibt beim Menschen.
+        </div>
+      </div>
 
       {/* Hauptmodal */}
       <div className="w-full max-w-2xl rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl overflow-hidden">
