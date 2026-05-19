@@ -190,12 +190,15 @@ export default function AnfragenMitarbeiterAnalyseModal({
   const [saving, setSaving] = useState(false);
   const [aktiveAnfrage, setAktiveAnfrage] = useState(anfrage);
   const [analyseGeladen, setAnalyseGeladen] = useState(false);
+
   useEffect(() => {
     setAktiveAnfrage(anfrage);
     setAnalyseGeladen(false);
     setEntscheidung(null);
     setKommentar('');
+    setKandidatZugesagt(false);
   }, [anfrage]);
+
   const [ruhezeitLoading, setRuhezeitLoading] = useState(false);
   const [ruhezeitCheck, setRuhezeitCheck] = useState(null);
   const [urlaubRestAktuell, setUrlaubRestAktuell] = useState(null);
@@ -224,6 +227,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
   // Genehmigungsteil
   const [entscheidung, setEntscheidung] = useState(null);
   const [kommentar, setKommentar] = useState('');
+  const [kandidatZugesagt, setKandidatZugesagt] = useState(false);
   const basisAnfrage = aktiveAnfrage || anfrage;
 
   const datum = basisAnfrage?.datum
@@ -236,6 +240,13 @@ export default function AnfragenMitarbeiterAnalyseModal({
     () => parseAntrag(basisAnfrage?.antrag),
     [basisAnfrage?.antrag]
   );
+const istFreizeitausgleichFall = antragInfo.type === 'freizeitausgleich';
+const istUrlaubsFall = antragInfo.type === 'urlaub';
+
+const istEinspringKandidat =
+  antragInfo.type === 'angebot' ||
+  (basisAnfrage?._nurKandidat && !istFreizeitausgleichFall && !istUrlaubsFall);
+
   // Range für 7 Tage
   const range = useMemo(() => {
     if (!datum) return null;
@@ -297,6 +308,46 @@ export default function AnfragenMitarbeiterAnalyseModal({
 
     return rows.sort((a, b) => a.bestPos - b.bestPos);
   }, [besetzung, qualisByUser, matrixById, datum]);
+
+  const kandidatHinweisTitel = useMemo(() => {
+  if (!basisAnfrage?._nurKandidat) return null;
+
+  if (istFreizeitausgleichFall) {
+    return 'Mitarbeiter hat keinen eigenen Freizeitausgleich beantragt';
+  }
+
+  if (istUrlaubsFall) {
+    return 'Mitarbeiter hat keinen eigenen Urlaubsantrag gestellt';
+  }
+
+  return 'Mitarbeiter hat sich nicht angeboten';
+}, [basisAnfrage?._nurKandidat, istFreizeitausgleichFall, istUrlaubsFall]);
+
+const kandidatHinweisText = useMemo(() => {
+  if (!basisAnfrage?._nurKandidat) return null;
+
+  if (istFreizeitausgleichFall) {
+    return 'Dieser Mitarbeiter wird aus Fairnessgründen angezeigt, weil er ebenfalls viele Stunden hat und aus dieser Schicht fachlich entfallen könnte. Bitte vorher mit dem Mitarbeiter klären.';
+  }
+
+  if (istUrlaubsFall) {
+    return 'Dieser Mitarbeiter wird aus Fairnessgründen angezeigt. Bitte vorher klären, ob die Freigabe wirklich gewünscht und organisatorisch möglich ist.';
+  }
+
+  return 'Dieser Mitarbeiter ist nur als geeigneter Kandidat vorgeschlagen. Er muss bitte vorher gefragt werden und ausdrücklich zusagen.';
+}, [basisAnfrage?._nurKandidat, istFreizeitausgleichFall, istUrlaubsFall]);
+
+const kandidatCheckboxText = useMemo(() => {
+  if (istFreizeitausgleichFall) {
+    return 'Ja, der Mitarbeiter wurde gefragt und hat dem Freizeitausgleich für diese Schicht ausdrücklich zugestimmt.';
+  }
+
+  if (istUrlaubsFall) {
+    return 'Ja, der Mitarbeiter wurde gefragt und die Urlaubsfreigabe wurde ausdrücklich abgestimmt.';
+  }
+
+  return 'Ja, der Mitarbeiter wurde gefragt und hat der Übernahme dieser Schicht ausdrücklich zugesagt.';
+}, [istFreizeitausgleichFall, istUrlaubsFall]);
 
   // Style für "Beantragt"-Box
   const beantragtBoxStyle = useMemo(() => {
@@ -471,11 +522,11 @@ export default function AnfragenMitarbeiterAnalyseModal({
           }
         }
                 /* G) Stundenkonto für Freizeitausgleich */
-        if (
-          basisAnfrage?.created_by &&
-          datum &&
-          (antragInfo.type === 'freizeitausgleich' || antragInfo.type === 'angebot')
-        ) {
+          if (
+            basisAnfrage?.created_by &&
+            datum &&
+            (antragInfo.type === 'freizeitausgleich' || istEinspringKandidat)
+          ) {
           setStundenLoading(true);
           try {
             const jahr = dayjs(datum).year();
@@ -497,7 +548,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
             const schichtDauer = Number(requestedArt?.dauer ?? 0);
 
             const nachGenehmigung =
-              antragInfo.type === 'angebot'
+              istEinspringKandidat
                 ? aktuell + schichtDauer
                 : aktuell - schichtDauer;
 
@@ -665,6 +716,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
       range?.to,
       schichtKuerzel,
       antragInfo.type,
+      istEinspringKandidat,
       requestedArt?.dauer,
     ]);
   
@@ -887,7 +939,7 @@ const dayUserQualiMapAfter = useMemo(() => {
   }
 
   // Angebot => Qualis vom Antragsteller hinzufügen
-  if (antragInfo.type === 'angebot') {
+  if (istEinspringKandidat) {
     const arr = Array.isArray(base[uid]) ? [...base[uid]] : [];
 
     for (const q of requesterQualis || []) {
@@ -906,7 +958,7 @@ const dayUserQualiMapAfter = useMemo(() => {
   }
 
   return base;
-}, [dayUserQualiMap, basisAnfrage?.created_by, antragInfo.type, requesterQualis, datum, qualiMatrixMap]);
+}, [dayUserQualiMap, basisAnfrage?.created_by, antragInfo.type, istEinspringKandidat, requesterQualis, datum, qualiMatrixMap]);
 
 
   // Bedarf für Datum+Schicht bestimmen (Override Normalbetrieb/zeitlich begrenzt) + nur relevant
@@ -1057,7 +1109,7 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
       antragInfo.type === 'freizeitausgleich'
     ) {
       removeFromAll();
-    } else if (antragInfo.type === 'angebot') {
+    } else if (istEinspringKandidat) {
       // User soll in beantragte Schicht (F/S/N) rein
       // erst raus aus evtl. anderer Schicht, dann rein in Ziel
       removeFromAll();
@@ -1068,7 +1120,7 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
       }
     }
     return base;
-  }, [dayAssignments, basisAnfrage?.created_by, antragInfo.type, schichtKuerzel]);
+    }, [dayAssignments, basisAnfrage?.created_by, antragInfo.type, istEinspringKandidat, schichtKuerzel]);
 // ✅ Ampel nur anzeigen, wenn die wichtigen Daten geladen sind
 const ampelReady = useMemo(() => {
   if (loading) return false;      // solange load() läuft -> keine Ampel zeigen
@@ -1122,12 +1174,10 @@ const ampelAfter = useMemo(() => {
   /* --------------------------- SAVE --------------------------- */
   const handleSpeichern = async () => {
     if (!basisAnfrage || entscheidung === null) return;
-      if (basisAnfrage._nurKandidat) {
-    alert(
-      'Dieser Mitarbeiter hat keinen eigenen Antrag gestellt. Bitte für diese Version nur echte Angebote genehmigen.'
-    );
-    return;
-  }
+    if (entscheidung === true && basisAnfrage._nurKandidat && !kandidatZugesagt) {
+      alert(`Bitte zuerst bestätigen: ${kandidatCheckboxText}`);
+      return;
+    }
 
   if (entscheidung === true && ruhezeitCheck && ruhezeitCheck.ok === false) {
     alert('Genehmigung nicht möglich: Die Ruhezeit von 11 Stunden wird nicht eingehalten.');
@@ -1143,6 +1193,7 @@ const ampelAfter = useMemo(() => {
     setSaving(true);
     try {
       // 1) Anfrage speichern
+    if (!basisAnfrage._nurKandidat) {
       const { error: upErr } = await supabase
         .from('DB_AnfrageMA')
         .update({
@@ -1151,9 +1202,10 @@ const ampelAfter = useMemo(() => {
           verantwortlicher: verantwortlicherUserId,
           datum_entscheid: new Date().toISOString(),
         })
-        .eq('id', basisAnfrage.id)
+        .eq('id', basisAnfrage.id);
 
       if (upErr) throw upErr;
+    }
 
       // 2) Wenn genehmigt => zentraler Kampfliste-Write (Verlauf -> Delete -> Insert + Recalc)
       if (entscheidung === true) {
@@ -1167,6 +1219,11 @@ const ampelAfter = useMemo(() => {
           if (!createdBy) {
           throw new Error("Kein createdBy gefunden (auth user).");
           }
+        const zusageKommentar = istFreizeitausgleichFall
+          ? 'Mitarbeiter wurde vom Verantwortlichen gefragt und hat dem Freizeitausgleich zugestimmt.'
+          : istUrlaubsFall
+            ? 'Mitarbeiter wurde vom Verantwortlichen gefragt und die Urlaubsfreigabe wurde abgestimmt.'
+            : 'Mitarbeiter wurde vom Verantwortlichen gefragt und hat der Übernahme zugesagt.';
 
         await speichernInKampfliste({
           firmaId,
@@ -1175,7 +1232,9 @@ const ampelAfter = useMemo(() => {
           dates: [datum],
           kuerzelNeu: zielKuerzel,
           createdBy,
-          kommentar: kommentar || null,
+          kommentar: basisAnfrage._nurKandidat
+            ? [kommentar, zusageKommentar].filter(Boolean).join(' | ')
+            : kommentar || null,
           // start/ende/pauseHours nicht nötig: Helper nutzt SchichtArt-Fallback
           skipUrlaubOnFreeDay: true,
         });
@@ -1211,6 +1270,7 @@ const ampelAfter = useMemo(() => {
           setAnalyseGeladen(false);
           setEntscheidung(null);
           setKommentar('');
+          setKandidatZugesagt(false);
         }}
       />
 
@@ -1295,27 +1355,43 @@ const ampelAfter = useMemo(() => {
             </div>
           ) : (
             <>
-              {/* Beantragt Box */}
-              <div
-                className="rounded-xl border border-gray-200 dark:border-gray-700 py-1 px-2 bg-gray-50 dark:bg-gray-900/10"
-                style={beantragtBoxStyle || undefined}
-              >
-                <div className="text-sm" style={beantragtBoxStyle ? { color: beantragtBoxStyle.color } : undefined}>
-                  <span className="font-semibold">{antragInfo.label}</span>
-                {basisAnfrage?.antrag ? (
-                  <span className={beantragtBoxStyle ? '' : 'text-gray-500 dark:text-gray-300'}>
-                    {' '}
-                    — „{basisAnfrage.antrag}“
-                  </span>
-                ) : null}
-                </div>
-              </div>
+{/* Antrag / Kandidatenhinweis */}
+{basisAnfrage?._nurKandidat ? (
+  <div className="rounded-xl border border-red-700 bg-red-600 px-3 py-2 text-sm text-white shadow">
+    <div className="font-semibold">
+      {kandidatHinweisTitel}
+    </div>
 
-             {(
-                antragInfo.type === 'urlaub' ||
-                antragInfo.type === 'freizeitausgleich' ||
-                antragInfo.type === 'angebot'
-              ) && (
+    <div className="text-xs mt-1">
+      {kandidatHinweisText}
+    </div>
+  </div>
+) : (
+  <div
+    className="rounded-xl border border-gray-200 dark:border-gray-700 py-1 px-2 bg-gray-50 dark:bg-gray-900/10"
+    style={beantragtBoxStyle || undefined}
+  >
+    <div
+      className="text-sm"
+      style={beantragtBoxStyle ? { color: beantragtBoxStyle.color } : undefined}
+    >
+      <span className="font-semibold">{antragInfo.label}</span>
+
+      {basisAnfrage?.antrag ? (
+        <span className={beantragtBoxStyle ? '' : 'text-gray-500 dark:text-gray-300'}>
+          {' '}
+          — „{basisAnfrage.antrag}“
+        </span>
+      ) : null}
+    </div>
+  </div>
+)}
+
+      {(
+        antragInfo.type === 'urlaub' ||
+        antragInfo.type === 'freizeitausgleich' ||
+        istEinspringKandidat
+      ) && (
   <div className="rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm bg-white dark:bg-gray-900/20">
     {antragInfo.type === 'urlaub' && (
       urlaubLoading ? (
@@ -1375,7 +1451,7 @@ const ampelAfter = useMemo(() => {
       )
     )}
 
-        {antragInfo.type === 'angebot' && (
+        {istEinspringKandidat && (
       stundenLoading ? (
         <div className="text-gray-600 dark:text-gray-300">Stundenkonto wird geladen…</div>
       ) : (
@@ -1402,54 +1478,6 @@ const ampelAfter = useMemo(() => {
   </div>
 )}
 
-{/* Ruhezeitprüfung */}
-<div
-  className={[
-    'rounded-xl border px-3 py-2 text-sm',
-    ruhezeitLoading
-      ? 'border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/20'
-      : ruhezeitCheck?.ok
-        ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
-        : 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20',
-  ].join(' ')}
->
-  <div className="font-semibold text-gray-900 dark:text-white">
-    Ruhezeitprüfung
-  </div>
-
-  {ruhezeitLoading ? (
-    <div className="text-gray-600 dark:text-gray-300">
-      Prüfe 11-Stunden-Regel…
-    </div>
-  ) : ruhezeitCheck ? (
-    <div className="space-y-1">
-      <div
-        className={
-          ruhezeitCheck.ok
-            ? 'text-green-700 dark:text-green-300'
-            : 'text-red-700 dark:text-red-300'
-        }
-      >
-        {ruhezeitCheck.text}
-      </div>
-
-      <div className="text-xs text-gray-600 dark:text-gray-300">
-        Vorher:{' '}
-        {ruhezeitCheck.stundenVorher == null
-          ? 'keine vorherige Schicht gefunden'
-          : `${fmtStd(ruhezeitCheck.stundenVorher)} Std.`}
-        {' '}• Danach:{' '}
-        {ruhezeitCheck.stundenNachher == null
-          ? 'keine Folgeschicht gefunden'
-          : `${fmtStd(ruhezeitCheck.stundenNachher)} Std.`}
-      </div>
-    </div>
-  ) : (
-    <div className="text-gray-600 dark:text-gray-300">
-      Keine Prüfung möglich.
-    </div>
-  )}
-</div>
 
               {/* 7 Tage Plan */}
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-1">
@@ -1550,11 +1578,10 @@ const ampelAfter = useMemo(() => {
                     {antragInfo.type === 'urlaub' && 'Bei Ja wird Urlaub (U) eingetragen'}
                     {antragInfo.type === 'frei' && 'Bei Ja wird Frei (-) eingetragen'}
                     {antragInfo.type === 'freizeitausgleich' && 'Bei Ja wird Freizeitausgleich (-) eingetragen'}
-                    {antragInfo.type === 'angebot' && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eingetragen`}
+                    {istEinspringKandidat && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eingetragen`}
                   </div>
                 </div>
               </div>
-
 
                 <textarea
                   className="w-full p-2 rounded-xl border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm"
@@ -1563,7 +1590,17 @@ const ampelAfter = useMemo(() => {
                   value={kommentar}
                   onChange={(e) => setKommentar(e.target.value)}
                 />
-
+              {basisAnfrage?._nurKandidat && (
+                <label className="mb-2 flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-3 py-2 text-xs text-red-800 dark:text-red-200">
+                  <input
+                    type="checkbox"
+                    checked={kandidatZugesagt}
+                    onChange={(e) => setKandidatZugesagt(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                <span>{kandidatCheckboxText}</span>
+                </label>
+              )}
                 <div className="flex justify-end gap-2 mt-2">
                   <button
                     onClick={onClose}
