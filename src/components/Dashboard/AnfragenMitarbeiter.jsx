@@ -63,15 +63,46 @@ const quelleKurz = (v) => {
   return '-';
 };
 
-const istAngebot = (a) => {
+const getAnfrageTyp = (a) => {
   const txt = (a?.antrag || '').toLowerCase();
 
-  return (
+  if (
     txt.includes('freiwillig') ||
     txt.includes('biete') ||
     txt.includes('einspring') ||
     txt.includes('angeboten')
-  );
+  ) {
+    return 'angebot';
+  }
+
+  if (txt.includes('freizeitausgleich')) {
+    return 'freizeitausgleich';
+  }
+
+  if (txt.includes('urlaub')) {
+    return 'urlaub';
+  }
+
+  return 'einzel';
+};
+
+const istBündelbar = (a) => {
+  const typ = getAnfrageTyp(a);
+  return typ === 'angebot' || typ === 'freizeitausgleich' || typ === 'urlaub';
+};
+
+const gruppenLabel = (typ, anzahl) => {
+  if (typ === 'angebot') return `${anzahl} Angebote`;
+  if (typ === 'freizeitausgleich') return `${anzahl} FZA-Anträge`;
+  if (typ === 'urlaub') return `${anzahl} Urlaubsanträge`;
+  return `${anzahl} Anträge`;
+};
+
+const gruppenAntragText = (typ) => {
+  if (typ === 'angebot') return 'Gebündelte Einspring-Angebote';
+  if (typ === 'freizeitausgleich') return 'Gebündelte Freizeitausgleich-Anträge';
+  if (typ === 'urlaub') return 'Gebündelte Urlaubsanträge';
+  return 'Gebündelte Anträge';
 };
 
 const AnfragenMitarbeiter = () => {
@@ -198,22 +229,27 @@ const AnfragenMitarbeiter = () => {
     });
   }, [alleAnfragen, activeTab, sort]);
 
-  // Offene Einspring-Angebote pro Datum + Schicht bündeln
+// Offene Anträge bündeln:
+// Angebot/Freizeitausgleich/Urlaub werden je Datum + Schicht zusammengefasst.
 const anfragenGebündelt = useMemo(() => {
   const gruppen = new Map();
 
   for (const a of anfragen || []) {
     const s = triStatus(a.genehmigt);
     const istOffen = s === 0 && a.datum_entscheid == null;
+    const typ = getAnfrageTyp(a);
 
-    // Nur offene Angebote bündeln.
-    // Urlaub/Frei/Freizeitausgleich bleiben einzelne Einträge.
-    if (!istOffen || !istAngebot(a)) {
+    // Nur offene, fachlich bündelbare Anträge gruppieren.
+    // Alles andere bleibt Einzelzeile.
+    if (!istOffen || !istBündelbar(a)) {
       gruppen.set(`single_${a.id}`, {
         ...a,
+        gruppenTyp: 'einzel',
         gruppenAnfragen: [a],
         gruppenAnzahl: 1,
         istGebündelt: false,
+        gruppenLabel: null,
+        gruppenText: null,
       });
       continue;
     }
@@ -224,31 +260,45 @@ const anfragenGebündelt = useMemo(() => {
 
     const schichtKey = (a.schicht || '').trim() || 'keine_schicht';
 
-    const key = `angebot_${datumKey}_${schichtKey}`;
+    // Falls du später Start/Ende in DB_AnfrageMA hast, kannst du sie hier ergänzen.
+    // Aktuell gruppieren wir nach Datum + Schicht + Typ.
+    const key = `${typ}_${datumKey}_${schichtKey}`;
 
-    if (!gruppen.has(key)) {
-      gruppen.set(key, {
-        ...a,
-        gruppenAnfragen: [a],
-        gruppenAnzahl: 1,
-        istGebündelt: false,
-      });
-    } else {
-      const vorhandeneGruppe = gruppen.get(key);
+    const bisher = gruppen.get(key);
 
-      const neueGruppe = [...vorhandeneGruppe.gruppenAnfragen, a].sort((x, y) =>
-        dayjs(x.created_at).valueOf() - dayjs(y.created_at).valueOf()
-      );
+    const neueGruppe = bisher
+      ? [...bisher.gruppenAnfragen, a]
+      : [a];
 
-      const hauptAnfrage = neueGruppe[0];
+    // Erstmal stabil nach Erstellzeit sortieren.
+    // Die echte Fairness-Priorität wird im AnalyseModal/Fairnessliste berechnet.
+    neueGruppe.sort((x, y) =>
+      dayjs(x.created_at).valueOf() - dayjs(y.created_at).valueOf()
+    );
 
-      gruppen.set(key, {
-        ...hauptAnfrage,
-        gruppenAnfragen: neueGruppe,
-        gruppenAnzahl: neueGruppe.length,
-        istGebündelt: neueGruppe.length > 1,
-      });
-    }
+    const hauptAnfrage = neueGruppe[0];
+    const anzahl = neueGruppe.length;
+    const istGruppe = anzahl > 1;
+
+    gruppen.set(key, {
+      ...hauptAnfrage,
+
+      // Bei Gruppen soll im AnalyseModal erstmal KEINE Person aktiv ausgewählt sein.
+      created_by: istGruppe ? null : hauptAnfrage.created_by,
+      created_by_user: istGruppe ? null : hauptAnfrage.created_by_user,
+
+      antrag: istGruppe ? gruppenAntragText(typ) : hauptAnfrage.antrag,
+
+      gruppenTyp: typ,
+      gruppenAnfragen: neueGruppe,
+      gruppenAnzahl: anzahl,
+      istGebündelt: istGruppe,
+      gruppenLabel: istGruppe ? gruppenLabel(typ, anzahl) : null,
+      gruppenText: istGruppe ? gruppenAntragText(typ) : null,
+
+      // wichtig fürs AnalyseModal
+      _gruppeNichtAusgewaehlt: istGruppe,
+    });
   }
 
   return Array.from(gruppen.values());
@@ -452,6 +502,8 @@ const anfragenGebündelt = useMemo(() => {
                         setModalAnfrage(a);
                       }}
                       className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-300 dark:hover:bg-gray-700 ${
+                        a.istGebündelt ? 'bg-blue-50/60 dark:bg-blue-900/10 ' : ''
+                      }${
                         !istOffen
                           ? 'opacity-60 cursor-not-allowed'
                           : rolle === 'Employee'
@@ -465,24 +517,20 @@ const anfragenGebündelt = useMemo(() => {
                       </td>
 
                       <td>{a.schicht || '-'}</td>
-
+                    <td>
+                      {a.istGebündelt ? (
+                        <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
+                          {a.gruppenLabel}
+                        </span>
+                      ) : a.created_by_user ? (
+                        `${a.created_by_user.vorname} ${a.created_by_user.nachname}`
+                      ) : (
+                        '-'
+                      )}
+                    </td>
                       <td>
-                        {a.created_by_user
-                          ? `${a.created_by_user.vorname} ${a.created_by_user.nachname}`
-                          : '-'}
-                      </td>
-
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <span>{a.antrag || '-'}</span>
-
-                          {a.istGebündelt && (
-                            <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap">
-                              {a.gruppenAnzahl} Angebote
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                      <span>{a.antrag || '-'}</span>
+                    </td>
 
                       <td className="whitespace-nowrap">
                         {a.created_at

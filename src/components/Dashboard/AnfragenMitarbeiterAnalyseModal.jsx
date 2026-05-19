@@ -228,7 +228,11 @@ export default function AnfragenMitarbeiterAnalyseModal({
   const [entscheidung, setEntscheidung] = useState(null);
   const [kommentar, setKommentar] = useState('');
   const [kandidatZugesagt, setKandidatZugesagt] = useState(false);
+
   const basisAnfrage = aktiveAnfrage || anfrage;
+  const gruppenOhneAuswahl = !!basisAnfrage?._gruppeNichtAusgewaehlt;
+  const hatAusgewaehltenMitarbeiter =
+  !!basisAnfrage?.created_by && !gruppenOhneAuswahl;
 
   const datum = basisAnfrage?.datum
     ? dayjs(basisAnfrage.datum).format('YYYY-MM-DD')
@@ -414,67 +418,76 @@ const kandidatCheckboxText = useMemo(() => {
         }
         setRequestedArt(reqArt);
 
-        /* C) 7-Tage Plan des Antragstellers (v_tagesplan) */
-        if (range?.from && range?.to) {
-          const { data: plan, error: planErr } = await supabase
-            .from('v_tagesplan')
-            .select(
-              'datum, user_id, soll_schichtart_id, soll_startzeit, soll_endzeit, ist_schichtart_id, ist_startzeit, ist_endzeit, hat_aenderung, kommentar'
-            )
-            .eq('firma_id', firmaId)
-            .eq('unit_id', unitId)
-            .eq('user_id', basisAnfrage.created_by)
-            .gte('datum', range.from)
-            .lte('datum', range.to);
+        /* C) 7-Tage Plan des ausgewählten Mitarbeiters (v_tagesplan) */
+if (hatAusgewaehltenMitarbeiter && range?.from && range?.to) {
+  const { data: plan, error: planErr } = await supabase
+    .from('v_tagesplan')
+    .select(
+      'datum, user_id, soll_schichtart_id, soll_startzeit, soll_endzeit, ist_schichtart_id, ist_startzeit, ist_endzeit, hat_aenderung, kommentar'
+    )
+    .eq('firma_id', firmaId)
+    .eq('unit_id', unitId)
+    .eq('user_id', basisAnfrage.created_by)
+    .gte('datum', range.from)
+    .lte('datum', range.to);
 
-          if (planErr) throw planErr;
+  if (planErr) throw planErr;
 
-          const ids = [
-            ...new Set(
-              (plan || [])
-                .flatMap((p) => [p.ist_schichtart_id, p.soll_schichtart_id])
-                .filter(Boolean)
-            ),
-          ];
+  const ids = [
+    ...new Set(
+      (plan || [])
+        .flatMap((p) => [p.ist_schichtart_id, p.soll_schichtart_id])
+        .filter(Boolean)
+    ),
+  ];
 
-          let artsById = new Map();
-          if (ids.length) {
-            const { data: arts, error: artsErr } = await supabase
-              .from('DB_SchichtArt')
-              .select('id, kuerzel, startzeit, endzeit, farbe_bg, farbe_text')
-              .in('id', ids)
-              .eq('firma_id', firmaId)
-              .eq('unit_id', unitId);
+  let artsById = new Map();
 
-            if (artsErr) throw artsErr;
-            (arts || []).forEach((a) => artsById.set(a.id, a));
-          }
+  if (ids.length) {
+    const { data: arts, error: artsErr } = await supabase
+      .from('DB_SchichtArt')
+      .select('id, kuerzel, startzeit, endzeit, farbe_bg, farbe_text')
+      .in('id', ids)
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId);
 
-          const plan7 = (plan || []).map((p) => {
-            const useIst = !!p.ist_schichtart_id;
-            const schichtId = useIst ? p.ist_schichtart_id : p.soll_schichtart_id;
-            const art = artsById.get(schichtId);
+    if (artsErr) throw artsErr;
 
-            const start = useIst ? (p.ist_startzeit || art?.startzeit) : (p.soll_startzeit || art?.startzeit);
-            const ende = useIst ? (p.ist_endzeit || art?.endzeit) : (p.soll_endzeit || art?.endzeit);
+    (arts || []).forEach((a) => artsById.set(a.id, a));
+  }
 
-            return {
-              datum: p.datum,
-              kuerzel: art?.kuerzel || '—',
-              start: start || '',
-              ende: ende || '',
-              bg: art?.farbe_bg || null,
-              text: art?.farbe_text || null,
-              hat_aenderung: p.hat_aenderung,
-              kommentar: p.kommentar,
-            };
-          });
+  const plan7 = (plan || []).map((p) => {
+    const useIst = !!p.ist_schichtart_id;
+    const schichtId = useIst ? p.ist_schichtart_id : p.soll_schichtart_id;
+    const art = artsById.get(schichtId);
 
-          setUserPlan7(plan7);
-        }
+    const start = useIst
+      ? (p.ist_startzeit || art?.startzeit)
+      : (p.soll_startzeit || art?.startzeit);
+
+    const ende = useIst
+      ? (p.ist_endzeit || art?.endzeit)
+      : (p.soll_endzeit || art?.endzeit);
+
+    return {
+      datum: p.datum,
+      kuerzel: art?.kuerzel || '—',
+      start: start || '',
+      ende: ende || '',
+      bg: art?.farbe_bg || null,
+      text: art?.farbe_text || null,
+      hat_aenderung: p.hat_aenderung,
+      kommentar: p.kommentar,
+    };
+  });
+
+  setUserPlan7(plan7);
+} else {
+  setUserPlan7([]);
+}
 
                 /* F) Urlaubskontingent für Analyse-Modal */
-        if (basisAnfrage?.created_by && datum) {
+        if (hatAusgewaehltenMitarbeiter && datum) {
           setUrlaubLoading(true);
           try {
             const jahr = dayjs(datum).year();
@@ -523,7 +536,7 @@ const kandidatCheckboxText = useMemo(() => {
         }
                 /* G) Stundenkonto für Freizeitausgleich */
           if (
-            basisAnfrage?.created_by &&
+            hatAusgewaehltenMitarbeiter &&
             datum &&
             (antragInfo.type === 'freizeitausgleich' || istEinspringKandidat)
           ) {
@@ -685,8 +698,9 @@ const kandidatCheckboxText = useMemo(() => {
         } else {
           setDayQualis([]);
         }
-        // ✅ WICHTIG: Qualis vom Antragsteller immer laden (für "Wenn Ja" bei freiwilligem Angebot)
-{
+// ✅ Qualis vom ausgewählten Mitarbeiter laden.
+// Bei gebündelten Gruppen ohne Auswahl darf hier NICHT mit uuid null gesucht werden.
+if (hatAusgewaehltenMitarbeiter) {
   const { data: rq, error: rqErr } = await supabase
     .from('DB_Qualifikation')
     .select('id, user_id, quali, quali_start, quali_endet')
@@ -694,6 +708,8 @@ const kandidatCheckboxText = useMemo(() => {
 
   if (rqErr) throw rqErr;
   setRequesterQualis(rq || []);
+} else {
+  setRequesterQualis([]);
 }
 
       } catch (e) {
@@ -925,7 +941,7 @@ useEffect(() => {
 // - Wenn "urlaub/frei/freizeitausgleich": Antragsteller entfernen
 const dayUserQualiMapAfter = useMemo(() => {
   const base = { ...(dayUserQualiMap || {}) };
-  const uid = anfrage?.created_by;
+  const uid = basisAnfrage?.created_by;
   if (!uid || !datum) return base;
 
   // Urlaub/Frei => User ist nach "Ja" nicht mehr in der Schicht -> Qualis entfernen
@@ -1075,7 +1091,7 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
 
   // Aktueller Kürzel des Antragstellers am Tag (F/S/N oder null)
   const requesterCurrentShift = useMemo(() => {
-    const uid = anfrage?.created_by;
+    const uid = basisAnfrage?.created_by;
     if (!uid) return null;
 
     for (const k of ['F', 'S', 'N']) {
@@ -1092,7 +1108,7 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
       N: [...(dayAssignments.N || [])],
     };
 
-    const uid = anfrage?.created_by;
+    const uid = basisAnfrage?.created_by;
     if (!uid) return base;
 
     const removeFromAll = () => {
@@ -1174,6 +1190,10 @@ const ampelAfter = useMemo(() => {
   /* --------------------------- SAVE --------------------------- */
   const handleSpeichern = async () => {
     if (!basisAnfrage || entscheidung === null) return;
+    if (gruppenOhneAuswahl || !basisAnfrage.created_by) {
+      alert('Bitte zuerst links einen Mitarbeiter aus der Fairnessliste auswählen.');
+      return;
+    }
     if (entscheidung === true && basisAnfrage._nurKandidat && !kandidatZugesagt) {
       alert(`Bitte zuerst bestätigen: ${kandidatCheckboxText}`);
       return;
@@ -1266,7 +1286,11 @@ const ampelAfter = useMemo(() => {
         basisAnfrage={basisAnfrage}
         fehlendeQualiIds={fehlendeQualiIds}
         onKandidatAuswahl={(neueAnfrage) => {
-          setAktiveAnfrage(neueAnfrage);
+          setAktiveAnfrage({
+            ...neueAnfrage,
+            _gruppeNichtAusgewaehlt: false,
+          });
+
           setAnalyseGeladen(false);
           setEntscheidung(null);
           setKommentar('');
@@ -1284,9 +1308,11 @@ const ampelAfter = useMemo(() => {
 
             <div className="text-xl font-semibold text-gray-900 dark:text-white flex flex-wrap items-center gap-2">
               <span className="truncate">
-                {basisAnfrage?.created_by_user
-                ? `${basisAnfrage.created_by_user.vorname} ${basisAnfrage.created_by_user.nachname}`
-                : '—'}
+              {gruppenOhneAuswahl
+                ? 'Bitte Kandidaten auswählen'
+                : basisAnfrage?.created_by_user
+                  ? `${basisAnfrage.created_by_user.vorname} ${basisAnfrage.created_by_user.nachname}`
+                  : '—'}
               </span>
 
               <span className="text-gray-400">•</span>
@@ -1356,7 +1382,16 @@ const ampelAfter = useMemo(() => {
           ) : (
             <>
 {/* Antrag / Kandidatenhinweis */}
-{basisAnfrage?._nurKandidat ? (
+{gruppenOhneAuswahl ? (
+  <div className="rounded-xl border border-blue-700 bg-blue-600 px-3 py-2 text-sm text-white shadow">
+    <div className="font-semibold">
+      Gebündelte Anfrage geöffnet
+    </div>
+    <div className="text-xs mt-1">
+      Bitte links in der Fairnessliste zuerst einen Mitarbeiter auswählen. Erst danach kann entschieden oder gespeichert werden.
+    </div>
+  </div>
+) : basisAnfrage?._nurKandidat ? (
   <div className="rounded-xl border border-red-700 bg-red-600 px-3 py-2 text-sm text-white shadow">
     <div className="font-semibold">
       {kandidatHinweisTitel}
@@ -1549,9 +1584,9 @@ const ampelAfter = useMemo(() => {
                 <div className="flex items-center gap-3 mb-2">
                 <button
                   onClick={() => setEntscheidung(true)}
-                  disabled={urlaubGenehmigungBlockiert}
+                  disabled={urlaubGenehmigungBlockiert || gruppenOhneAuswahl}
                   className={`px-4 py-1 rounded-xl text-xs border ${
-                    urlaubGenehmigungBlockiert
+                    urlaubGenehmigungBlockiert || gruppenOhneAuswahl
                       ? 'bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed'
                       : entscheidung === true
                         ? 'bg-green-600 text-white border-green-700'
@@ -1610,7 +1645,7 @@ const ampelAfter = useMemo(() => {
                   </button>
                   <button
                     onClick={handleSpeichern}
-                    disabled={saving || entscheidung === null}
+                    disabled={saving || entscheidung === null || gruppenOhneAuswahl}
                     className={`px-4 py-2 rounded-xl text-sm text-white ${
                       saving || entscheidung === null ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
                     }`}
