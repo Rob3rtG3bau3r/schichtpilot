@@ -40,7 +40,16 @@ const parseAntrag = (txt = '') => {
 
   return { type: 'sonstiges', label: 'Antrag' };
 };
+  const istAngebotText = (txt = '') => {
+    const t = String(txt || '').toLowerCase();
 
+    return (
+      t.includes('freiwillig') ||
+      t.includes('biete') ||
+      t.includes('einspring') ||
+      t.includes('angeboten')
+    );
+  };
 // Bedarf-Logik wie MitarbeiterBedarf (nur F/S/N)
 const schichtInnerhalbGrenzen = (b, datumISO, schLabel) => {
   // Grenzen gelten nur für zeitlich begrenzt
@@ -197,6 +206,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
     setEntscheidung(null);
     setKommentar('');
     setKandidatZugesagt(false);
+    setAndereAngeboteAblehnen(false);
   }, [anfrage]);
 
   const [ruhezeitLoading, setRuhezeitLoading] = useState(false);
@@ -228,6 +238,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
   const [entscheidung, setEntscheidung] = useState(null);
   const [kommentar, setKommentar] = useState('');
   const [kandidatZugesagt, setKandidatZugesagt] = useState(false);
+  const [andereAngeboteAblehnen, setAndereAngeboteAblehnen] = useState(false);
 
   const basisAnfrage = aktiveAnfrage || anfrage;
   const gruppenOhneAuswahl = !!basisAnfrage?._gruppeNichtAusgewaehlt;
@@ -250,6 +261,37 @@ const istUrlaubsFall = antragInfo.type === 'urlaub';
 const istEinspringKandidat =
   antragInfo.type === 'angebot' ||
   (basisAnfrage?._nurKandidat && !istFreizeitausgleichFall && !istUrlaubsFall);
+
+  const istAngebotsKontext =
+    antragInfo.type === 'angebot' ||
+    basisAnfrage?.gruppenTyp === 'angebot' ||
+    basisAnfrage?._fairnessModus === 'einspringen';
+  
+    const andereOffeneAngebote = useMemo(() => {
+    if (!istAngebotsKontext) return [];
+
+    return (gruppenAnfragen || []).filter((a) => {
+      if (!a?.id) return false;
+
+      // Den aktuell ausgewählten echten Antrag nicht mitzählen
+      if (!basisAnfrage?._nurKandidat && basisAnfrage?.id && a.id === basisAnfrage.id) {
+        return false;
+      }
+
+      const info = parseAntrag(a.antrag);
+      const s = triStatus(a.genehmigt);
+      const istOffen = s === 0 && a.datum_entscheid == null;
+
+      return info.type === 'angebot' && istOffen;
+    });
+  }, [
+    istAngebotsKontext,
+    gruppenAnfragen,
+    basisAnfrage?.id,
+    basisAnfrage?._nurKandidat,
+  ]);
+
+  const anzahlAndereOffeneAngebote = andereOffeneAngebote.length;
 
   // Range für 7 Tage
   const range = useMemo(() => {
@@ -1098,7 +1140,7 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
       if ((dayAssignments?.[k] || []).includes(uid)) return k;
     }
     return null;
-  }, [anfrage?.created_by, dayAssignments]);
+  }, [basisAnfrage?.created_by, dayAssignments]);
 
   // Simulation: wie sieht es aus, wenn "Ja" bestätigt wird?
   const simulatedAssignments = useMemo(() => {
@@ -1187,6 +1229,53 @@ const ampelAfter = useMemo(() => {
     return urlaubRestNachGenehmigung < 0;
   }, [antragInfo.type, urlaubRestNachGenehmigung]);
 
+ const andereAngeboteAutomatischAbsagen = async ({ selectedId, createdBy }) => {
+  if (!istAngebotsKontext || !datum || !schichtKuerzel) return;
+
+  let andereAngebote = [...andereOffeneAngebote];
+
+  // Falls keine Gruppen-Anfragen vorhanden sind, zur Sicherheit nochmal aus DB laden.
+  if (!andereAngebote.length) {
+    const { data, error } = await supabase
+      .from('DB_AnfrageMA')
+      .select('id, antrag, genehmigt, datum_entscheid')
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId)
+      .eq('datum', datum)
+      .eq('schicht', schichtKuerzel)
+      .is('genehmigt', null)
+      .is('datum_entscheid', null);
+
+    if (error) throw error;
+
+    andereAngebote = (data || []).filter((a) => {
+      if (!a?.id) return false;
+      if (selectedId && a.id === selectedId) return false;
+
+      const info = parseAntrag(a.antrag);
+      return info.type === 'angebot';
+    });
+  }
+
+const idsZumAbsagen = [
+  ...new Set(andereAngebote.map((a) => a.id).filter(Boolean)),
+];
+
+  if (!idsZumAbsagen.length) return;
+
+  const { error: absageErr } = await supabase
+    .from('DB_AnfrageMA')
+    .update({
+      genehmigt: false,
+      verantwortlicher: createdBy || verantwortlicherUserId,
+      datum_entscheid: new Date().toISOString(),
+      kommentar:
+        'Automatisch abgelehnt: Die Einspring-Schicht wurde vergeben und weitere Angebote wurden vom Verantwortlichen geschlossen.',
+    })
+    .in('id', idsZumAbsagen);
+
+  if (absageErr) throw absageErr;
+};
   /* --------------------------- SAVE --------------------------- */
   const handleSpeichern = async () => {
     if (!basisAnfrage || entscheidung === null) return;
@@ -1257,7 +1346,13 @@ const ampelAfter = useMemo(() => {
             : kommentar || null,
           // start/ende/pauseHours nicht nötig: Helper nutzt SchichtArt-Fallback
           skipUrlaubOnFreeDay: true,
-        });
+        })
+        if (entscheidung === true && istAngebotsKontext && andereAngeboteAblehnen) {
+          await andereAngeboteAutomatischAbsagen({
+            selectedId: basisAnfrage._nurKandidat ? null : basisAnfrage.id,
+            createdBy,
+          });
+        };
       }
 
       onSaved?.();
@@ -1295,6 +1390,7 @@ const ampelAfter = useMemo(() => {
           setEntscheidung(null);
           setKommentar('');
           setKandidatZugesagt(false);
+          setAndereAngeboteAblehnen(false);
         }}
       />
 
@@ -1634,6 +1730,22 @@ const ampelAfter = useMemo(() => {
                     className="mt-0.5"
                   />
                 <span>{kandidatCheckboxText}</span>
+                </label>
+              )}
+              {istAngebotsKontext && entscheidung === true && anzahlAndereOffeneAngebote > 0 && (
+                <label className="mb-2 flex items-start gap-2 rounded-xl border border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 px-3 py-2 text-xs text-blue-800 dark:text-blue-200">
+                  <input
+                    type="checkbox"
+                    checked={andereAngeboteAblehnen}
+                    onChange={(e) => setAndereAngeboteAblehnen(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Alle anderen offenen Angebote zu dieser Schicht automatisch ablehnen.
+                    <span className="block text-[11px] opacity-80 mt-0.5">
+                      Nur aktivieren, wenn für diese Schicht keine weiteren Mitarbeitenden mehr benötigt werden.
+                    </span>
+                  </span>
                 </label>
               )}
                 <div className="flex justify-end gap-2 mt-2">
