@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import logo from "../assets/logo.png";
 import { supabase } from "../supabaseClient";
@@ -60,6 +60,7 @@ const Home = () => {
   const [isSending, setIsSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -100,7 +101,22 @@ const Home = () => {
       else mq.removeListener(apply);
     };
   }, []);
+// Menü schließen, wenn außerhalb geklickt wird
+useEffect(() => {
+  const handleClickOutside = (e) => {
+    if (!menuOpen) return;
 
+    if (menuRef.current && !menuRef.current.contains(e.target)) {
+      setMenuOpen(false);
+    }
+  };
+
+  document.addEventListener("mousedown", handleClickOutside);
+
+  return () => {
+    document.removeEventListener("mousedown", handleClickOutside);
+  };
+}, [menuOpen]);
   // ESC schließt Modal/Lightbox, Pfeiltasten für Lightbox
   useEffect(() => {
     const onKey = (e) => {
@@ -237,8 +253,8 @@ const Home = () => {
           </h1>
 
           {/* Rechts: Menü + Login */}
-          <div className="flex justify-end items-center gap-3 relative">
-           <button
+          <div ref={menuRef} className="flex justify-end items-center gap-3 relative">
+          <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
             className="bg-gray-800/80 hover:bg-gray-700 border border-gray-600 px-4 py-2 rounded-xl text-lg leading-none text-white"
@@ -246,7 +262,7 @@ const Home = () => {
             aria-expanded={menuOpen}
             title="Menü öffnen"
           >
-            ⋯
+            ☰
           </button>
 
             <Link
@@ -262,14 +278,14 @@ const Home = () => {
                   SchichtPilot
                 </div>
 
-                {/* Onboarding bewusst noch deaktiviert */}
+
                 <Link
-  to="/onboarding"
-  onClick={() => setMenuOpen(false)}
-  className="block px-3 py-2 rounded-xl text-gray-200 hover:bg-gray-800"
->
-  Onboarding
-</Link>
+                  to="/onboarding"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-gray-200 hover:bg-gray-800"
+                >
+                  Onboarding
+                </Link>
 
                 <Link
                   to="/datenschutz"
