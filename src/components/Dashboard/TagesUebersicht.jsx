@@ -300,6 +300,7 @@ export default function TagesUebersicht() {
     datum: dayjs().format('YYYY-MM-DD'),
     kampfliste: { schichten: { frueh: [], spaet: [], nacht: [] }, andere_kuerzel: [], krank: [] },
     termine: { termine: [] },
+    eskalationen: { items: [] },
     bedarf: { normalbetrieb: [], zeitlich: [], summiert: [] },
   });
 
@@ -687,7 +688,65 @@ export default function TagesUebersicht() {
           .map(([quali_kuerzel, total_anzahl]) => ({ quali_kuerzel, total_anzahl }))
           .sort((a, b) => a.quali_kuerzel.localeCompare(b.quali_kuerzel, 'de'));
 
-        // --- 16) Termine heute (Anzeige wie bisher) ---
+          // --- 16) Eskalationen ab -1 Woche und Zukunft ---
+          const eskVon = dayjs(heute).subtract(7, 'day').format('YYYY-MM-DD');
+
+          const { data: eskRows, error: eskErr } = await supabase
+            .from('DB_Eskalation')
+            .select(`
+              id,
+              datum,
+              typ,
+              status,
+              hinweis,
+              kommentar,
+              ruhezeit_stunden,
+              dauer_stunden,
+              user_id,
+              created_at,
+              updated_at
+            `)
+            .eq('firma_id', Number(firma))
+            .eq('unit_id', Number(unit))
+            .eq('status', 'offen')
+            .gte('datum', eskVon)
+            .order('datum', { ascending: true })
+            .order('created_at', { ascending: false });
+
+          if (eskErr) throw eskErr;
+
+          // Namen für Eskalations-User nachladen, falls sie noch nicht in userNameMap sind
+          const eskUserIds = Array.from(new Set((eskRows || []).map(e => String(e.user_id)).filter(Boolean)));
+          const fehlendeEskUserIds = eskUserIds.filter(uid => !userNameMap.has(uid));
+
+          if (fehlendeEskUserIds.length) {
+            const { data: eskUserRows, error: eskUserErr } = await supabase
+              .from('DB_User')
+              .select('user_id, vorname, nachname')
+              .in('user_id', fehlendeEskUserIds);
+
+            if (eskUserErr) throw eskUserErr;
+
+            (eskUserRows || []).forEach(u => {
+              userNameMap.set(String(u.user_id), `${u.nachname || ''}, ${u.vorname || ''}`.trim());
+            });
+          }
+
+          const eskalationen = (eskRows || []).map(e => ({
+            id: e.id,
+            datum: e.datum,
+            typ: e.typ,
+            status: e.status,
+            hinweis: e.hinweis || '',
+            kommentar: e.kommentar || '',
+            ruhezeit_stunden: e.ruhezeit_stunden,
+            dauer_stunden: e.dauer_stunden,
+            user_id: e.user_id,
+            name: userNameMap.get(String(e.user_id)) || `User ${e.user_id}`,
+            created_at: e.created_at,
+            updated_at: e.updated_at,
+        }));
+        // --- 17) Termine heute (Anzeige wie bisher) ---
         const { data: termRows, error: termErr } = await supabase
           .from('DB_TerminVerwaltung')
           .select('id, bezeichnung, farbe, ziel_typ, team, quali_ids, datum, wiederholend, created_at')
@@ -742,6 +801,7 @@ export default function TagesUebersicht() {
             krank: krankArr,
           },
           termine: { termine: termineHeute },
+          eskalationen: { items: eskalationen },
           bedarf: { normalbetrieb, zeitlich, summiert },
         });
       } catch (e) {
@@ -770,11 +830,12 @@ export default function TagesUebersicht() {
   const andere = data?.kampfliste?.andere_kuerzel || [];
   const krank = data?.kampfliste?.krank || [];
   const termine = data?.termine?.termine || [];
+  const eskalationen = data?.eskalationen?.items || [];
   const nb = data?.bedarf?.normalbetrieb || [];
   const zb = data?.bedarf?.zeitlich || [];
   const showZeitlich = Array.isArray(zb) && zb.length > 0;
 
-  const counter = `${termine.length} Termine • ${andere.length} andere Kürzel • ${krank.length} krank`;
+  const counter = `${termine.length} Termine • ${eskalationen.length} Eskalationen • ${andere.length} andere Kürzel • ${krank.length} krank`;
 
   // ✅ Inhalt-Funktion
   const renderInhalt = (big = false) => (
@@ -826,9 +887,62 @@ export default function TagesUebersicht() {
                   <MiniTable rows={andere} big={big} />
                 )}
               </Section>
+              {/* Eskalationen */}
+              <Section
+                id="eskalationen"
+                title="Aktuelle & bevorstehende Eskalationen"
+                counter={eskalationen.length}
+                defaultOpen={eskalationen.length > 0}
+              >
+                {eskalationen.length === 0 ? (
+                  <div className={big ? "text-base opacity-70" : "text-sm opacity-70"}>
+                    Keine Eskalationen ab letzter Woche oder in der Zukunft vorhanden.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    {eskalationen.map((e) => (
+                      <div
+                        key={e.id}
+                        className={[
+                          "rounded-2xl border p-3",
+                          e.status === 'offen'
+                            ? "border-red-400/20 bg-red-800/10"
+                            : "border-gray-300 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-900/30"
+                        ].join(" ")}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className={big ? "text-lg font-semibold" : "text-sm font-semibold"}>
+                              {dayjs(e.datum).format('DD.MM.YYYY')} • {e.name}
+                              <span className="ml-2 px-2 py-0.5 rounded-full bg-red-600/10 border border-red-400/20 text-red-700 dark:text-red-200 text-xs">
+                                {e.typ?.replaceAll('_', ' ')}
+                              </span>
+                            </div>
+                          </div>
 
+                          {e.status === 'offen' && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-red-600/40 text-white">
+                              offen
+                            </span>
+                          )}
+                        </div>
 
+                        {e.hinweis && (
+                          <div className={big ? "text-base mt-2" : "text-xs mt-2"}>
+                            {e.hinweis}
+                          </div>
+                        )}
 
+                        {e.kommentar && (
+                          <div className={big ? "text-sm mt-2 opacity-80 italic" : "text-xs mt-2 opacity-80 italic"}>
+                            Kommentar: {e.kommentar}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
 
               {/* Termine */}
               <Section id="termine" title="Termine heute" counter={`${termine.length}`} defaultOpen={false}>
