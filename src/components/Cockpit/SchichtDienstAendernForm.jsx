@@ -56,22 +56,30 @@ const buildDateTime = (dateStr, timeStr) => {
   return dayjs(`${dateStr}T${timeStr}`);
 };
 
-const berechneRuhezeitInStunden = ({ endeVonDatum, endeVonZeit, startZuDatum, startZuZeit }) => {
-  const endDT = buildDateTime(endeVonDatum, endeVonZeit);
+const berechneRuhezeitInStunden = ({
+  endeVonDatum,
+  startVonZeit,
+  endeVonZeit,
+  startZuDatum,
+  startZuZeit,
+}) => {
   const startDT = buildDateTime(startZuDatum, startZuZeit);
-  if (!endDT || !startDT) return null;
+  if (!startDT || !endeVonDatum || !endeVonZeit) return null;
 
-  // Falls Ende über Mitternacht ging, kann es "vor" Start liegen je nach Datenlage.
-  // Hier: Ende ist immer an endeVonDatum gebunden; wir korrigieren nur, wenn Ende "logisch" vor Ende-Start liegt,
-  // aber ohne Startzeit der Vortagsschicht können wir nur sicher korrigieren, wenn Ruhezeit negativ wäre:
-  let e = endDT;
-  let diffH = dayjs.duration(startDT.diff(e)).asHours();
-  if (diffH < -0.001) {
-    // Ende war vermutlich am nächsten Tag
-    e = e.add(1, 'day');
-    diffH = dayjs.duration(startDT.diff(e)).asHours();
+  let endDT = buildDateTime(endeVonDatum, endeVonZeit);
+  if (!endDT) return null;
+
+  // Wenn die vorherige Schicht über Mitternacht ging,
+  // z. B. 22:00 - 06:00, dann liegt das Ende am Folgetag.
+  if (startVonZeit) {
+    const startVorher = buildDateTime(endeVonDatum, startVonZeit);
+
+    if (startVorher && endDT.isBefore(startVorher)) {
+      endDT = endDT.add(1, 'day');
+    }
   }
-  return diffH;
+
+  return dayjs.duration(startDT.diff(endDT)).asHours();
 };
 
 // Schichtgruppe des Users zum Datum ermitteln (aktive Zuweisung [von..bis])
@@ -524,10 +532,13 @@ const SchichtDienstAendernForm = ({
 
       // A) Vortag -> Heute (Ende Vortag -> Start Heute)
       if (istArbeitsTag(kuerzelHeute) && istArbeitsTag(kuerzelVt)) {
+        const startVt = tpVt?.ist_startzeit || tpVt?.soll_startzeit || null;
         const endeVt = tpVt?.ist_endzeit || tpVt?.soll_endzeit || null;
+
         if (endeVt) {
           const diffH = berechneRuhezeitInStunden({
             endeVonDatum: vt,
+            startVonZeit: startVt,
             endeVonZeit: endeVt,
             startZuDatum: heute,
             startZuZeit: auswahl.start,
