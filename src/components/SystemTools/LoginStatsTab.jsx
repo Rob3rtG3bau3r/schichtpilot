@@ -275,7 +275,7 @@ export default function LoginStatsTab() {
               <th className="px-3 py-2 text-right">Logins</th>
 
               <th className="px-3 py-2 text-right">Admin_Dev</th>
-              <th className="px-3 py-2 text-right">Planer</th>
+              <th className="px-3 py-2 text-right">Planner</th>
               <th className="px-3 py-2 text-right">Team_Leader</th>
               <th className="px-3 py-2 text-right">Employee</th>
 

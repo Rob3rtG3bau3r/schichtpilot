@@ -602,7 +602,7 @@ const getRueckwirkendeTageLimit = () => {
   if (rolle === 'Planner') return 3;
 
   // Sicherheit: beide Schreibweisen abfangen
-  if (rolle === 'Admin_Dev' || rolle === 'Admin_Dev') return 30;
+  if (rolle === 'Admin_Dev') return 30;
 
   // SuperAdmin bleibt unbegrenzt für absolute Ausnahmefälle
   if (rolle === 'SuperAdmin') return null;
@@ -1017,16 +1017,16 @@ const speichernGesperrt =
             placeholder="Kommentar max. 150 Zeichen"
           />
         </div>
-                {speichernGesperrt && (
-                <div className="mb-3 rounded-xl border border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 px-3 py-2 text-xs">
-                  Dieser Dienst kann mit deiner Rolle nicht mehr gespeichert werden.
-                  {rolle === 'Employee' && ' Mitarbeitende haben keinen Zugriff auf diese Änderungsfunktion.'}
-                  {(rolle === 'Team_Leader' || rolle === 'Planner') &&
-                    ' Team-Leader und Planner dürfen maximal 3 Tage rückwirkend ändern.'}
-                  {(rolle === 'Admin_Dev' || rolle === 'Admin_Dev') &&
-                    ' Admin_Dev darf maximal 30 Tage rückwirkend ändern.'}
-                </div>
-                )}
+        {speichernGesperrt && (
+          <div className="mb-3 rounded-xl border border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 px-3 py-2 text-xs">
+            Dieser Dienst kann mit deiner Rolle nicht mehr gespeichert werden.
+            {rolle === 'Employee' && ' Mitarbeitende haben keinen Zugriff auf diese Änderungsfunktion.'}
+            {(rolle === 'Team_Leader' || rolle === 'Planner') &&
+              ' Team-Leader und Planner dürfen maximal 3 Tage rückwirkend ändern.'}
+            {rolle === 'Admin_Dev' &&
+              ' Admin_Dev darf maximal 30 Tage rückwirkend ändern.'}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex justify-between items-start mt-6 gap-3 text-sm text-gray-500 dark:text-gray-400">
