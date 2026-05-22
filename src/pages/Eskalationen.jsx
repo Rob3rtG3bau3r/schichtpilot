@@ -8,7 +8,6 @@ const STATUS_OPTIONS = [
   { value: 'offen', label: 'Offen' },
   { value: 'automatisch_geloest', label: 'Automatisch gelöst' },
   { value: 'geprueft', label: 'Geprüft' },
-  { value: 'erledigt', label: 'Erledigt' },
 ];
 
 const TYP_LABELS = {
@@ -23,7 +22,6 @@ const statusStyle = (status) => {
   if (status === 'offen') return 'bg-red-600/20 text-red-200 border-red-400/40';
   if (status === 'automatisch_geloest') return 'bg-gray-600/20 text-gray-300 border-gray-400/40';
   if (status === 'geprueft') return 'bg-blue-600/20 text-blue-200 border-blue-400/40';
-  if (status === 'erledigt') return 'bg-green-600/20 text-green-200 border-green-400/40';
   return 'bg-gray-600/20 text-gray-200 border-gray-400/40';
 };
 
@@ -31,7 +29,7 @@ export default function Eskalationen() {
   const { rolle, sichtFirma: firma, sichtUnit: unit } = useRollen();
 
   const darfSehen = useMemo(
-    () => ['Planner', 'Admin_Dev', 'Admin_Dev', 'SuperAdmin'].includes(rolle),
+    () => ['Planner', 'Admin_Dev', 'SuperAdmin'].includes(rolle),
     [rolle]
   );
 
@@ -45,6 +43,8 @@ export default function Eskalationen() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pruefModal, setPruefModal] = useState(null);
+  const [pruefKommentar, setPruefKommentar] = useState('');
 
   const heute = dayjs().format('YYYY-MM-DD');
 
@@ -159,27 +159,34 @@ export default function Eskalationen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, statusFilter, von, bis, firma, unit, rolle]);
 
-  const updateStatus = async (id, neuerStatus) => {
+const updateStatusGeprueft = async () => {
+  if (!pruefModal?.id) return;
+
+  const kommentarClean = pruefKommentar.trim();
+
+  if (!kommentarClean) {
+    setError('Bitte einen Kommentar eintragen, warum die Eskalation geprüft/akzeptiert wurde.');
+    return;
+  }
+
     const { error: updErr } = await supabase
       .from('DB_Eskalation')
       .update({
-        status: neuerStatus,
+        status: 'geprueft',
+        kommentar: kommentarClean,
         updated_at: new Date().toISOString(),
-        resolved_at: neuerStatus === 'offen' ? null : new Date().toISOString(),
-        resolved_reason:
-          neuerStatus === 'geprueft'
-            ? 'Durch Planner geprüft.'
-            : neuerStatus === 'erledigt'
-            ? 'Durch Planner erledigt.'
-            : null,
+        resolved_at: new Date().toISOString(),
+        resolved_reason: 'Durch Planner geprüft und akzeptiert.',
       })
-      .eq('id', id);
+      .eq('id', pruefModal.id);
 
     if (updErr) {
       setError(updErr.message || 'Status konnte nicht geändert werden.');
       return;
     }
 
+    setPruefModal(null);
+    setPruefKommentar('');
     await ladeEskalationen();
   };
 
@@ -381,20 +388,17 @@ export default function Eskalationen() {
                       <td className="py-3 pr-4 whitespace-nowrap">
                         {e.status === 'offen' ? (
                           <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => updateStatus(e.id, 'geprueft')}
-                              className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs"
-                            >
-                              Geprüft
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateStatus(e.id, 'erledigt')}
-                              className="px-3 py-1 rounded-lg bg-green-700 hover:bg-green-800 text-white text-xs"
-                            >
-                              Erledigt
-                            </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPruefModal(e);
+                              setPruefKommentar(e.kommentar || '');
+                              setError('');
+                            }}
+                            className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                          >
+                            Akzeptieren
+                          </button>
                           </div>
                         ) : (
                           <span className="text-xs opacity-60">-</span>
@@ -408,6 +412,59 @@ export default function Eskalationen() {
           )}
         </div>
       </div>
+      {pruefModal && (
+  <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4">
+    <div className="w-full max-w-xl rounded-2xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 p-5 shadow-2xl">
+      <h2 className="text-xl font-bold mb-2">Eskalation prüfen und akzeptieren</h2>
+
+      <div className="text-sm opacity-80 mb-3">
+        {dayjs(pruefModal.datum).format('DD.MM.YYYY')} • {pruefModal.name}
+      </div>
+
+      <div className="rounded-xl bg-red-600/10 border border-red-400/30 p-3 text-sm mb-4">
+        {pruefModal.hinweis || '-'}
+      </div>
+
+      <label className="block text-sm font-semibold mb-1">
+        Begründung / Entscheidung
+      </label>
+
+      <textarea
+        value={pruefKommentar}
+        onChange={(e) => setPruefKommentar(e.target.value)}
+        rows={4}
+        maxLength={300}
+        className="w-full rounded-xl p-3 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
+        placeholder="Beispiel: Schicht musste wegen kurzfristigem Ausfall / Anlagenstörung so bleiben. Führungskraft wurde informiert."
+      />
+
+      <div className="text-xs opacity-60 mt-1">
+        {pruefKommentar.length}/300 Zeichen
+      </div>
+
+      <div className="flex justify-end gap-3 mt-5">
+        <button
+          type="button"
+          onClick={() => {
+            setPruefModal(null);
+            setPruefKommentar('');
+          }}
+          className="px-4 py-2 rounded-xl bg-gray-500 hover:bg-gray-600 text-white text-sm"
+        >
+          Abbrechen
+        </button>
+
+        <button
+          type="button"
+          onClick={updateStatusGeprueft}
+          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm"
+        >
+          Akzeptieren speichern
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
