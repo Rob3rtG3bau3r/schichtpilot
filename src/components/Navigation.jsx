@@ -161,6 +161,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/wochenplaner': 'Wochenplaner',
     '/user-report': 'Mitarbeiter-Report',
     '/aenderungsprotokoll': 'Änderungsprotokoll',
+    '/eskalationen': 'Eskalationen',
 
   };
 
@@ -196,7 +197,9 @@ const Navigation = ({ darkMode, setDarkMode }) => {
                 <Link to="/termineverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">
                   Termine
                 </Link>
-
+                <Link to="/eskalationen" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Eskalationen
+                </Link>
                 {(rolle === 'SuperAdmin' || canSeeWochenplaner) && (
                   <Link to="/wochenplaner" className="hover:bg-gray-700 rounded px-2 py-1">
                     Wochenplaner

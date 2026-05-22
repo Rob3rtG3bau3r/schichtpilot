@@ -300,41 +300,41 @@ const pruefeArbeitsdauer = async ({
   const dauer = dayjs.duration(ende.diff(start)).asHours();
   const aktiveTypen = [];
 
-  if (dauer >= 12) {
-    aktiveTypen.push('ARBEITSZEIT_UEBER_12H');
+if (dauer >= 12) {
+  aktiveTypen.push('ARBEITSZEIT_UEBER_12H');
 
-    await speichereOffeneEskalation({
-      firmaId,
-      unitId,
-      userId,
-      datum: t.datum,
-      typ: 'ARBEITSZEIT_UEBER_12H',
-      hinweis: `Arbeitszeit über 12 h: ${formatStunden(dauer)} h am ${dayjs(
-        t.datum
-      ).format('DD.MM.YYYY')} (${t.kuerzel}).`,
-      dauerStunden: dauer,
-      bezugVonDatum: t.datum,
-      bezugBisDatum: t.datum,
-      createdBy,
-    });
-  } else if (dauer >= 10) {
-    aktiveTypen.push('ARBEITSZEIT_UEBER_10H');
+  await speichereOffeneEskalation({
+    firmaId,
+    unitId,
+    userId,
+    datum: t.datum,
+    typ: 'ARBEITSZEIT_UEBER_12H',
+    hinweis: `Arbeitszeit ab 12 h: ${formatStunden(dauer)} h am ${dayjs(
+      t.datum
+    ).format('DD.MM.YYYY')} (${t.kuerzel}). Betriebsleitung informieren.`,
+    dauerStunden: dauer,
+    bezugVonDatum: t.datum,
+    bezugBisDatum: t.datum,
+    createdBy,
+  });
+} else if (dauer > 10) {
+  aktiveTypen.push('ARBEITSZEIT_UEBER_10H');
 
-    await speichereOffeneEskalation({
-      firmaId,
-      unitId,
-      userId,
-      datum: t.datum,
-      typ: 'ARBEITSZEIT_UEBER_10H',
-      hinweis: `Arbeitszeit über 10 h: ${formatStunden(dauer)} h am ${dayjs(
-        t.datum
-      ).format('DD.MM.YYYY')} (${t.kuerzel}).`,
-      dauerStunden: dauer,
-      bezugVonDatum: t.datum,
-      bezugBisDatum: t.datum,
-      createdBy,
-    });
-  }
+  await speichereOffeneEskalation({
+    firmaId,
+    unitId,
+    userId,
+    datum: t.datum,
+    typ: 'ARBEITSZEIT_UEBER_10H',
+    hinweis: `Arbeitszeit über 10 h: ${formatStunden(dauer)} h am ${dayjs(
+      t.datum
+    ).format('DD.MM.YYYY')} (${t.kuerzel}). Bitte prüfen/begründen.`,
+    dauerStunden: dauer,
+    bezugVonDatum: t.datum,
+    bezugBisDatum: t.datum,
+    createdBy,
+  });
+}
 
   return aktiveTypen;
 };

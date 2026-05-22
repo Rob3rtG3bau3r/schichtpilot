@@ -459,10 +459,10 @@ const SchichtDienstAendernForm = ({
     let h = '';
     if (netto >= 12) {
       f = 'bg-red-700';
-      h = 'Betriebsleitung und Betriebsrat sind zu informieren.';
-    } else if (netto >= 10) {
+      h = 'Arbeitszeit ab 12 h: Betriebsleitung ist zu informieren.';
+    } else if (netto > 10) {
       f = 'bg-orange-600';
-      h = 'Max. 10 h nach §3 ArbZG, Ausnahme: §7';
+      h = 'Arbeitszeit über 10 h: bitte prüfen und begründen.';
     }
     return { dauer: netto, rohDauer: roh, dauerFarbe: f, hinweistext: h };
   }, [auswahl.start, auswahl.ende, auswahl.ignoriertarbeitszeit, auswahl.kuerzel, pause, schichtByKuerzel]);
@@ -602,7 +602,7 @@ const getRueckwirkendeTageLimit = () => {
   if (rolle === 'Planner') return 3;
 
   // Sicherheit: beide Schreibweisen abfangen
-  if (rolle === 'Admin_Dev' || rolle === 'Admin_dev') return 30;
+  if (rolle === 'Admin_Dev' || rolle === 'Admin_Dev') return 30;
 
   // SuperAdmin bleibt unbegrenzt für absolute Ausnahmefälle
   if (rolle === 'SuperAdmin') return null;
@@ -1023,7 +1023,7 @@ const speichernGesperrt =
                   {rolle === 'Employee' && ' Mitarbeitende haben keinen Zugriff auf diese Änderungsfunktion.'}
                   {(rolle === 'Team_Leader' || rolle === 'Planner') &&
                     ' Team-Leader und Planner dürfen maximal 3 Tage rückwirkend ändern.'}
-                  {(rolle === 'Admin_Dev' || rolle === 'Admin_dev') &&
+                  {(rolle === 'Admin_Dev' || rolle === 'Admin_Dev') &&
                     ' Admin_Dev darf maximal 30 Tage rückwirkend ändern.'}
                 </div>
                 )}

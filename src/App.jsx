@@ -32,7 +32,7 @@ import UnitUserStundenPflege from './pages/UnitUserStundenPflege';
 import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 import Aenderungsprotokoll from './pages/Aenderungsprotokoll';
 import Onboarding from "./pages/Onboarding";
-
+import Eskalationen from './pages/Eskalationen';
 
 const App = () => {
 const isMobileNow =
@@ -87,13 +87,13 @@ if (
           }
         />
         <Route
-  path="ferienundfeiertage"
-  element={
-    <RollenCheckRoute erlaubteRollen={['SuperAdmin']}>
-      <FerienundFeiertage />
-    </RollenCheckRoute>
-  }
-/>
+          path="ferienundfeiertage"
+          element={
+            <RollenCheckRoute erlaubteRollen={['SuperAdmin']}>
+              <FerienundFeiertage />
+            </RollenCheckRoute>
+          }
+        />
         <Route
           path="schichtcockpit"
           element={
@@ -102,6 +102,14 @@ if (
               <SchichtCockpit />
             </RollenCheckRoute>
             </DesktopOnlyRoute>
+          }
+        />
+        <Route
+          path="eskalationen"
+          element={
+            <RollenCheckRoute erlaubteRollen={['SuperAdmin', 'Admin_Dev', 'Admin_dev', 'Planner']}>
+              <Eskalationen />
+            </RollenCheckRoute>
           }
         />
         <Route
