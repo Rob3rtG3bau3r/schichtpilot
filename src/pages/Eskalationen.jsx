@@ -7,7 +7,7 @@ const STATUS_OPTIONS = [
   { value: 'alle', label: 'Alle' },
   { value: 'offen', label: 'Offen' },
   { value: 'automatisch_geloest', label: 'Automatisch gelöst' },
-  { value: 'geprueft', label: 'Geprüft' },
+  { value: 'geprueft', label: 'Akzeptiert' },
 ];
 
 const TYP_LABELS = {
@@ -17,7 +17,12 @@ const TYP_LABELS = {
 };
 
 const typLabel = (typ) => TYP_LABELS[typ] || String(typ || '-').replaceAll('_', ' ');
-
+const statusLabel = (status) => {
+  if (status === 'offen') return 'Offen';
+  if (status === 'automatisch_geloest') return 'Automatisch gelöst';
+  if (status === 'geprueft') return 'Akzeptiert';
+  return status || '-';
+};
 const statusStyle = (status) => {
   if (status === 'offen') return 'bg-red-600/20 text-red-200 border-red-400/40';
   if (status === 'automatisch_geloest') return 'bg-gray-600/20 text-gray-300 border-gray-400/40';
@@ -208,9 +213,9 @@ const updateStatusGeprueft = async () => {
       : 'Alle Eskalationen';
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-950 text-gray-900 dark:text-white p-4 md:p-6">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white p-4 md:p-6">
       <div className="max-w-7xl mx-auto space-y-4">
-        <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow">
+        <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-4 shadow">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold">Eskalationen</h1>
@@ -226,7 +231,7 @@ const updateStatusGeprueft = async () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow">
+        <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-3 shadow">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -305,7 +310,7 @@ const updateStatusGeprueft = async () => {
           )}
         </div>
 
-        <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow">
+        <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-4 shadow">
           <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="text-lg font-semibold">{title}</h2>
             <span className="text-sm opacity-70">{rows.length} Einträge</span>
@@ -323,7 +328,7 @@ const updateStatusGeprueft = async () => {
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="text-left uppercase text-xs opacity-70 border-b border-gray-300 dark:border-gray-700">
+                  <tr className="text-left uppercase text-xs opacity-70 border-b border-gray-300 dark:border-gray-700 bg-gray-300 dark:bg-gray-700">
                     <th className="py-2 pr-4">Datum</th>
                     <th className="py-2 pr-4">Mitarbeiter</th>
                     {istSuperAdmin && <th className="py-2 pr-4">Firma/Unit</th>}
@@ -339,7 +344,7 @@ const updateStatusGeprueft = async () => {
                   {rows.map((e) => (
                     <tr
                       key={e.id}
-                      className="border-b border-gray-200 dark:border-gray-800 align-top"
+                      className="border-b border-gray-200 dark:border-gray-700 align-top"
                     >
                       <td className="py-3 pr-4 whitespace-nowrap font-medium">
                         {dayjs(e.datum).format('DD.MM.YYYY')}
@@ -363,7 +368,7 @@ const updateStatusGeprueft = async () => {
 
                       <td className="py-3 pr-4 whitespace-nowrap">
                         <span className={`px-2 py-1 rounded-full border text-xs ${statusStyle(e.status)}`}>
-                          {e.status}
+                          {statusLabel(e.status)}
                         </span>
                       </td>
 
