@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import dayjs from 'dayjs';
+import 'dayjs/locale/de';
 import duration from 'dayjs/plugin/duration';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 dayjs.extend(isSameOrBefore);
@@ -10,6 +11,7 @@ import { Info, GripVertical, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import { speichernInKampfliste } from '../../utils/speichernInKampfliste';
 
 dayjs.extend(duration);
+dayjs.locale('de');
 
 // Optional: Tests ohne Recalc via VITE_SP_SKIP_RECALC=1
 const PERF_SKIP_RECALC =
@@ -182,6 +184,9 @@ const SchichtDienstAendernForm = ({
   const [verlaufDaten, setVerlaufDaten] = useState([]);
 
   const [loading, setLoading] = useState(false);
+  const [eintragLaedt, setEintragLaedt] = useState(false);
+  const loadKeyRef = useRef('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Ruhezeit
   const [ruhezeitWarnung, setRuhezeitWarnung] = useState('');
@@ -312,15 +317,34 @@ const SchichtDienstAendernForm = ({
   // Initialwerte laden (Ist/Soll/Zeiten/Pause + Vortag/Folgetag)
   useEffect(() => {
     let alive = true;
-    const run = async () => {
-      if (!offen || !eintrag || !firma || !unit) return;
-      if (!schichtarten.length) return;
+      const run = async () => {
+        if (!offen || !eintrag || !firma || !unit) return;
+        if (!schichtarten.length) return;
 
-      // Reset UI
-      setMehrereTage(false);
-      setEnddatum('');
-      setSaveMessage('');
-      setRuhezeitWarnung('');
+        const loadKey = `${eintrag.user}|${eintrag.datum}|${firma}|${unit}`;
+        loadKeyRef.current = loadKey;
+
+        setEintragLaedt(true);
+
+        // Sofort alte Anzeige entfernen, damit kein vorheriger Tag sichtbar bleibt
+        setAuswahl({
+          kuerzel: '',
+          start: '',
+          ende: '',
+          ignoriertarbeitszeit: false,
+        });
+        setPause(0);
+        setSollKuerzel('-');
+        setVortagKuerzel('-');
+        setFolgetagKuerzel('-');
+        setKommentar('');
+
+        // Reset UI
+        setMehrereTage(false);
+        setEnddatum('');
+        setSaveMessage('');
+        setRuhezeitWarnung('');
+        setErrorMessage('');
 
       // 1) Tagesplan heute (Ist bevorzugt)
       const { data: tpHeute } = await ladeTagesplan({
@@ -358,7 +382,7 @@ const SchichtDienstAendernForm = ({
       else if (istSchicht?.pause_aktiv && istSchicht.pause_dauer != null) initialPause = Number(istSchicht.pause_dauer) / 60;
       else initialPause = 0;
 
-      if (!alive) return;
+      if (!alive || loadKeyRef.current !== loadKey) return;
 
       setAuswahl({
         kuerzel: kuerzelHeute,
@@ -376,7 +400,7 @@ const SchichtDienstAendernForm = ({
         firmaId: firma,
         unitId: unit,
       });
-      if (!alive) return;
+      if (!alive || loadKeyRef.current !== loadKey) return;
       setSollKuerzel(soll?.kuerzel || '-');
 
       // 3) Vortag/Folgetag Kürzel (aus v_tagesplan via ID)
@@ -401,9 +425,10 @@ const SchichtDienstAendernForm = ({
       const ftId = tpFt?.ist_schichtart_id || tpFt?.soll_schichtart_id || null;
       const ftSchicht = ftId ? schichtarten.find((s) => s.id === ftId) : null;
 
-      if (!alive) return;
+      if (!alive || loadKeyRef.current !== loadKey) return;
       setVortagKuerzel(vtSchicht?.kuerzel || '-');
       setFolgetagKuerzel(ftSchicht?.kuerzel || '-');
+      setEintragLaedt(false);
     };
 
     run();
@@ -516,7 +541,9 @@ const SchichtDienstAendernForm = ({
         ladeTagesplan({ userId: eintrag.user, datum: ft, firmaId: firma, unitId: unit }),
       ]);
 
-      if (!alive) return;
+      const pruefKey = `${eintrag.user}|${eintrag.datum}|${firma}|${unit}`;
+
+      if (!alive || loadKeyRef.current !== pruefKey) return;
 
       // Vortag Kürzel (Ist/Soll)
       const vtId = tpVt?.ist_schichtart_id || tpVt?.soll_schichtart_id || null;
@@ -588,42 +615,107 @@ const SchichtDienstAendernForm = ({
     auswahl.ignoriertarbeitszeit,
   ]);
 
-// Sperrlogik nach Rolle
-// Ziel: rückwirkende Änderungen stark begrenzen.
-// Das schützt die Nachvollziehbarkeit und ist später wichtig,
-// wenn Zeiten für Abrechnung / Zeiterfassung genutzt werden.
-const diffTage = eintrag ? dayjs().startOf('day').diff(dayjs(eintrag.datum), 'day') : 0;
+    // Sperrlogik nach Rolle
+    // Ziel: rückwirkende Änderungen stark begrenzen.
+    // Das schützt die Nachvollziehbarkeit und ist später wichtig,
+    // wenn Zeiten für Abrechnung / Zeiterfassung genutzt werden.
+    const diffTage = eintrag ? dayjs().startOf('day').diff(dayjs(eintrag.datum), 'day') : 0;
 
-const getRueckwirkendeTageLimit = () => {
-  if (rolle === 'Employee') return -1; // kein Zugriff / kein Speichern
+    const getRueckwirkendeTageLimit = () => {
+      if (rolle === 'Employee') return -1; // kein Zugriff / kein Speichern
 
-  if (rolle === 'Team_Leader') return 3;
+      if (rolle === 'Team_Leader') return 3;
 
-  if (rolle === 'Planner') return 3;
+      if (rolle === 'Planner') return 3;
 
-  // Sicherheit: beide Schreibweisen abfangen
-  if (rolle === 'Admin_Dev') return 30;
+      // Sicherheit: beide Schreibweisen abfangen
+      if (rolle === 'Admin_Dev') return 30;
 
-  // SuperAdmin bleibt unbegrenzt für absolute Ausnahmefälle
-  if (rolle === 'SuperAdmin') return null;
+      // SuperAdmin bleibt unbegrenzt für absolute Ausnahmefälle
+      if (rolle === 'SuperAdmin') return null;
 
-  // unbekannte Rollen sicherheitshalber sperren
-  return -1;
-};
+      // unbekannte Rollen sicherheitshalber sperren
+      return -1;
+    };
 
-const rueckLimit = getRueckwirkendeTageLimit();
+    const rueckLimit = getRueckwirkendeTageLimit();
 
-const speichernGesperrt =
-  rueckLimit === -1 ||
-  (rueckLimit !== null && diffTage > rueckLimit);
+    const speichernGesperrt =
+      rueckLimit === -1 ||
+      (rueckLimit !== null && diffTage > rueckLimit);
 
+    const pruefeUrlaubNichtNegativ = async ({ userId, jahr, anzahlTage }) => {
+      const { data, error } = await supabase
+        .from('DB_Urlaub')
+        .select('urlaub_gesamt, summe_jahr, urlaub_soll, uebernahme_vorjahr')
+        .eq('user_id', userId)
+        .eq('jahr', jahr)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Fehler bei Urlaubsprüfung:', error);
+        return {
+          ok: false,
+          message: 'Urlaub konnte nicht geprüft werden. Speichern wurde abgebrochen.',
+        };
+      }
+
+      if (!data) {
+        return {
+          ok: false,
+          message: 'Für diesen Mitarbeiter wurde kein Urlaubskonto gefunden.',
+        };
+      }
+
+      const urlaubGesamt =
+        Number(data.urlaub_gesamt ?? 0) ||
+        Number(data.urlaub_soll ?? 0) + Number(data.uebernahme_vorjahr ?? 0);
+
+      const bereitsVerplant = Number(data.summe_jahr ?? 0);
+      const rest = urlaubGesamt - bereitsVerplant;
+
+      if (rest - anzahlTage < 0) {
+        return {
+          ok: false,
+          message: `Urlaub darf nicht negativ werden. Resturlaub: ${formatStunden(rest)} Tage, angefordert: ${anzahlTage} Tage.`,
+        };
+      }
+
+      return { ok: true, message: '' };
+    };
+    const zaehleUrlaubstageDieWirklichGespeichertWerden = async ({ userId, dates, firmaId, unitId }) => {
+      let count = 0;
+
+      for (const datum of dates) {
+        const { data: tp } = await ladeTagesplan({
+          userId,
+          datum,
+          firmaId,
+          unitId,
+        });
+
+        const schichtId = tp?.ist_schichtart_id || tp?.soll_schichtart_id || null;
+        const schicht = schichtId ? schichtarten.find((s) => s.id === schichtId) : null;
+        const kuerzel = schicht?.kuerzel || '-';
+
+        // Urlaub nur zählen, wenn es vorher ein echter Arbeitstag war
+        if (istArbeitsTag(kuerzel)) {
+          count += 1;
+        }
+      }
+
+      return count;
+    };
   /* --------------------------------- Save --------------------------------- */
-
   const handleSpeichern = async (schliessenDanach = false) => {
     if (speichernGesperrt) return;
     if (!eintrag?.user || !eintrag?.datum || !firma || !unit) return;
 
     setLoading(true);
+    setSaveMessage('');
+    setErrorMessage('');
 
     // Auth nur 1x
     const { data: authUser } = await supabase.auth.getUser();
@@ -647,7 +739,44 @@ const speichernGesperrt =
     for (let d = startDatum; d.isSameOrBefore(endDatum); d = d.add(1, 'day')) {
       dates.push(d.format('YYYY-MM-DD'));
     }
+    // Urlaub darf nicht ins Negative laufen
+    if (auswahl.kuerzel === 'U') {
+      const jahr = startDatum.year();
 
+      // Sicherheitsregel: Urlaub über Jahreswechsel hier erstmal blockieren,
+      // weil sonst zwei Urlaubskonten geprüft werden müssten.
+      const jahre = new Set(dates.map((d) => dayjs(d).year()));
+      if (jahre.size > 1) {
+        setErrorMessage('Urlaub über den Jahreswechsel bitte getrennt speichern.');
+        setLoading(false);
+        return;
+      }
+
+      const anzahlUrlaubstage = await zaehleUrlaubstageDieWirklichGespeichertWerden({
+        userId: eintrag.user,
+        dates,
+        firmaId: f,
+        unitId: u,
+      });
+
+      if (anzahlUrlaubstage <= 0) {
+        setErrorMessage('In diesem Zeitraum wurde kein Arbeitstag gefunden, auf den Urlaub geschrieben werden kann.');
+        setLoading(false);
+        return;
+      }
+
+      const urlaubsCheck = await pruefeUrlaubNichtNegativ({
+        userId: eintrag.user,
+        jahr,
+        anzahlTage: anzahlUrlaubstage,
+      });
+
+      if (!urlaubsCheck.ok) {
+        setErrorMessage(urlaubsCheck.message);
+        setLoading(false);
+        return;
+      }
+    }
         // ✅ Zentrales Speichern (Verlauf -> Delete -> Insert + Recalc)
     await speichernInKampfliste({
       firmaId: f,
@@ -746,6 +875,7 @@ const speichernGesperrt =
   if (!offen || !eintrag) return null;
 
   const farbeAktuelleSchicht = schichtByKuerzel.get(auswahl.kuerzel);
+  const formularNochNichtBereit = eintragLaedt || !auswahl.kuerzel;
 
   const ladeNeuenTag = (richtung) => {
     const neuesDatum = dayjs(eintrag.datum)[richtung](1, 'day').format('YYYY-MM-DD');
@@ -823,10 +953,23 @@ const speichernGesperrt =
             </button>
           </div>
         </div>
-
+        {formularNochNichtBereit && (
+          <div className="mb-3 rounded-xl border border-blue-300 bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 px-3 py-2 text-xs">
+            Dienst wird geladen...
+          </div>
+        )}
         {/* Save-Meldung */}
         {saveMessage && (
-          <div className="mb-2 text-green-600 text-left text-xs font-medium">✅ {saveMessage}</div>
+          <div className="mb-2 text-green-600 text-left text-xs font-medium">
+            ✅ {saveMessage}
+          </div>
+        )}
+
+        {/* Fehler-Meldung */}
+        {errorMessage && (
+          <div className="mb-2 text-red-600 text-left text-xs font-medium">
+            ❌ {errorMessage}
+          </div>
         )}
 
         {/* Datum / Navigation / Multi-Tage */}
@@ -835,19 +978,15 @@ const speichernGesperrt =
             {/* Links: Datum + Ist-Schicht */}
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => ladeNeuenTag('subtract')}
-                  className="text-xl hover:text-blue-500"
-                  title="Einen Tag zurück"
-                >
-                  ←
-                </button>
-                <h2 className="text-lg font-bold">{dayjs(eintrag.datum).format('DD.MM.YYYY')}</h2>
-                <button onClick={() => ladeNeuenTag('add')} className="text-xl hover:text-blue-500" title="Einen Tag vor">
-                  →
-                </button>
+                <h2 className="text-lg font-bold">
+                  {dayjs(eintrag.datum).format('DD.MM.YYYY')}
+                </h2>
+
+                <span className="text-sm font-semibold text-gray-500 dark:text-gray-300">
+                  {dayjs(eintrag.datum).format('dddd')}
+                </span>
               </div>
-<div className="text-xs text-center text-gray-400 px-2 py-1 border border-gray-700 rounded-lg">
+                <div className="text-xs text-center text-gray-400 px-2 py-1 border border-gray-700 rounded-lg">
                 <div>Vortag:</div>
                 <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">{vortagKuerzel}</div>
               </div>
@@ -887,15 +1026,23 @@ const speichernGesperrt =
               <input
                 type="date"
                 value={enddatum}
+                disabled={formularNochNichtBereit}
                 onChange={(e) => setEnddatum(e.target.value)}
                 min={eintrag.datum}
-                className="p-1 rounded-xl bg-gray-100 dark:bg-gray-700 text-center text-sm"
+                className={`p-1 rounded-xl bg-gray-100 dark:bg-gray-700 text-center text-sm ${
+                  formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               />
             )}
-            <label className="flex items-center gap-2 text-md">
+            <label
+                className={`flex items-center gap-2 text-md ${
+                  formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
               <input
                 type="checkbox"
                 checked={mehrereTage}
+                disabled={formularNochNichtBereit}
                 onChange={() => {
                   const aktiv = !mehrereTage;
                   setMehrereTage(aktiv);
@@ -919,8 +1066,11 @@ const speichernGesperrt =
               <input
                 type="time"
                 value={auswahl.start}
+                disabled={formularNochNichtBereit}
                 onChange={(e) => setAuswahl((p) => ({ ...p, start: e.target.value }))}
-                className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
+                className={`w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300 ${
+                  formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               />
             </div>
 
@@ -929,8 +1079,11 @@ const speichernGesperrt =
               <input
                 type="time"
                 value={auswahl.ende}
+                disabled={formularNochNichtBereit}
                 onChange={(e) => setAuswahl((p) => ({ ...p, ende: e.target.value }))}
-                className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
+                className={`w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300 ${
+                  formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               />
             </div>
 
@@ -944,11 +1097,14 @@ const speichernGesperrt =
                   ⓘ
                 </span>
               </label>
-              <select
-                value={pause}
-                onChange={(e) => setPause(Number(e.target.value))}
-                className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
-              >
+                <select
+                  value={pause}
+                  disabled={formularNochNichtBereit}
+                  onChange={(e) => setPause(Number(e.target.value))}
+                  className={`w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300 ${
+                    formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
                 {(!pausenPflichtAktiv || minPauseByLaw <= 0) && <option value={0}>0 min</option>}
                 {(!pausenPflichtAktiv || minPauseByLaw <= 0.25) && <option value={0.25}>15 min</option>}
 
@@ -987,15 +1143,22 @@ const speichernGesperrt =
           <label className="block mb-2 text-sm">Schichtart wählen</label>
           <div className="grid grid-cols-4 gap-2">
             {schichtarten.map((s) => (
-              <div
-                key={s.id}
-                className={`rounded-xl p-2 cursor-pointer border text-sm flex justify-between items-center text-center ${
-                  auswahl.kuerzel === s.kuerzel ? 'ring-2 ring-white' : ''
-                }`}
-                style={{ backgroundColor: s.farbe_bg, color: s.farbe_text }}
-                onClick={() => handleSchichtwahl(s.kuerzel)}
-                title={s.beschreibung}
-              >
+            <div
+              key={s.id}
+              className={`rounded-xl p-2 border text-sm flex justify-between items-center text-center transition ${
+                auswahl.kuerzel === s.kuerzel ? 'ring-2 ring-white' : ''
+              } ${
+                formularNochNichtBereit
+                  ? 'opacity-40 cursor-not-allowed pointer-events-none'
+                  : 'cursor-pointer'
+              }`}
+              style={{ backgroundColor: s.farbe_bg, color: s.farbe_text }}
+              onClick={() => {
+                if (formularNochNichtBereit) return;
+                handleSchichtwahl(s.kuerzel);
+              }}
+              title={formularNochNichtBereit ? 'Dienst wird geladen...' : s.beschreibung}
+            >
                 <span className="font-semibold mr-1">{s.kuerzel}</span>
                 <span className="text-xs">
                   {s.startzeit} - {s.endzeit}
@@ -1008,14 +1171,17 @@ const speichernGesperrt =
         {/* Kommentar */}
         <div className="mb-4">
           <label className="block mb-1">Kommentar (optional)</label>
-          <textarea
-            maxLength={150}
-            rows={2}
-            value={kommentar}
-            onChange={(e) => setKommentar(e.target.value)}
-            className="w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300"
-            placeholder="Kommentar max. 150 Zeichen"
-          />
+            <textarea
+              maxLength={150}
+              rows={2}
+              value={kommentar}
+              disabled={formularNochNichtBereit}
+              onChange={(e) => setKommentar(e.target.value)}
+              className={`w-full p-2 rounded-xl bg-gray-100 dark:bg-gray-700 dark:text-white ring-1 ring-gray-300 ${
+                formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              placeholder="Kommentar max. 150 Zeichen"
+            />
         </div>
         {speichernGesperrt && (
           <div className="mb-3 rounded-xl border border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 px-3 py-2 text-xs">
@@ -1060,9 +1226,9 @@ const speichernGesperrt =
 
               <button
                 onClick={() => handleSpeichern(false)}
-                disabled={loading || speichernGesperrt}
+                disabled={loading || speichernGesperrt || formularNochNichtBereit}
                 className={`bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl transition ${
-                  loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''
+                  loading || speichernGesperrt || formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 Speichern
@@ -1070,9 +1236,9 @@ const speichernGesperrt =
 
               <button
                 onClick={() => handleSpeichern(true)}
-                disabled={loading || speichernGesperrt}
+                disabled={loading || speichernGesperrt || formularNochNichtBereit}
                 className={`bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-xl transition ${
-                  loading || speichernGesperrt ? 'opacity-50 cursor-not-allowed' : ''
+                  loading || speichernGesperrt || formularNochNichtBereit ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 Speichern &amp; Schließen
