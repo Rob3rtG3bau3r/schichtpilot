@@ -95,21 +95,8 @@ const sendBulk = () => {
 };
 
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-bold">Verfügbare Mitarbeiter</h2>
-            <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-              Kandidaten, die zur Zielschicht passen und geprüft werden können.
-            </p>
-          </div>
-          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200">
-            {(freieMitarbeiter || []).length}
-          </span>
-        </div>
-      </div>
-      <div className="p-4">
+    <div>
+          <h2 className="mt-2 px-2 py-1 border border-gray-600 rounded-xl bg-gray-900/50"> Verfügbare Mitarbeiter </h2>
           <div className="mt-2 p-2 rounded-xl border border-gray-700/30 bg-gray-900/20">
             <div className="text-sm mb-2">Ich suche jemanden für:</div>
 
@@ -120,7 +107,7 @@ const sendBulk = () => {
                   type="button"
                   onClick={() => setSucheTage?.(n)}
                   className={[
-                    "px-3 py-0.5 rounded-lg text-xs border",
+                    "px-3 py=0.5 rounded-lg text-xs border",
                     sucheTage === n
                       ? "bg-blue-700 text-white border-blue-700"
                       : "bg-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
@@ -356,7 +343,6 @@ const sendBulk = () => {
           />
           Kollidiert mit Dienst
         </label>
-      </div>
       </div>
     </div>
   );

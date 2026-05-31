@@ -70,7 +70,6 @@ const [ausgrauByUserDate, setAusgrauByUserDate] = useState({});       // { [uid]
   // Bedarf / Überbesetzung
   const [deckungByShift, setDeckungByShift] = useState(null); // {F,S,N}
   const [overByShift, setOverByShift] = useState({ F: false, S: false, N: false });
-  const [qualiTextByKuerzel, setQualiTextByKuerzel] = useState({}); // { SM: 'Schichtmeister' }
 
   // Schichttausch
   const [tauschAktiv, setTauschAktiv] = useState(false);
@@ -99,30 +98,6 @@ const [ausgrauByUserDate, setAusgrauByUserDate] = useState({});       // { [uid]
 
   const sch = String(modalSchicht || '').toUpperCase(); // 'F' | 'S' | 'N'
   const modalJahr = dayjs(modalDatum).year();
-
-  const formatQualiLabel = (kuerzel) => {
-    const kz = String(kuerzel || '').trim();
-    if (!kz) return '—';
-
-    const text = String(qualiTextByKuerzel[kz] || '').trim();
-    return text ? `${kz} – ${text}` : kz;
-  };
-
-  const formatQualiListe = (liste = []) => {
-    if (!liste?.length) return '—';
-    return liste.map((k) => formatQualiLabel(k)).join(', ');
-  };
-
-  const formatMissingQualiLabel = (x) => {
-    const kz = String(x?.kz || '').trim();
-    if (!kz) return '—';
-
-    const text = String(x?.qualifikation || qualiTextByKuerzel[kz] || '').trim();
-    const label = text ? `${kz} – ${text}` : kz;
-    const menge = Number(x?.missing || 0);
-
-    return menge > 1 ? `${label} +${menge}` : label;
-  };
 
   const maskForEmployee = (kuerzel) => {
     if (rolle === 'Employee' && (kuerzel === 'K' || kuerzel === 'KO')) return '-';
@@ -488,7 +463,6 @@ const kannMehrTage = (uid, anzahl, mode = 'frei', quelle = null) => {
       setFreieMitarbeiter([]);
       setDeckungByShift(null);
       setOverByShift({ F: false, S: false, N: false });
-      setQualiTextByKuerzel({});
       setTauschAktiv(false);
       setTauschQuelle('');
       setTauschChecks(new Map());
@@ -803,7 +777,6 @@ if (allUserIdsAtDay.length) {
             matrix:DB_Qualifikationsmatrix!inner(
               id,
               quali_kuerzel,
-              qualifikation,
               aktiv,
               firma_id,
               unit_id
@@ -865,7 +838,7 @@ if (allUserIdsAtDay.length) {
 
         const { data: matrixRows, error: mErr } = await supabase
           .from('DB_Qualifikationsmatrix')
-          .select('id, quali_kuerzel, qualifikation, betriebs_relevant, position, aktiv')
+          .select('id, quali_kuerzel, betriebs_relevant, position, aktiv')
           .eq('firma_id', firma)
           .eq('unit_id', unit);
         if (mErr) console.error('DB_Qualifikationsmatrix error', mErr);
@@ -874,20 +847,11 @@ if (allUserIdsAtDay.length) {
         (matrixRows || []).forEach((q) => {
           matrixMap[q.id] = {
             kuerzel: q.quali_kuerzel,
-            qualifikation: q.qualifikation || '',
             relevant: !!q.betriebs_relevant,
             position: Number(q.position ?? 999),
             aktiv: !!q.aktiv,
           };
         });
-
-        if (alive) {
-          const textMap = {};
-          (matrixRows || []).forEach((q) => {
-            if (q.quali_kuerzel) textMap[q.quali_kuerzel] = q.qualifikation || '';
-          });
-          setQualiTextByKuerzel(textMap);
-        }
 
         const makeBedarfHeute = (shiftKey) => {
           const datum = modalDatum;
@@ -902,7 +866,6 @@ if (allUserIdsAtDay.length) {
               ...b,
               position: matrixMap[b.quali_id]?.position ?? 999,
               kuerzel: matrixMap[b.quali_id]?.kuerzel || '???',
-              qualifikation: matrixMap[b.quali_id]?.qualifikation || '',
               relevant: matrixMap[b.quali_id]?.relevant,
               aktiv: matrixMap[b.quali_id]?.aktiv,
             }))
@@ -993,7 +956,7 @@ if (allUserIdsAtDay.length) {
               used.add(cand.uid);
               remaining -= 1;
             }
-            if (remaining > 0) missingByQuali.push({ kz: b.kuerzel, qualifikation: b.qualifikation || '', missing: remaining, position: b.position ?? 999 });
+            if (remaining > 0) missingByQuali.push({ kz: b.kuerzel, missing: remaining, position: b.position ?? 999 });
           }
 
           const missingTotal = missingByQuali.reduce((s, x) => s + Number(x.missing || 0), 0);
@@ -1047,7 +1010,7 @@ if (allUserIdsAtDay.length) {
   const missingText = (d) => {
     if (!d) return '—';
     if (!d.missingByQuali?.length) return '—';
-    return d.missingByQuali.map((x) => formatMissingQualiLabel(x)).join(', ');
+    return d.missingByQuali.map((x) => `${x.kz}${x.missing > 1 ? `+${x.missing}` : ''}`).join(', ');
   };
 
   const simulateDeckung = (shiftKey, userIdsOverride) => {
@@ -1093,13 +1056,13 @@ if (allUserIdsAtDay.length) {
         used.add(cand.uid);
         remaining -= 1;
       }
-      if (remaining > 0) missingByQuali.push({ kz: b.kuerzel, qualifikation: b.qualifikation || '', missing: remaining, pos: b.position ?? 999 });
+      if (remaining > 0) missingByQuali.push({ kz: b.kuerzel, missing: remaining, pos: b.position ?? 999 });
     }
 
     const missingTotal = missingByQuali.reduce((s, x) => s + Number(x.missing || 0), 0);
     const txt = missingByQuali
       .sort((a, b) => a.pos - b.pos)
-      .map((x) => formatMissingQualiLabel(x))
+      .map(x => `${x.kz}${x.missing > 1 ? `+${x.missing}` : ''}`)
       .join(', ');
 
     return { ok: missingTotal === 0, missingText: txt || '—' };
@@ -1132,7 +1095,7 @@ if (allUserIdsAtDay.length) {
   };
 
   useEffect(() => {
-    if (!tauschenMoeglich) return;
+    if (!tauschAktiv) return;
     if (!tauschQuelle) return;
     if (!deckungBasis) return;
 
@@ -1279,23 +1242,15 @@ const pickUserById = (uid) => {
           onOpenAktionModal?.();
         }}
         title={`${SCH_LABEL[sch] || sch}-Schicht am ${dayjs(modalDatum).format('DD.MM.YYYY')}`}
-        subtitle={`Ziel: ${SCH_LABEL[sch] || sch} · Fehlende Qualifikationen: ${formatQualiListe(fehlendeQualis)}`}
       >
-        <div className="mb-4 rounded-2xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-4 py-3">
-          <div className="text-xs uppercase tracking-wide text-red-700 dark:text-red-300 font-semibold">
-            Fehlende Qualifikationen (Ziel)
-          </div>
-          <div className="mt-1 text-sm font-medium text-red-900 dark:text-red-100">
-            {formatQualiListe(fehlendeQualis)} 
-          </div>
-        </div>
+        <p className="text-sm">❌ Fehlende Qualifikationen (Ziel): {fehlendeQualis.length ? fehlendeQualis.join(', ') : '—'}</p>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Links */}
           <BAM_MitarbeiterimDienst mitarbeiter={mitarbeiter} />
 
           {/* Rechts */}
-          <div className="space-y-4">
+          <div>
             <BAM_SchichtTausch
               deckungByShift={deckungByShift}
               overByShift={overByShift}
