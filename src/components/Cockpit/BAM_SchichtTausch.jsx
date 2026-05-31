@@ -13,8 +13,6 @@ export default function BAM_SchichtTausch({
 
   // Aktivierung
   tauschenMoeglich,
-  tauschAktiv,
-  setTauschAktiv,
 
   // Quelle / Ziel
   sch, // Zielschicht (Modal)
@@ -60,11 +58,10 @@ export default function BAM_SchichtTausch({
     // Wenn kein Schichttausch möglich ist, startet der Bereich eingeklappt.
     setBereichOffen(!!tauschenMoeglich);
     if (!tauschenMoeglich) {
-      setTauschAktiv?.(false);
       setMultiAktiv(false);
       setSelectedIds(new Set());
     }
-  }, [tauschenMoeglich, setTauschAktiv]);
+  }, [tauschenMoeglich]);
 
   useEffect(() => {
     // Tag/Schicht: Text vorfüllen, Auswahl reset
@@ -72,13 +69,12 @@ export default function BAM_SchichtTausch({
     setBulkText((prev) => (prev?.trim() ? prev : defaultBulkText));
   }, [defaultBulkText]);
 
-  useEffect(() => {
-    // Quelle / Aktivierung: Auswahl & Hint resetten (damit nichts hängen bleibt)
-    setSelectedIds(new Set());
-    setBulkHint('');
-    setBulkTone('info');
-    setMultiAktiv(false);
-  }, [tauschQuelle, tauschAktiv]);
+useEffect(() => {
+  setSelectedIds(new Set());
+  setBulkHint('');
+  setBulkTone('info');
+  setMultiAktiv(false);
+}, [tauschQuelle]);
 
   useEffect(() => {
     if (!bulkHint) return;
@@ -111,7 +107,7 @@ export default function BAM_SchichtTausch({
 
   const msgTrim = String(bulkText || '').trim();
   const canSendBulk =
-    !!tauschAktiv &&
+    !!tauschenMoeglich &&
     !!tauschQuelle &&
     multiAktiv &&
     selectedIds.size > 0 &&
@@ -122,7 +118,7 @@ export default function BAM_SchichtTausch({
     const ids = Array.from(selectedIds);
     const msg = String(bulkText || '').trim();
 
-    if (!tauschAktiv || !tauschQuelle) {
+    if (!tauschenMoeglich || !tauschQuelle) {
       setBulkTone('warn');
       setBulkHint('Bitte zuerst Tausch aktivieren und Quelle wählen.');
       return;

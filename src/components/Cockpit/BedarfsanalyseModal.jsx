@@ -71,7 +71,7 @@ const [ausgrauByUserDate, setAusgrauByUserDate] = useState({});       // { [uid]
   const [deckungByShift, setDeckungByShift] = useState(null); // {F,S,N}
   const [overByShift, setOverByShift] = useState({ F: false, S: false, N: false });
   const [qualiTextByKuerzel, setQualiTextByKuerzel] = useState({}); // { SM: 'Schichtmeister' }
-
+  const tauschenMoeglich = !!(overByShift.F || overByShift.S || overByShift.N);
   // Schichttausch
   const [tauschAktiv, setTauschAktiv] = useState(false);
 
@@ -1158,7 +1158,7 @@ if (allUserIdsAtDay.length) {
     setTauschChecks(m);
     setTauschOkIds(okList);
     setTauschAutoLoading(false);
-  }, [tauschAktiv, tauschQuelle, deckungBasis, shiftUserIds, sch]);
+  }, [tauschenMoeglich, tauschQuelle, deckungBasis, shiftUserIds, sch]);
 
   // Gesprächsnotizen laden (dein Code – unverändert)
   useEffect(() => {
@@ -1265,8 +1265,6 @@ const pickUserById = (uid) => {
       kann_nur_nacht: !!n?.kann_nur_nacht,
     });
   };
-
-  const tauschenMoeglich = !!(overByShift.F || overByShift.S || overByShift.N);
 
   return (
     <>
