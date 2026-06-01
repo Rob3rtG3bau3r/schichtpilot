@@ -30,7 +30,7 @@ export default function SystemTools() {
   useEffect(() => { localStorage.setItem('sys_tools_tab', tab); }, [tab]);
 
   return (
-    <div className="min-h-screen bg:gray-200 dark:bg-gray-800 text-white p-4">
+    <div className="min-h-screen bg-gray-200 dark:bg-gray-800 text-white p-4">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">System-Tools</h1>
 
