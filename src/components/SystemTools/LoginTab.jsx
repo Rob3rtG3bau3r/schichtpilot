@@ -688,11 +688,6 @@ export default function LoginTab() {
               </button>
             </div>
           )}
-
-          <div className="text-[10px] text-gray-500 mt-3">
-            Hinweis: Fehlgeschlagene Loginversuche werden erst sichtbar, wenn dein Login-Code die RPC{' '}
-            <code>log_login_attempt</code> aufruft.
-          </div>
         </div>
       )}
     </div>
