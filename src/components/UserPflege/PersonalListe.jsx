@@ -2,14 +2,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
-import { Info } from 'lucide-react';
+import { Info, UserPlus } from 'lucide-react';
 
 const SortIcon = ({ aktiv, richtung }) => {
   if (!aktiv) return <span className="opacity-20">↕</span>;
   return richtung === 'asc' ? <span>▲</span> : <span>▼</span>;
 };
 
-const Personalliste = ({ onUserClick, refreshKey }) => {
+const Personalliste = ({ onUserClick, refreshKey, onAddUser }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle: eigeneRolle } = useRollen();
   const isSuperAdmin = eigeneRolle === 'SuperAdmin';
   const canCsvDownload = ['SuperAdmin', 'Admin_Dev', 'Planner'].includes(eigeneRolle);
@@ -24,6 +24,8 @@ const Personalliste = ({ onUserClick, refreshKey }) => {
   const [filterTeam, setFilterTeam] = useState('alle');
   const [filterRolle, setFilterRolle] = useState('alle');
   const [filterWochenstunden, setFilterWochenstunden] = useState(''); // Text
+  const [aktiveAccounts, setAktiveAccounts] = useState(0);
+  const [maxAccounts, setMaxAccounts] = useState(null);
 
   const handleSortierung = (feld) => {
     setSortierung((aktuell) =>
@@ -320,6 +322,29 @@ if (failed.length > 0) {
       }
 
       const aktive = (mitarbeiter || []).filter((m) => m.aktiv !== false);
+
+      // ✅ Aktive Accounts zählen
+      setAktiveAccounts(aktive.length);
+
+      // ✅ Unit-Limit laden
+      if (!isSuperAdmin && unit && firma) {
+        const { data: unitRow, error: unitErr } = await supabase
+          .from('DB_Unit')
+          .select('anzahl_ma')
+          .eq('id', unit)
+          .eq('firma', firma)
+          .maybeSingle();
+
+        if (unitErr) {
+          console.error('Fehler beim Laden des Unit-Limits:', unitErr);
+          setMaxAccounts(null);
+        } else {
+          setMaxAccounts(unitRow?.anzahl_ma ?? null);
+        }
+      } else {
+        setMaxAccounts(null);
+      }
+
       const userIds = aktive.map((m) => m.user_id);
       if (userIds.length === 0) {
         setPersonen([]);
@@ -530,40 +555,73 @@ if (failed.length > 0) {
 
   return (
     <div className="p-4 shadow-xl rounded-xl border border-gray-300 dark:border-gray-700">
-      <div className="flex justify-between items-center mb-2 gap-2">
-  <h2 className="text-md font-bold">Mitarbeiterliste{isSuperAdmin ? ' (alle Firmen)' : ''}</h2>
-  <div className="flex items-center gap-2">
-  {canCsvDownload && (
-    <button type="button" onClick={downloadTelefonCSV} className="px-3 py-1 rounded ...">
-      CSV Download
-    </button>
-  )}
+      <div className="flex justify-between items-start mb-3 gap-3 flex-wrap">
+        <div>
+          <h2 className="text-md font-bold">
+            Mitarbeiterliste{isSuperAdmin ? ' (alle Firmen)' : ''}
+          </h2>
 
-  {canCsvUpload && (
-    <>
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".csv,text/csv"
-        className="hidden"
-        onChange={(e) => uploadTelefonCSV(e.target.files?.[0])}
-      />
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
-      >
-        CSV Upload
-      </button>
-    </>
-  )}
+          {!isSuperAdmin && (
+            <div className="mt-1 inline-flex items-center rounded-full border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 px-3 py-1 text-xs text-gray-700 dark:text-gray-200">
+              Aktive Accounts:&nbsp;
+              <span className="font-semibold">
+                {aktiveAccounts} / {maxAccounts ?? '–'}
+              </span>
+            </div>
+          )}
+        </div>
 
-    <Info
-      className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
-      onClick={() => setInfoOffen(true)}
-    />
-  </div>
-</div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {canCsvDownload && (
+            <button
+              type="button"
+              onClick={downloadTelefonCSV}
+              className="px-3 py-1 rounded bg-gray-600 hover:bg-gray-700 text-white text-sm"
+              title="Telefonliste als CSV herunterladen"
+            >
+              Telefonliste CSV Download
+            </button>
+          )}
+
+          {canCsvUpload && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => uploadTelefonCSV(e.target.files?.[0])}
+              />
+
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                title="Telefonliste per CSV aktualisieren"
+              >
+                Telefonliste CSV Upload
+              </button>
+            </>
+          )}
+
+          {!isSuperAdmin && onAddUser && (
+            <button
+              type="button"
+              onClick={onAddUser}
+              className="inline-flex items-center gap-2 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
+              title="Neuen Mitarbeiter für diese Unit anlegen"
+            >
+              <UserPlus size={16} />
+              Mitarbeiter hinzufügen
+            </button>
+          )}
+
+          <Info
+            className="w-5 h-5 cursor-pointer text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+            onClick={() => setInfoOffen(true)}
+          />
+        </div>
+      </div>
 {csvInfo && (
   <div
     className={`mb-3 text-sm rounded-lg px-3 py-2 border ${
