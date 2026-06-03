@@ -1,5 +1,5 @@
 // src/components/Cockpit/Wochen_MitarbeiterBedarf.jsx
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
@@ -10,6 +10,7 @@ dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
 
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
+import AnfrageAktionModal from './AnfrageAktionModal';
 import { Info } from 'lucide-react';
 
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
@@ -18,7 +19,11 @@ const FEATURE_ANALYSE = 'bedarf_analyse';
 // --- Schicht-Helpers ---
 const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
 const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
+const SHIFT_KUERZEL_SET = new Set(['F', 'S', 'N']);
+
 const isPastDay = (datum) => dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
+const isOlderThanEmployeeHistoryLimit = (datum) =>
+  dayjs(datum).isBefore(dayjs().subtract(3, 'day').startOf('day'), 'day');
 
 // Zeit: "HH:mm" | "HH:mm:ss" -> Minuten
 const timeToMin = (t) => {
@@ -27,7 +32,9 @@ const timeToMin = (t) => {
   if (!s) return null;
   const parts = s.split(':').map((x) => parseInt(x, 10));
   if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return null;
-  return parts[0] * 60 + parts[1];
+  const hh = parts[0];
+  const mm = parts[1];
+  return hh * 60 + mm;
 };
 
 // Bereich [start,end] normalisieren; wenn end < start => über Mitternacht
@@ -89,7 +96,7 @@ const groupByQualiSum = (items) => {
 
 const iconFor = (n) => (n === 1 ? '👤' : '👥');
 
-// Abdeckungs-Algorithmus (wie Monats-Version) für eine gegebene User-Menge
+// Abdeckungs-Algorithmus (dein bestehendes Prinzip) für eine gegebene User-Menge
 const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) => {
   const verwendeteUser = new Set();
 
@@ -125,6 +132,7 @@ const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) =
     }
   }
 
+  // Missing berechnen
   let totalMissing = 0;
   const fehlend = [];
   let topMissingKuerzel = null;
@@ -145,13 +153,65 @@ const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) =
   return { abdeckung, totalMissing, fehlend, topMissingKuerzel, nichtVerwendete };
 };
 
-const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
-  const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+const countMonthlyUnterdeckungen = (status, tage) => {
+  let frueh = 0;
+  let spaet = 0;
+  let nacht = 0;
 
-  const [tage, setTage] = useState([]); // ['YYYY-MM-DD', ...] – aus visibleRange
+  for (const datum of tage || []) {
+    const f = status?.F?.[datum];
+    const s = status?.S?.[datum];
+    const n = status?.N?.[datum];
+
+    if (String(f?.farbe || '').includes('bg-red')) frueh++;
+    if (String(s?.farbe || '').includes('bg-red')) spaet++;
+    if (String(n?.farbe || '').includes('bg-red')) nacht++;
+  }
+
+  return {
+    frueh_unterdeckung: frueh,
+    spaet_unterdeckung: spaet,
+    nacht_unterdeckung: nacht,
+  };
+};
+
+const saveMonthlyUnterdeckung = async ({
+  firma,
+  unit,
+  jahr,
+  monat,
+  counts,
+}) => {
+  if (!firma || !unit || jahr == null || monat == null || !counts) return;
+
+  const payload = {
+    firma_id: firma,
+    unit_id: unit,
+    jahr,
+    monat,
+    frueh_unterdeckung: counts.frueh_unterdeckung ?? 0,
+    spaet_unterdeckung: counts.spaet_unterdeckung ?? 0,
+    nacht_unterdeckung: counts.nacht_unterdeckung ?? 0,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from('DB_MonatsUnterdeckung')
+    .upsert(payload, {
+      onConflict: 'firma_id,unit_id,jahr,monat',
+    });
+
+  if (error) {
+    console.error('❌ Fehler beim Speichern der Monats-Unterdeckung:', error.message);
+  }
+};
+
+const Wochen_MitarbeiterBedarf = ({ refreshKey = 0, onSavedForDay }) => {
+  const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
+  
+  const [tage, setTage] = useState([]);
   const [rangeStart, setRangeStart] = useState(null);
   const [rangeEnd, setRangeEnd] = useState(null);
-
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
 
@@ -163,7 +223,7 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
     return () => window.removeEventListener('sp:selectedDates', onSel);
   }, []);
 
-  // Tooltip-Datenquellen
+  // Tooltip-Datenquellen (für sprechende Namen/Bezeichnungen)
   const [userNameMapState, setUserNameMapState] = useState({});
   const [matrixMapState, setMatrixMapState] = useState({});
 
@@ -176,13 +236,32 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
   const [modalDatum, setModalDatum] = useState('');
   const [modalSchicht, setModalSchicht] = useState('');
   const [fehlendeQualis, setFehlendeQualis] = useState([]);
+  const [authUserQualis, setAuthUserQualis] = useState([]);
+
+  const [aktionModalOffen, setAktionModalOffen] = useState(false);
+  const [aktionModalDatum, setAktionModalDatum] = useState('');
+  const [aktionModalSchicht, setAktionModalSchicht] = useState('');
+
+  const [aktionEigeneSchicht, setAktionEigeneSchicht] = useState(null);
+  const [aktionEigeneUnterdeckung, setAktionEigeneUnterdeckung] = useState(false);
+  const [aktionAngeklickteUnterdeckung, setAktionAngeklickteUnterdeckung] = useState(false);
+  const [aktionKannHelfen, setAktionKannHelfen] = useState(false);
 
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
+  const isEmployee = rolle === 'Employee';
+  const canOpenAnalyseModal = allowAnalyse && !isEmployee;
+  const canOpenAktionModal = isEmployee;
 
-  // Heute (YYYY-MM-DD)
-  const heutigesDatum = useMemo(() => dayjs().format('YYYY-MM-DD'), []);
+  useEffect(() => {
+  if (!canOpenAnalyseModal && modalOffen) {
+    setModalOffen(false);
+  }
+}, [canOpenAnalyseModal, modalOffen]);
 
+  // Heute (YYYY-MM-DD) für gelbe Markierung
+  const heutigesDatum = React.useMemo(() => dayjs().format('YYYY-MM-DD'), []);
+  
   // ===== Tooltip infra =====
   const [tipData, setTipData] = useState(null); // { text, top, left, flip, header, width }
   const tipHideTimer = useRef(null);
@@ -243,12 +322,12 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
     tipHideTimer.current = setTimeout(() => setTipData(null), 120);
   };
 
-  // Cache leeren
+  // Cache leeren bei Kontextwechsel
   useEffect(() => {
     tooltipCache.current = new Map();
   }, [firma, unit, rangeStart, rangeEnd, refreshKey]);
 
-  // ===== Tage aus sichtbarem Bereich (sp:visibleRange) =====
+  // Tage aus sichtbarem Wochen-/Mehrwochen-Bereich
   useEffect(() => {
     const onRange = (e) => {
       const { start, end } = e.detail || {};
@@ -313,6 +392,7 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
     };
   }, [firma, unit]);
 
+  // Utility
   const chunkArray = (arr, size) => {
     const out = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -342,7 +422,6 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
 
     const schLabel = SCH_LABEL[schKey];
 
-    // Wochenbetrieb-Logik (nur Normalbetrieb)
     if (b.normalbetrieb && b.betriebsmodus === 'wochenbetrieb') {
       const weekday = dayjs(datumISO).day(); // 0=So ... 6=Sa
       switch (b.wochen_tage) {
@@ -374,7 +453,7 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
           }
           break;
         default:
-          break; // 24/7
+          break;
       }
     }
 
@@ -392,23 +471,24 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
     const rangeEndISO = tage[tage.length - 1];
 
     // 0) Schichtzeiten (für Zeit-Prüfung)
-    const shiftTimes = {}; // F|S|N -> {s,e}
+    const shiftTimes = {}; // F|S|N -> {s,e} in Minuten
     try {
       const { data: schichtarten } = await supabase
-        .from('DB_SchichtArt')
-        .select('kuerzel, startzeit, endzeit')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .in('kuerzel', ['F', 'S', 'N']);
+  .from('DB_SchichtArt')
+  .select('kuerzel, startzeit, endzeit')
+  .eq('firma_id', firma)
+  .eq('unit_id', unit)
+  .in('kuerzel', ['F', 'S', 'N']);
 
-      (schichtarten || []).forEach((sa) => {
-        const s = timeToMin(sa.startzeit);
-        const e = timeToMin(sa.endzeit);
-        const r = normalizeRange(s, e);
-        if (r) shiftTimes[sa.kuerzel] = r;
-      });
+(schichtarten || []).forEach((sa) => {
+  const s = timeToMin(sa.startzeit);
+  const e = timeToMin(sa.endzeit);
+  const r = normalizeRange(s, e);
+  if (r) shiftTimes[sa.kuerzel] = r;
+});
+
     } catch {
-      // ok
+      // wenn nicht verfügbar: Zeitcheck macht dann nichts
     }
 
     // 1) SOLL-PLAN
@@ -420,7 +500,7 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
       .gte('datum', rangeStartISO)
       .lte('datum', rangeEndISO);
 
-    const planByDate = new Map();
+    const planByDate = new Map(); // date -> Map(group -> kuerzel)
     (soll || []).forEach((r) => {
       const d = r.datum?.slice(0, 10);
       if (!d) return;
@@ -453,26 +533,27 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
 
     // 3) KAMPFLISTE-OVERLAY (Änderungen + Zeiten + aenderung)
     const { data: kampf } = await supabase
-      .from('DB_Kampfliste')
-      .select('datum, user, aenderung, startzeit_ist, endzeit_ist, ist_schicht(kuerzel)')
-      .eq('firma_id', firma)
-      .eq('unit_id', unit)
-      .gte('datum', rangeStartISO)
-      .lte('datum', rangeEndISO);
+  .from('DB_Kampfliste')
+  .select('datum, user, aenderung, startzeit_ist, endzeit_ist, ist_schicht(kuerzel)')
+  .eq('firma_id', firma)
+  .eq('unit_id', unit)
+  .gte('datum', rangeStartISO)
+  .lte('datum', rangeEndISO);
 
-    const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
-    (kampf || []).forEach((r) => {
-      const d = r.datum?.slice(0, 10);
-      if (!d) return;
-      override.set(`${d}|${r.user}`, {
-        kuerzel: r.ist_schicht?.kuerzel || null,
-        start: r.startzeit_ist || null,
-        end: r.endzeit_ist || null,
-        aenderung: !!r.aenderung,
-      });
-    });
+const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
+(kampf || []).forEach((r) => {
+  const d = r.datum?.slice(0, 10);
+  if (!d) return;
+  override.set(`${d}|${r.user}`, {
+    kuerzel: r.ist_schicht?.kuerzel || null,
+    start: r.startzeit_ist || null,
+    end: r.endzeit_ist || null,
+    aenderung: !!r.aenderung,
+  });
+});
 
-    // 4) FINAL: DIENSTE
+
+    // 4) FINAL: DIENSTE (inkl. Zeiten + aenderung)
     const dienste = [];
     const allUserIdsSet = new Set();
 
@@ -489,13 +570,14 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
         if (!kuerzel) continue;
 
         dienste.push({
-          datum: d,
-          user: uid,
-          ist_schicht: { kuerzel },
-          start: over?.start ?? null,
-          end: over?.end ?? null,
-          aenderung: !!over?.aenderung,
-        });
+  datum: d,
+  user: uid,
+  ist_schicht: { kuerzel },
+  start: over?.start ?? null,
+  end: over?.end ?? null,
+  aenderung: !!over?.aenderung,
+});
+
 
         allUserIdsSet.add(uid);
       }
@@ -555,7 +637,7 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
       }
     }
 
-    // Ausgrauen
+    // Ausgrauen-Fenster
     const ausgrauenByUser = new Map();
     if (userIds.length > 0) {
       for (const part of chunkArray(userIds, 150)) {
@@ -602,101 +684,88 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
       return false;
     };
 
-    // 7) Bewertung/Status inkl. Zeitlogik
+    // 7) Bewertung/Status
     const status = { F: {}, S: {}, N: {} };
 
     for (const datum of tage) {
       for (const schicht of ['F', 'S', 'N']) {
+        // 1) Kandidaten (Zeitfenster)
         const bedarfTag = (bedarf || []).filter((b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis));
+
+        // 2) Nur Bedarfe, die für diese Schicht gelten
         const bedarfTagSchicht = bedarfTag.filter((b) => bedarfGiltFuerSchicht(b, datum, schicht));
 
+        // 3) Override-Regel pro Schicht
         const hatZeitlich = bedarfTagSchicht.some((b) => b.normalbetrieb === false);
         const bedarfHeute = bedarfTagSchicht.filter((b) => b.normalbetrieb === !hatZeitlich);
 
-        // --- Dienste am Tag (nicht ausgegraut) ---
-        const dayDienste = dienste.filter((d) => d.datum === datum).filter((d) => !isGrey(d.user, datum));
-        const shift = shiftTimes[schicht] || null;
+        // --- aktive User (nur nicht-ausgegraut) ---
+        const dayDienste = dienste
+          .filter((d) => d.datum === datum)
+          .filter((d) => !isGrey(d.user, datum))
+          // ✅ NUR echte Schichten zählen
+          .filter((d) => SHIFT_KUERZEL_SET.has(d.ist_schicht?.kuerzel));
 
-        // Basis: Leute der Schicht
-        const baseShiftDienste = dayDienste.filter((d) => d.ist_schicht?.kuerzel === schicht);
 
-        // Helfer: andere Schichten, aber nur wenn aenderung=true
-        const helperDienste = shift
-          ? dayDienste.filter((d) => d.ist_schicht?.kuerzel !== schicht && d.aenderung)
-          : [];
+const shift = shiftTimes[schicht] || null;
 
-        // uid -> clipped interval im Shiftfenster
-        const intervalsInThisShift = new Map();
+// 1) Basis: Leute der Schicht (wie bisher)
+const baseShiftDienste = dayDienste.filter((d) => d.ist_schicht?.kuerzel === schicht);
 
-        if (shift) {
-          // Basis-Schicht: default volle Schicht, außer aenderung dann echte Zeiten
-          for (const d of baseShiftDienste) {
-            let r = { s: shift.s, e: shift.e };
-            if (d.aenderung) {
-              const s = timeToMin(d.start);
-              const e = timeToMin(d.end);
-              const nr = normalizeRange(s, e);
-              if (nr) r = nr;
-            }
-            const clipped = clampToShift(r, shift);
-            intervalsInThisShift.set(String(d.user), clipped || null);
-          }
+// 2) Helfer: andere Schichten, aber nur wenn aenderung=true (Zeit gesetzt)
+const helperDienste = shift
+  ? dayDienste.filter((d) => d.ist_schicht?.kuerzel !== schicht && d.aenderung)
+  : [];
 
-          // Helfer: echte Zeit muss ins Fenster reinragen
-          for (const d of helperDienste) {
-            const s = timeToMin(d.start);
-            const e = timeToMin(d.end);
-            const nr = normalizeRange(s, e);
-            if (!nr) continue;
+// Wir bauen jetzt eine Map uid -> clipped interval im aktuellen Schichtfenster
+const intervalsInThisShift = new Map(); // uid -> {s,e} oder null
+const helperFromOtherShift = [];        // fürs Tooltip
 
-            const clipped = clampToShift(nr, shift);
-            if (!clipped) continue;
+if (shift) {
+  // Basis-Schicht: default volle Schicht, außer aenderung dann echte Zeiten
+  for (const d of baseShiftDienste) {
+    let r = { s: shift.s, e: shift.e };
 
-            intervalsInThisShift.set(String(d.user), clipped);
-          }
-        } else {
-          // Kein Schichtfenster verfügbar: fallback -> nur Basis-Schicht zählt
-          for (const d of baseShiftDienste) intervalsInThisShift.set(String(d.user), { s: 0, e: 1 });
-        }
+    if (d.aenderung) {
+      const s = timeToMin(d.start);
+      const e = timeToMin(d.end);
+      const nr = normalizeRange(s, e);
+      if (nr) r = nr;
+    }
 
-        const aktiveUser = Array.from(intervalsInThisShift.entries())
-          .filter(([, r]) => !!r)
-          .map(([uid]) => uid);
+    const clipped = clampToShift(r, shift);
+    intervalsInThisShift.set(String(d.user), clipped || null);
+  }
 
-        const aktiveDienste = dayDienste.filter((d) => aktiveUser.includes(String(d.user)));
+  // Helfer aus anderen Schichten: nur wenn deren echte Zeit in dieses Fenster reinragt
+  for (const d of helperDienste) {
+    const s = timeToMin(d.start);
+    const e = timeToMin(d.end);
+    const nr = normalizeRange(s, e);
+    if (!nr) continue;
 
-        // --- Bedarf sortieren ---
-        const bedarfSortiert = bedarfHeute
-          .map((b) => ({
-            ...b,
-            position: matrixMap[b.quali_id]?.position ?? 999,
-            kuerzel: matrixMap[b.quali_id]?.kuerzel || '???',
-            relevant: matrixMap[b.quali_id]?.relevant,
-          }))
-          .filter((b) => b.relevant)
-          .sort((a, b) => a.position - b.position);
+    const clipped = clampToShift(nr, shift);
+    if (!clipped) continue;
 
-        if (bedarfSortiert.length === 0) {
-          status[schicht][datum] = {
-            farbe: null,
-            bottom: null,
-            topLeft: null,
-            topRight: null,
-            fehlend: [],
-            meta: {
-              aktiveUserIds: aktiveUser,
-              abdeckung: {},
-              nichtVerwendeteIds: aktiveUser,
-              userQualiMap: {},
-              zusatzFehltKuerzel: [],
-              changedUsers: [],
-              timeIssues: [],
-              timeIssue: false,
-              timeIssueCount: 0,
-            },
-          };
-          continue;
-        }
+    intervalsInThisShift.set(String(d.user), clipped);
+
+    helperFromOtherShift.push({
+      user: d.user,
+      fromShift: d.ist_schicht?.kuerzel || '?',
+      start: d.start,
+      end: d.end,
+    });
+  }
+}
+
+// aktiveUser = alle, die im Fenster wirklich Zeit haben
+const aktiveUser = Array.from(intervalsInThisShift.entries())
+  .filter(([, r]) => !!r)
+  .map(([uid]) => uid);
+
+// Für deinen bestehenden Code brauchen wir auch "aktiveDienste":
+// Wir nehmen alle baseShiftDienste + helperDienste, aber nur wenn sie im Fenster wirklich zählen
+const aktiveDienste = dayDienste.filter((d) => aktiveUser.includes(String(d.user)));
 
         // --- Qualis am Tag ---
         const userQualiMap = {};
@@ -709,6 +778,38 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
             if (!userQualiMap[q.user_id]) userQualiMap[q.user_id] = [];
             userQualiMap[q.user_id].push(q.quali);
           }
+        }
+
+        // --- Bedarf sortieren (betriebsrelevant) ---
+        const bedarfSortiert = bedarfHeute
+          .map((b) => ({
+            ...b,
+            position: matrixMap[b.quali_id]?.position ?? 999,
+            kuerzel: matrixMap[b.quali_id]?.kuerzel || '???',
+            relevant: matrixMap[b.quali_id]?.relevant,
+          }))
+          .filter((b) => b.relevant)
+          .sort((a, b) => a.position - b.position);
+
+        // ➜ Kein betriebsrelevanter Bedarf = graue Zelle
+        if (bedarfSortiert.length === 0) {
+          status[schicht][datum] = {
+            farbe: null,
+            bottom: null,
+            topLeft: null,
+            topRight: null,
+            fehlend: [],
+            meta: {
+              aktiveUserIds: aktiveUser,
+              abdeckung: {},
+              nichtVerwendeteIds: aktiveUser,
+              userQualiMap,
+              zusatzFehltKuerzel: [],
+              timeIssues: [],
+              changedUsers: [],
+            },
+          };
+          continue;
         }
 
         // --- Zusatzquali fehlt ---
@@ -725,92 +826,114 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
             if (vorhanden < (b.anzahl || 0)) zusatzFehlt.push(kurz);
           });
 
-        // --- Basis-Abdeckung ---
+        // --- Basis-Abdeckung (wie bisher) ---
         const base = calcCoverage({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap });
 
-        const baseIsGreen = base.totalMissing <= 0;
-        let statusfarbe = baseIsGreen ? 'bg-green-500' : 'bg-red-500';
+        let statusfarbe = base.totalMissing > 0 ? 'bg-red-500' : 'bg-green-500';
         const fehlend = base.fehlend || [];
         const bottom = base.topMissingKuerzel ? `${base.topMissingKuerzel}${base.totalMissing > 1 ? '+' : ''}` : null;
 
+        // =========================
         // ⏱ Zeit-Prüfung nur wenn:
-        // - mindestens ein Dienst aenderung=true
-        // - und Shiftfenster existiert
+        // - mindestens ein Dienst aenderung=true (Zeit geändert)
+        // - und Shiftzeiten vorhanden
+        // =========================
         const changedUsers = aktiveDienste
           .filter((d) => d.aenderung)
-          .map((d) => ({ user: d.user, start: d.start, end: d.end }));
+          .map((d) => ({
+          user: d.user,
+          start: d.start,
+          end: d.end,
+        }));
 
-        const doTimeCheck = changedUsers.length > 0 && !!shiftTimes[schicht] && !!shift;
-
-        // --- Überbesetzung ---
+        const doTimeCheck = changedUsers.length > 0 && !!shiftTimes[schicht];
+        
+        // --- Überbesetzung (wie bisher) ---
         let topRight = null;
-        const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
 
-        if (doTimeCheck) {
-          const pts = Array.from(
-            new Set([
-              shift.s,
-              shift.e,
-              ...Array.from(intervalsInThisShift.values())
-                .filter(Boolean)
-                .flatMap((r) => [r.s, r.e]),
-            ])
-          ).sort((a, b) => a - b);
+if (bedarfSortiert.length > 0) {
+  const benoetigtGesamt = bedarfSortiert.reduce((s, b) => s + (b.anzahl || 0), 0);
 
-          let maxUeberschuss = -999;
-          for (let i = 0; i < pts.length - 1; i++) {
-            const mid = (pts[i] + pts[i + 1]) / 2;
-            const segUsers = [];
-            for (const uid of intervalsInThisShift.keys()) {
-              const r = intervalsInThisShift.get(String(uid));
-              if (!r) continue;
-              if (mid >= r.s && mid < r.e) segUsers.push(uid);
-            }
-            const segUeberschuss = segUsers.length - benoetigtGesamt;
-            if (segUeberschuss > maxUeberschuss) maxUeberschuss = segUeberschuss;
-          }
+  if (doTimeCheck && shift) {
+    // Segment-basiert
+    const pts = Array.from(new Set([shift.s, shift.e, ...Array.from(intervalsInThisShift.values())
+      .filter(Boolean)
+      .flatMap(r => [r.s, r.e])]))
+      .sort((a,b)=>a-b);
 
-          if (maxUeberschuss === 1) topRight = 'blau-1';
-          else if (maxUeberschuss >= 2) topRight = 'blau-2';
-        } else {
-          const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
-          if (ueberschussGesamt === 1) topRight = 'blau-1';
-          else if (ueberschussGesamt >= 2) topRight = 'blau-2';
-        }
+    let maxUeberschuss = -999;
 
-        // --- Zeit-Unterdeckung (Segmentweise) ---
+    for (let i = 0; i < pts.length - 1; i++) {
+      const mid = (pts[i] + pts[i+1]) / 2;
+      const segUsers = [];
+
+      for (const uid of intervalsInThisShift.keys()) {
+        const r = intervalsInThisShift.get(String(uid));
+        if (!r) continue;
+        if (mid >= r.s && mid < r.e) segUsers.push(uid);
+      }
+
+      const segUeberschuss = segUsers.length - benoetigtGesamt;
+      if (segUeberschuss > maxUeberschuss) maxUeberschuss = segUeberschuss;
+    }
+
+    if (maxUeberschuss === 1) topRight = 'blau-1';
+    else if (maxUeberschuss >= 2) topRight = 'blau-2';
+  } else {
+    // Fallback: altes Verhalten nur wenn keine Zeitprüfung aktiv
+    const ueberschussGesamt = (aktiveUser?.length || 0) - benoetigtGesamt;
+    if (ueberschussGesamt === 1) topRight = 'blau-1';
+    else if (ueberschussGesamt >= 2) topRight = 'blau-2';
+  }
+}
+
         const timeIssues = [];
+
         if (doTimeCheck) {
+          const shift = shiftTimes[schicht]; // {s,e}
+          // Dienst-Intervalle pro User innerhalb des Shifts
+          const intervals = intervalsInThisShift; // ✅ nutzt jetzt auch Helfer aus anderen Schichten
           const points = new Set([shift.s, shift.e]);
-          for (const [, r] of intervalsInThisShift.entries()) {
+
+          for (const [uid, r] of intervals.entries()) {
             if (!r) continue;
             points.add(r.s);
             points.add(r.e);
           }
+          
           const pts = Array.from(points).sort((a, b) => a - b);
 
-          const fmtMin = (m) => {
-            const mm = ((m % 1440) + 1440) % 1440;
-            const hh = Math.floor(mm / 60);
-            const mi = mm % 60;
-            return `${String(hh).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
-          };
-
+          // Segmente prüfen
           for (let i = 0; i < pts.length - 1; i++) {
             const segStart = pts[i];
             const segEnd = pts[i + 1];
             if (segEnd <= segStart) continue;
 
+            // mid-point für "ist im Segment anwesend?"
             const mid = (segStart + segEnd) / 2;
+
             const segUsers = [];
             for (const uid of aktiveUser) {
-              const r = intervalsInThisShift.get(String(uid));
+              const r = intervals.get(String(uid));
               if (!r) continue;
               if (mid >= r.s && mid < r.e) segUsers.push(uid);
             }
 
+            // Abdeckung für dieses Segment (inkl. Quali-Logik)
             const seg = calcCoverage({ aktiveUser: segUsers, userQualiMap, bedarfSortiert, matrixMap });
+
             if (seg.totalMissing > 0) {
+              // Segment-Fehler -> merkt euch (wir bleiben einfach rot)
+              // statusfarbe = 'bg-red-500';
+
+              // Segment-Zeit hübsch anzeigen (Minuten -> HH:mm)
+              const fmtMin = (m) => {
+                const mm = ((m % 1440) + 1440) % 1440;
+                const hh = Math.floor(mm / 60);
+                const mi = mm % 60;
+                return `${String(hh).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
+              };
+
               const missingK = seg.topMissingKuerzel || (seg.fehlend?.[0] || null);
               timeIssues.push({
                 from: fmtMin(segStart),
@@ -823,8 +946,8 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
           }
         }
 
-        const timeIssue = timeIssues.length > 0;
-        const timeIssueCount = timeIssues.length;
+const timeIssue = timeIssues?.length > 0;     // <- aus deiner Zeitlogik
+const timeIssueCount = timeIssues?.length || 0;
 
         status[schicht][datum] = {
           farbe: statusfarbe,
@@ -838,16 +961,17 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
             nichtVerwendeteIds: base.nichtVerwendete,
             userQualiMap,
             zusatzFehltKuerzel: zusatzFehlt,
-            changedUsers,
-            timeIssues,
+            // ⏱ neu
+            changedUsers, // [{user,beginn,ende}]
+            timeIssues,   // [{from,to,missingTotal,missingKuerzel,missingList}]
             timeIssue,
             timeIssueCount,
-          },
+                      },
         };
       }
     }
 
-    // 8) Farbleiste
+    // 8) Farbleiste (Sonder-/Zeitbedarfe)
     const leiste = {};
     for (const tag of tage) {
       const tagBedarfe = (bedarf || []).filter(
@@ -883,7 +1007,10 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
 
     setBedarfsLeiste(leiste);
     setBedarfStatus(status);
-  };
+
+    // Wochenansicht: keine Speicherung in DB_MonatsUnterdeckung.
+    // Diese Tabelle bleibt der Monatsvariante / KS_Stat vorbehalten.
+      };
 
   useEffect(() => {
     ladeMitarbeiterBedarf();
@@ -915,6 +1042,7 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
 
     if (timeIssues?.length) {
       lines.push('', '⛔ Zeit-Unterdeckung:');
+      // max 3 Zeilen, damit Tooltip nicht explodiert
       for (const it of timeIssues.slice(0, 3)) {
         const k = it.missingKuerzel ? ` · fehlt: ${it.missingKuerzel}${it.missingTotal > 1 ? '+' : ''}` : '';
         lines.push(`- ${it.from}–${it.to}${k}`);
@@ -1011,19 +1139,171 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
       }
     }
 
-    if (!anyGroup) lines.push('', '– Kein Bedarf für diese Schicht an diesem Tag –');
+    if (!anyGroup) {
+      lines.push('', '– Kein Bedarf für diese Schicht an diesem Tag –');
+    }
     return lines.join('\n');
   };
 
-  const handleModalOeffnen = (datum, kuerzel) => {
-    if (!allowAnalyse) return;
-    if (isPastDay(datum)) return; // ✅ wie Monatsansicht
-    const cell = bedarfStatus[kuerzel]?.[datum];
-    setModalDatum(datum);
-    setModalSchicht(kuerzel);
-    setFehlendeQualis(cell?.fehlend || []);
-    setModalOffen(true);
+   const [authUserId, setAuthUserId] = useState(null);
+
+    useEffect(() => {
+      const loadAuthUser = async () => {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        setAuthUserId(user?.id ?? null);
+      };
+
+      loadAuthUser();
+    }, []);
+
+useEffect(() => {
+  if (!authUserId || !firma || !unit) return;
+
+  const loadAuthUserQualis = async () => {
+    const { data, error } = await supabase
+      .from('DB_Qualifikation')
+      .select(`
+        quali,
+        quali_start,
+        quali_endet,
+        matrix:DB_Qualifikationsmatrix!inner(
+          id,
+          quali_kuerzel,
+          firma_id,
+          unit_id,
+          aktiv
+        )
+      `)
+      .eq('user_id', authUserId)
+      .eq('matrix.firma_id', firma)
+      .eq('matrix.unit_id', unit)
+      .eq('matrix.aktiv', true);
+
+    if (error) {
+      console.error('Fehler beim Laden der User-Qualifikationen:', error.message);
+      setAuthUserQualis([]);
+      return;
+    }
+
+    setAuthUserQualis(data || []);
   };
+
+  loadAuthUserQualis();
+}, [authUserId, firma, unit]);
+
+const getAuthUserQualiKuerzelForDay = (datum) => {
+  const tag = dayjs(datum);
+
+  return (authUserQualis || [])
+    .filter((q) => {
+      const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
+      const endOk = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
+      return startOk && endOk;
+    })
+    .map((q) => q.matrix?.quali_kuerzel)
+    .filter(Boolean)
+    .map((x) => String(x).trim().toUpperCase());
+};
+
+const handleCellClick = (datum, kuerzel) => {
+  const istVergangenheit = dayjs(datum).isBefore(dayjs().startOf('day'), 'day');
+  if (istVergangenheit) return;
+
+  if (canOpenAktionModal) {
+    const clickedCell = bedarfStatus[kuerzel]?.[datum];
+
+    // eigene Schicht des Users an dem Tag ermitteln:
+    let eigeneSchicht = null;
+    for (const sch of ['F', 'S', 'N']) {
+      const c = bedarfStatus[sch]?.[datum];
+      const aktive = c?.meta?.aktiveUserIds || [];
+      if (authUserId && aktive.includes(authUserId)) {
+        eigeneSchicht = sch;
+        break;
+      }
+    }
+
+    // Unterdeckung auf eigener Schicht?
+    const eigeneCell = eigeneSchicht ? bedarfStatus[eigeneSchicht]?.[datum] : null;
+    const eigeneUnterdeckung = String(eigeneCell?.farbe || '').includes('bg-red');
+
+    // Unterdeckung auf angeklickter Schicht?
+    const angeklickteUnterdeckung = String(clickedCell?.farbe || '').includes('bg-red');
+
+    // Kann User auf angeklickter Schicht helfen?
+    let kannHelfen = false;
+
+    if (authUserId && clickedCell?.meta) {
+      const fehlendKuerzel = (clickedCell.fehlend || [])
+        .map((x) => String(x).trim().toUpperCase());
+
+      const userQualiKuerzel = getAuthUserQualiKuerzelForDay(datum);
+
+      if (fehlendKuerzel.length > 0 && userQualiKuerzel.length > 0) {
+        kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
+      }
+    }
+
+    setAktionModalDatum(datum);
+    setAktionModalSchicht(kuerzel);
+    setAktionEigeneSchicht(eigeneSchicht);
+    setAktionEigeneUnterdeckung(eigeneUnterdeckung);
+    setAktionAngeklickteUnterdeckung(angeklickteUnterdeckung);
+    setAktionKannHelfen(kannHelfen);
+    setAktionModalOffen(true);
+    return;
+  }
+
+  if (!canOpenAnalyseModal) return;
+
+  const cell = bedarfStatus[kuerzel]?.[datum];
+  setModalDatum(datum);
+  setModalSchicht(kuerzel);
+  setFehlendeQualis(cell?.fehlend || []);
+  setModalOffen(true);
+};
+
+const openAktionModalFromAnalyse = ({ datum, schicht }) => {
+  const clickedCell = bedarfStatus[schicht]?.[datum];
+
+  let eigeneSchicht = null;
+  for (const sch of ['F', 'S', 'N']) {
+    const c = bedarfStatus[sch]?.[datum];
+    const aktive = c?.meta?.aktiveUserIds || [];
+    if (authUserId && aktive.includes(authUserId)) {
+      eigeneSchicht = sch;
+      break;
+    }
+  }
+
+  const eigeneCell = eigeneSchicht ? bedarfStatus[eigeneSchicht]?.[datum] : null;
+  const eigeneUnterdeckung = String(eigeneCell?.farbe || '').includes('bg-red');
+  const angeklickteUnterdeckung = String(clickedCell?.farbe || '').includes('bg-red');
+
+  let kannHelfen = false;
+
+  if (authUserId && clickedCell?.meta) {
+    const fehlendKuerzel = (clickedCell.fehlend || [])
+      .map((x) => String(x).trim().toUpperCase());
+
+    const userQualiKuerzel = getAuthUserQualiKuerzelForDay(datum);
+
+    if (fehlendKuerzel.length > 0 && userQualiKuerzel.length > 0) {
+      kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
+    }
+  }
+
+  setAktionModalDatum(datum);
+  setAktionModalSchicht(schicht);
+  setAktionEigeneSchicht(eigeneSchicht);
+  setAktionEigeneUnterdeckung(eigeneUnterdeckung);
+  setAktionAngeklickteUnterdeckung(angeklickteUnterdeckung);
+  setAktionKannHelfen(kannHelfen);
+  setAktionModalOffen(true);
+};
 
   return (
     <div className="overflow-x-visible relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700" style={{ overflowY: 'visible' }}>
@@ -1050,7 +1330,9 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
                 className="relative w-[48px] min-w-[48px] h-[6px] rounded-t"
                 style={{ background: eintrag?.gradient || (eintrag?.farbe || 'transparent') }}
                 onMouseEnter={(e) =>
-                  allowTooltip && eintrag && scheduleShow(e.currentTarget, key, () => buildBarTooltip(datum, eintrag), header, true)
+                  allowTooltip &&
+                  eintrag &&
+                  scheduleShow(e.currentTarget, key, () => buildBarTooltip(datum, eintrag), header, true)
                 }
                 onMouseLeave={allowTooltip ? scheduleHide : undefined}
               />
@@ -1069,43 +1351,41 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
             {tage.map((datum) => {
               const cell = bedarfStatus[kuerzel]?.[datum];
               const past = isPastDay(datum);
-
               const key = `${kuerzel}|${datum}`;
               const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${
                 kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'
               }`;
+            const timeIssue = !!cell?.meta?.timeIssue;
+            const baseIsGreen = String(cell?.farbe || '').includes('bg-green');
+            const splitBg = timeIssue && baseIsGreen;
+            const employeePastTooltipBlocked =
+              isEmployee && isOlderThanEmployeeHistoryLimit(datum);
 
-              const timeIssue = !!cell?.meta?.timeIssue;
-              const baseIsGreen = String(cell?.farbe || '').includes('bg-green');
-              const splitBg = timeIssue && baseIsGreen;
-
-              return (
-                <div
-                  key={datum}
-                  onClick={allowAnalyse ? () => handleModalOeffnen(datum, kuerzel) : undefined}
-                  onMouseEnter={(e) =>
-                    allowTooltip &&
-                    cell &&
-                    scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
-                  }
-                  onMouseLeave={allowTooltip ? scheduleHide : undefined}
-                  style={
-                    splitBg
-                      ? {
-                          backgroundImage:
-                            'linear-gradient(to bottom, rgba(34,197,94,1) 0%, rgba(34,197,94,1) 45%, rgba(239,68,68,1) 55%, rgba(239,68,68,1) 100%)',
-                        }
-                      : undefined
-                  }
-                  className={`relative ${allowAnalyse ? 'cursor-pointer' : 'cursor-default'}
-                    w-[48px] min-w-[48px] text-center text-xs py-[2px] border
-                    ${past ? '' : 'hover:opacity-80'}
-                    ${cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'}
-                    ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''}
-                    ${selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''}
-                    border-gray-300 dark:border-gray-700
-                  `}
-                >
+                          return (
+                          <div
+              key={datum}
+              onClick={(canOpenAnalyseModal || canOpenAktionModal) ? () => handleCellClick(datum, kuerzel) : undefined}
+              onMouseEnter={(e) =>
+                allowTooltip &&
+                !employeePastTooltipBlocked &&
+                cell &&
+                scheduleShow(e.currentTarget, key, () => buildCellTooltip(kuerzel, datum, cell), header, kuerzel === 'F')
+              }
+              onMouseLeave={allowTooltip ? scheduleHide : undefined}
+              style={
+                splitBg
+                  ? { backgroundImage: 'linear-gradient(to bottom, rgba(34,197,94,1) 0%, rgba(34,197,94,1) 45%, rgba(239,68,68,1) 55%, rgba(239,68,68,1) 100%)' }
+                  : undefined
+              }
+              className={`relative ${(canOpenAnalyseModal || canOpenAktionModal) ? 'cursor-pointer' : 'cursor-default'}
+                w-[48px] min-w-[48px] text-center text-xs py-[2px] border
+                ${past ? '' : 'hover:opacity-80'}
+                ${cell?.farbe || 'bg-gray-300/20 dark:bg-gray-700/20'}
+                ${datum === heutigesDatum ? 'ring-1 ring-yellow-400' : ''}
+                ${selectedDates.has(datum) ? 'outline outline-1 outline-orange-400' : ''}
+                ${timeIssue ? 'border-gray-300 dark:border-gray-700' : 'border-gray-300 dark:border-gray-700'}
+              `}
+            >
                   {cell?.topLeft && (
                     <div className="absolute top-0 left-0 w-0 h-0 border-t-[12px] border-t-yellow-300 border-r-[12px] border-r-transparent pointer-events-none" />
                   )}
@@ -1160,14 +1440,34 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
         )}
 
       {/* Analyse-Modal */}
-      {allowAnalyse && (
+      {canOpenAnalyseModal && (
         <BedarfsAnalyseModal
           offen={modalOffen}
           onClose={() => setModalOffen(false)}
           modalDatum={modalDatum}
           modalSchicht={modalSchicht}
           fehlendeQualis={fehlendeQualis}
+          onSaved={onSavedForDay}
+          onOpenAktionModal={() =>
+            openAktionModalFromAnalyse({ datum: modalDatum, schicht: modalSchicht })
+          }
         />
+      )}
+
+      {aktionModalOffen && (
+        <AnfrageAktionModal
+        offen={aktionModalOffen}
+        onClose={() => setAktionModalOffen(false)}
+        datum={aktionModalDatum}
+        schicht={aktionModalSchicht}
+        eigeneSchicht={aktionEigeneSchicht}
+        eigeneSchichtUnterdeckung={aktionEigeneUnterdeckung}
+        angeklickteSchichtUnterdeckung={aktionAngeklickteUnterdeckung}
+        kannAufAngeklickterSchichtHelfen={aktionKannHelfen}
+        firmaId={firma}
+        unitId={unit}
+        onSaved={onSavedForDay}
+      />
       )}
 
       {/* Legende */}
@@ -1191,13 +1491,12 @@ const Wochen_MitarbeiterBedarf = ({ refreshKey = 0 }) => {
               <li>
                 <span className="font-bold text-green-700">Dunkelgrün</span>: +2 oder mehr Besetzung (qualifikationsunabhängig)
               </li>
-              <li>
-                Ein <span className="font-bold text-green-400">Halb Grünes</span> und ein{' '}
-                <span className="font-bold text-red-500">halb Rotes</span> Feld zeigt eine Zeitliche Unterdeckung.
-              </li>
+              <li>Ein <span className="font-bold text-green-400">Halb Grünes</span> und ein <span className="font-bold text-red-500">halb Rotes</span> Feld zeigt eine Zeitliche Unterdeckung.</li>
               <li>Bedarfsanalyse Modal öffnet sich nicht in der Vergangenheit.</li>
               <li>Hover zeigt fehlende/erfüllte Qualifikationen sowie eingesetzte Personen.</li>
               <li>⏱ Wenn in der Kampfliste <b>aenderung = true</b>, wird zusätzlich eine Zeit-Unterdeckung geprüft.</li>
+              <li>Ein Halb Grünes und Halb Rotes Feld zeigt eine Zeitliche Unterdeckung.</li>
+              <li>Das BedarfsAnalyseModal kann nur am aktuellen Tag, oder an zukünftigen Tagen geöffnet werden.</li>
             </ul>
             <div className="text-right mt-4">
               <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">

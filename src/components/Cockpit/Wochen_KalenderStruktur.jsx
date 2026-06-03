@@ -30,11 +30,12 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
   const [visibleEnd, setVisibleEnd] = useState(null);
 
   // 🔎 Unit-Location: Land + Bundesland (NEU)
-  const [unitLoc, setUnitLoc] = useState({ land: null, bundesland: null });
+  const [unitLoc, setUnitLoc] = useState(null);
 
   const [termineByDate, setTermineByDate] = useState({});
   const [ferienByDate, setFerienByDate] = useState({});
   const [feiertagByDate, setFeiertagByDate] = useState({});
+  const [qualiMap, setQualiMap] = useState({});
 
   // ✅ Auswahl-Set wie im Monatskalender
   const [selectedDates, setSelectedDates] = useState(new Set());
@@ -73,7 +74,7 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
 
       if (error) {
         console.error('❌ Fehler beim Laden der Unit-Location:', error.message || error);
-        setUnitLoc({ land: null, bundesland: null });
+        setUnitLoc(null);
         return;
       }
       setUnitLoc({
@@ -126,13 +127,17 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
     const ladeKalenderDaten = async () => {
       if (!firma || !unit || !visibleStart || !visibleEnd) return;
 
+        // Warten, bis DB_Unit.land / bundesland geladen wurde.
+        // Sonst kommt die Warnung einmal zu früh.
+        if (unitLoc === null) return;
+
       const startIso = visibleStart.format('YYYY-MM-DD');
       const endIso = visibleEnd.format('YYYY-MM-DD');
 
       // Termine
       const { data: termine, error: termErr } = await supabase
         .from('DB_TerminVerwaltung')
-        .select('id, bezeichnung, datum, farbe')
+        .select('id, bezeichnung, datum, farbe, quali_ids, team')
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .gte('datum', startIso)
@@ -147,6 +152,24 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
         const d = t.datum;
         if (!tMap[d]) tMap[d] = [];
         tMap[d].push(t);
+      }
+
+      // Quali-Namen für Termin-Tooltip laden (wie Monatskalender)
+      const { data: qualis, error: qualisErr } = await supabase
+        .from('DB_Qualifikationsmatrix')
+        .select('id, qualifikation')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit);
+
+      if (qualisErr) {
+        console.error('❌ Fehler beim Laden der Qualifikationen (Woche):', qualisErr.message || qualisErr);
+        setQualiMap({});
+      } else {
+        const qMap = {};
+        (qualis || []).forEach((q) => {
+          qMap[q.id] = q.qualifikation;
+        });
+        setQualiMap(qMap);
       }
 
       // Ferien / Feiertage (NEU: Land + (bundesweit oder BL))
@@ -207,9 +230,9 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
         }
       } else {
         // Land fehlt → Hinweis in Console
-        if (unit) {
-          console.warn('⚠️ Unit hat kein Land (DB_Unit.land). Ferien/Feiertage werden nicht geladen.');
-        }
+       // if (unit) {
+         // console.warn('⚠️ Unit hat kein Land (DB_Unit.land). Ferien/Feiertage werden nicht geladen.');
+        //}
       }
 
       setTermineByDate(tMap);
@@ -331,9 +354,27 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
               const terminTitle =
                 termine.length === 0
                   ? ''
-                  : termine.length === 1
-                  ? `Termin: ${termine[0].bezeichnung || ''}`
-                  : `Termine: ${termine[0].bezeichnung || ''} + ${termine.length - 1} weitere`;
+                  : (() => {
+                      const t0 = termine[0];
+
+                      let qualiText = '';
+                      if (Array.isArray(t0.quali_ids) && t0.quali_ids.length) {
+                        const namen = t0.quali_ids
+                          .map((id) => qualiMap[id])
+                          .filter(Boolean);
+                        if (namen.length) {
+                          qualiText = ` | Quali: ${namen.join(', ')}`;
+                        }
+                      }
+
+                      let teamText = '';
+                      if (Array.isArray(t0.team) && t0.team.length) {
+                        teamText = ` | Team: ${t0.team.join(', ')}`;
+                      }
+
+                      const rest = termine.length > 1 ? ` + ${termine.length - 1} weitere` : '';
+                      return `Termin: ${t0.bezeichnung || ''}${rest}${qualiText}${teamText}`;
+                    })();
 
               const ferienTitle =
                 ferien.length === 0
@@ -354,7 +395,9 @@ const Wochen_KalenderStruktur = ({ jahr, setJahr, monat, setMonat, wochenAnzahl 
                       return `Feiertag: ${f.name || ''}${bw ? ` (${bw})` : ''}`;
                     })();
 
-              const combinedTitle = [ferienTitle, feiertagTitle, terminTitle]
+              const datumLabel = d.format('dddd, DD.MM.YYYY');
+
+              const combinedTitle = [datumLabel, ferienTitle, feiertagTitle, terminTitle]
                 .filter(Boolean)
                 .join(' | ');
 
