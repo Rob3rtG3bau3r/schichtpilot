@@ -655,11 +655,6 @@ const KampfListe = ({
         };
       }
 
-      // Debug bei Bedarf aktivieren
-      // console.log('👤 currentUserId:', currentUserId);
-      // console.log('👁️ sichtbarkeit:', sichtbarkeit);
-      // console.log('👥 myGroupToday:', myGroupToday);
-
       const zaehler = {};
       for (const [, e] of Object.entries(gruppiert)) {
         if (e.greyToday) continue;

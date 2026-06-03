@@ -1228,13 +1228,6 @@ const handleCellClick = (datum, kuerzel) => {
       if (fehlendKuerzel.length > 0 && userQualiKuerzel.length > 0) {
         kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
       }
-
-      console.log('DEBUG kannHelfen', {
-        authUserId,
-        userQualiKuerzel,
-        fehlendKuerzel,
-        kannHelfen,
-      });
     }
 
     setAktionModalDatum(datum);
@@ -1284,14 +1277,7 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
     if (fehlendKuerzel.length > 0 && userQualiKuerzel.length > 0) {
       kannHelfen = fehlendKuerzel.some((fk) => userQualiKuerzel.includes(fk));
     }
-
-    console.log('DEBUG kannHelfen', {
-      authUserId,
-      userQualiKuerzel,
-      fehlendKuerzel,
-      kannHelfen,
-    });
-  }
+ }
 
   setAktionModalDatum(datum);
   setAktionModalSchicht(schicht);
