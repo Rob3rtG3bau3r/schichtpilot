@@ -33,11 +33,6 @@ const AnfrageAktionModal = ({
   const firma_id = firmaId ?? null;
   const unit_id = unitId ?? null;
 
- console.log('DEBUG IDs aus Props', {
-  firma_id,
-  unit_id,
-});
-
   const [authUserId, setAuthUserId] = useState(null);
   const [sendingType, setSendingType] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -184,14 +179,7 @@ const AnfrageAktionModal = ({
       if (!authUserId) throw new Error('Kein Auth-User vorhanden.');
 
       const windowStartISO = dayjs().subtract(3, 'day').toISOString();
-console.log('DEBUG DuplicateCheck', {
-  authUserId,
-  datum,
-  zielSchicht,
-  firma_id,
-  unit_id,
-  windowStartISO,
-});
+
       const { data, error } = await supabase
         .from('DB_AnfrageMA')
         .select('id')
@@ -303,15 +291,6 @@ console.log('DEBUG DuplicateCheck', {
       if (art === 'urlaub') antragText = 'Urlaub beantragt';
       if (art === 'anbieten') antragText = 'Ich biete mich freiwillig an.';
       if (art === 'freizeitausgleich') antragText = 'Freizeitausgleich beantragt';
-
-      console.log('DEBUG Anfrage', {
-        authUserId,
-        datum,
-        zielSchicht,
-        firma_id,
-        unit_id,
-        schichtgruppe,
-      });
 
       const { error: insErr } = await supabase.from('DB_AnfrageMA').insert({
         created_by: authUserId,
