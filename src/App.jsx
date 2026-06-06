@@ -33,6 +33,7 @@ import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 import Aenderungsprotokoll from './pages/Aenderungsprotokoll';
 import Onboarding from "./pages/Onboarding";
 import Eskalationen from './pages/Eskalationen';
+import Zusatzbedarf from './pages/Zusatzbedarf';
 
 const App = () => {
 const isMobileNow =
@@ -112,6 +113,13 @@ if (
             </RollenCheckRoute>
           }
         />
+        <Route 
+        path="/zusatzbedarf" 
+        element={
+            <RollenCheckRoute erlaubteRollen={['SuperAdmin', 'Admin_Dev', 'Planner']}>
+              <Zusatzbedarf />
+            </RollenCheckRoute>} 
+        />
         <Route
           path="qualifikationenverwalten"
           element={
@@ -127,7 +135,7 @@ if (
             </RollenCheckRoute>
           }
           />
-                  <Route path="termineverwaltung" 
+        <Route path="termineverwaltung" 
         element={
             <RollenCheckRoute erlaubteRollen={['SuperAdmin', 'Admin_Dev', 'Planner']}>
               <Termine />
@@ -149,7 +157,7 @@ if (
                 <QualifikationsMatrix />
               </RollenCheckRoute>
           }
-        />
+          />
         <Route
           path="kundenverwaltung"
           element={
@@ -207,13 +215,13 @@ if (
         }
        />
        <Route
-  path="stunden-pflege"
-  element={
-    <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
-      <UnitUserStundenPflege />
-    </RollenCheckRoute>
-  }
-/>
+          path="stunden-pflege"
+          element={
+            <RollenCheckRoute erlaubteRollen={['Org_Admin', 'Admin_Dev', 'Planner', 'SuperAdmin']}>
+              <UnitUserStundenPflege />
+            </RollenCheckRoute>
+          }
+        />
         <Route
       path="top-report"
        element={

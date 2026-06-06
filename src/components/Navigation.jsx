@@ -162,6 +162,7 @@ const Navigation = ({ darkMode, setDarkMode }) => {
     '/user-report': 'Mitarbeiter-Report',
     '/aenderungsprotokoll': 'Änderungsprotokoll',
     '/eskalationen': 'Eskalationen',
+    '/zusatzbedarf': 'Zusatzbedarf',
 
   };
 
@@ -193,6 +194,9 @@ const Navigation = ({ darkMode, setDarkMode }) => {
               <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded shadow-md p-0 z-50 flex flex-col gap-1">
                 <Link to="/bedarfsverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">
                   Bedarf Verwalten
+                </Link>
+                <Link to="/zusatzbedarf" className="hover:bg-gray-700 rounded px-2 py-1">
+                  Zusatzbedarf
                 </Link>
                 <Link to="/termineverwaltung" className="hover:bg-gray-700 rounded px-2 py-1">
                   Termine

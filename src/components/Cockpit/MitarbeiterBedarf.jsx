@@ -8,10 +8,11 @@ import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
-
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
 import AnfrageAktionModal from './AnfrageAktionModal';
+import ZusatzbedarfZeile from './ZusatzbedarfZeile';
 import { Info } from 'lucide-react';
+import { useZusatzbedarfStatus } from '../../hooks/useZusatzbedarfStatus';
 
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
 const FEATURE_ANALYSE = 'bedarf_analyse';
@@ -212,6 +213,23 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   const [tage, setTage] = useState([]);
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
+
+  const {
+    zusatzbedarfStatus,
+    reloadZusatzbedarfStatus,
+  } = useZusatzbedarfStatus({
+    firma,
+    unit,
+    tage,
+    refreshKey,
+  });
+
+const handleZusatzbedarfClick = (item) => {
+  console.log('Zusatzbedarf geklickt:', item);
+
+  // Später öffnen wir hier das Anfrage-Modal für Mitarbeitende.
+  // Für Planner/Admin_Dev reicht erstmal die Hover-Info.
+};
 
   // Aus Kalender ausgewählte Tage (global)
   const [selectedDates, setSelectedDates] = useState(new Set());
@@ -1329,7 +1347,7 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
           <div className="w-[176px] min-w-[176px] text-gray-900 dark:text-gray-300 text-left px-2 text-xs">
             {kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'}
           </div>
-
+        
           <div className="flex gap-[2px] min-w-fit">
             {tage.map((datum) => {
               const cell = bedarfStatus[kuerzel]?.[datum];
@@ -1338,6 +1356,7 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
               const header = `${dayjs(datum).format('DD.MM.YYYY')} · ${
                 kuerzel === 'F' ? 'Frühschicht' : kuerzel === 'S' ? 'Spätschicht' : 'Nachtschicht'
               }`;
+              
             const timeIssue = !!cell?.meta?.timeIssue;
             const baseIsGreen = String(cell?.farbe || '').includes('bg-green');
             const splitBg = timeIssue && baseIsGreen;
@@ -1389,6 +1408,28 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
           </div>
         </div>
       ))}
+
+{/* Zusatzbedarf unterhalb der Nachtschicht */}
+<div className="flex w-full h-[6px] leading-none">
+  <div className="w-[176px] min-w-[176px] h-[6px]">
+
+  </div>
+
+  <div className="flex gap-[2px] min-w-fit h-[6px] leading-none">
+    {tage.map((datum) => (
+      <div
+        key={`zusatzbedarf-${datum}`}
+        className="w-[48px] min-w-[48px] h-[6px] leading-none overflow-visible"
+      >
+        <ZusatzbedarfZeile
+          datum={datum}
+          items={zusatzbedarfStatus?.[datum] || []}
+          onItemClick={handleZusatzbedarfClick}
+        />
+      </div>
+    ))}
+  </div>
+</div>
 
       {/* Tooltip-Portal */}
       {allowTooltip &&
