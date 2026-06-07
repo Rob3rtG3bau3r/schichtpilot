@@ -126,10 +126,11 @@ const ladeSollAusSollPlanFuerUser = async ({ userId, datum, firmaId, unitId }) =
 };
 
 // Ist-/Soll-Schicht (ID) + Zeiten/Pause aus v_tagesplan
+// Wird nur noch für Sonderfälle genutzt, z. B. Urlaub über mehrere Tage beim Speichern.
 const ladeTagesplan = async ({ userId, datum, firmaId, unitId }) => {
   const { data, error } = await supabase
     .from('v_tagesplan')
-    .select('ist_schichtart_id, soll_schichtart_id, ist_startzeit, ist_endzeit, soll_startzeit, soll_endzeit, ist_pausen_dauer, soll_pausen_dauer')
+    .select('datum, ist_schichtart_id, soll_schichtart_id, ist_startzeit, ist_endzeit, soll_startzeit, soll_endzeit, ist_pausen_dauer, soll_pausen_dauer')
     .eq('user_id', userId)
     .eq('datum', datum)
     .eq('firma_id', firmaId)
@@ -138,6 +139,22 @@ const ladeTagesplan = async ({ userId, datum, firmaId, unitId }) => {
 
   if (error) return { data: null, error };
   return { data: data || null, error: null };
+};
+
+// Performance: Modal lädt Vortag, Heute und Folgetag mit EINER View-Abfrage.
+const ladeTagesplanRange = async ({ userId, vonDatum, bisDatum, firmaId, unitId }) => {
+  const { data, error } = await supabase
+    .from('v_tagesplan')
+    .select('datum, ist_schichtart_id, soll_schichtart_id, ist_startzeit, ist_endzeit, soll_startzeit, soll_endzeit, ist_pausen_dauer, soll_pausen_dauer')
+    .eq('user_id', userId)
+    .eq('firma_id', firmaId)
+    .eq('unit_id', unitId)
+    .gte('datum', vonDatum)
+    .lte('datum', bisDatum)
+    .order('datum', { ascending: true });
+
+  if (error) return { data: [], error };
+  return { data: data || [], error: null };
 };
 
 const istArbeitsTag = (kuerzel) => !['-', 'U', 'K', 'KO'].includes(kuerzel);
@@ -190,6 +207,10 @@ const SchichtDienstAendernForm = ({
 
   // Ruhezeit
   const [ruhezeitWarnung, setRuhezeitWarnung] = useState('');
+
+  // Enthält Vortag, Heute und Folgetag aus v_tagesplan.
+  // Damit muss die View beim Öffnen des Modals nur einmal abgefragt werden.
+  const [tagesplanRange, setTagesplanRange] = useState([]);
 
   // Laufzeituhr
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -274,10 +295,14 @@ const SchichtDienstAendernForm = ({
 
   /* ------------------------------ Data loads ------------------------------ */
 
-  // Schichtarten laden
+  // Schichtarten bewusst NICHT erst beim Öffnen laden.
+  // Sobald Firma/Unit bekannt sind, liegen die Schichtarten im Cache-State.
+  // Das Modal muss dann beim Klick nicht darauf warten.
   useEffect(() => {
+    let alive = true;
+
     const run = async () => {
-      if (!offen || !firma || !unit) return;
+      if (!firma || !unit) return;
 
       const { data, error } = await supabase
         .from('DB_SchichtArt')
@@ -298,75 +323,104 @@ const SchichtDienstAendernForm = ({
         return (a.kuerzel || '').localeCompare(b.kuerzel || '');
       });
 
-      setSchichtarten(sortiert);
+      if (alive) setSchichtarten(sortiert);
     };
 
     run();
-  }, [offen, firma, unit]);
 
-  // Mini-Cache für SollPlan (Tagwechsel)
-  const sollMiniCache = useRef(new Map()); // key: `${userId}|${datum}|${firma}|${unit}`
-  const getSollCached = async ({ userId, datum, firmaId, unitId }) => {
-    const k = `${userId}|${datum}|${firmaId}|${unitId}`;
-    if (sollMiniCache.current.has(k)) return sollMiniCache.current.get(k);
-    const v = await ladeSollAusSollPlanFuerUser({ userId, datum, firmaId, unitId });
-    sollMiniCache.current.set(k, v);
-    return v;
-  };
+    return () => {
+      alive = false;
+    };
+  }, [firma, unit]);
 
-  // Initialwerte laden (Ist/Soll/Zeiten/Pause + Vortag/Folgetag)
+  // Initialwerte laden:
+  // 1) Sofort aus dem übergebenen eintrag anzeigen.
+  // 2) Danach genau EINE Range-Abfrage auf v_tagesplan für Vortag/Heute/Folgetag.
   useEffect(() => {
     let alive = true;
-      const run = async () => {
-        if (!offen || !eintrag || !firma || !unit) return;
-        if (!schichtarten.length) return;
 
-        const loadKey = `${eintrag.user}|${eintrag.datum}|${firma}|${unit}`;
-        loadKeyRef.current = loadKey;
+    const run = async () => {
+      if (!offen || !eintrag || !firma || !unit) return;
 
-        setEintragLaedt(true);
+      const loadKey = `${eintrag.user}|${eintrag.datum}|${firma}|${unit}`;
+      loadKeyRef.current = loadKey;
 
-        // Sofort alte Anzeige entfernen, damit kein vorheriger Tag sichtbar bleibt
-        setAuswahl({
-          kuerzel: '',
-          start: '',
-          ende: '',
-          ignoriertarbeitszeit: false,
-        });
-        setPause(0);
-        setSollKuerzel('-');
-        setVortagKuerzel('-');
-        setFolgetagKuerzel('-');
-        setKommentar('');
+      const fallbackSchicht = schichtByKuerzel.get(eintrag?.ist_schicht);
+      const fallbackIgnoriert = !!fallbackSchicht?.ignoriert_arbeitszeit;
 
-        // Reset UI
-        setMehrereTage(false);
-        setEnddatum('');
-        setSaveMessage('');
-        setRuhezeitWarnung('');
-        setErrorMessage('');
+      // Sofort sichtbare Werte. Keine DB-Wartezeit für die erste Anzeige.
+      setEintragLaedt(true);
+      setAuswahl({
+        kuerzel: eintrag?.ist_schicht || '',
+        start: eintrag?.beginn || fallbackSchicht?.startzeit || '',
+        ende: eintrag?.ende || fallbackSchicht?.endzeit || '',
+        ignoriertarbeitszeit: fallbackIgnoriert,
+      });
+      setPause(fallbackIgnoriert ? 0 : toHours(eintrag?.pausen_dauer) ?? 0);
+      setKommentar(eintrag?.kommentar || '');
+      setSollKuerzel('-');
+      setVortagKuerzel('-');
+      setFolgetagKuerzel('-');
+      setTagesplanRange([]);
 
-      // 1) Tagesplan heute (Ist bevorzugt)
-      const { data: tpHeute } = await ladeTagesplan({
+      // Reset UI
+      setMehrereTage(false);
+      setEnddatum('');
+      setSaveMessage('');
+      setRuhezeitWarnung('');
+      setErrorMessage('');
+
+      const vt = dayjs(eintrag.datum).subtract(1, 'day').format('YYYY-MM-DD');
+      const ft = dayjs(eintrag.datum).add(1, 'day').format('YYYY-MM-DD');
+
+      const { data: rangeData, error } = await ladeTagesplanRange({
         userId: eintrag.user,
-        datum: eintrag.datum,
+        vonDatum: vt,
+        bisDatum: ft,
         firmaId: firma,
         unitId: unit,
       });
 
+      if (error) {
+        console.error('Fehler v_tagesplan Range:', error);
+        if (alive && loadKeyRef.current === loadKey) setEintragLaedt(false);
+        return;
+      }
+
+      if (!alive || loadKeyRef.current !== loadKey) return;
+
+      const byDate = new Map((rangeData || []).map((row) => [row.datum, row]));
+      const tpHeute = byDate.get(eintrag.datum) || null;
+      const tpVt = byDate.get(vt) || null;
+      const tpFt = byDate.get(ft) || null;
+
       const istId = tpHeute?.ist_schichtart_id || tpHeute?.soll_schichtart_id || null;
-      const istSchicht = istId ? schichtarten.find((s) => s.id === istId) : null;
+      const sollId = tpHeute?.soll_schichtart_id || null;
+      const vtId = tpVt?.ist_schichtart_id || tpVt?.soll_schichtart_id || null;
+      const ftId = tpFt?.ist_schichtart_id || tpFt?.soll_schichtart_id || null;
+
+      const istSchicht = istId ? schichtarten.find((s) => s.id === istId) : fallbackSchicht;
+      const sollSchicht = sollId ? schichtarten.find((s) => s.id === sollId) : null;
+      const vtSchicht = vtId ? schichtarten.find((s) => s.id === vtId) : null;
+      const ftSchicht = ftId ? schichtarten.find((s) => s.id === ftId) : null;
 
       const startHeute =
-        tpHeute?.ist_startzeit || tpHeute?.soll_startzeit || eintrag?.beginn || istSchicht?.startzeit || '';
+        tpHeute?.ist_startzeit ||
+        tpHeute?.soll_startzeit ||
+        eintrag?.beginn ||
+        istSchicht?.startzeit ||
+        '';
+
       const endeHeute =
-        tpHeute?.ist_endzeit || tpHeute?.soll_endzeit || eintrag?.ende || istSchicht?.endzeit || '';
+        tpHeute?.ist_endzeit ||
+        tpHeute?.soll_endzeit ||
+        eintrag?.ende ||
+        istSchicht?.endzeit ||
+        '';
 
       const kuerzelHeute = istSchicht?.kuerzel || eintrag?.ist_schicht || '';
-
       const ignoriert = !!istSchicht?.ignoriert_arbeitszeit;
 
-      // Pause initial (robust)
       const pRaw =
         typeof tpHeute?.ist_pausen_dauer === 'number'
           ? tpHeute.ist_pausen_dauer
@@ -379,11 +433,11 @@ const SchichtDienstAendernForm = ({
       let initialPause = 0;
       if (ignoriert) initialPause = 0;
       else if (pRaw != null) initialPause = toHours(pRaw) ?? 0;
-      else if (istSchicht?.pause_aktiv && istSchicht.pause_dauer != null) initialPause = Number(istSchicht.pause_dauer) / 60;
-      else initialPause = 0;
+      else if (istSchicht?.pause_aktiv && istSchicht.pause_dauer != null) {
+        initialPause = Number(istSchicht.pause_dauer) / 60;
+      }
 
-      if (!alive || loadKeyRef.current !== loadKey) return;
-
+      setTagesplanRange(rangeData || []);
       setAuswahl({
         kuerzel: kuerzelHeute,
         start: startHeute,
@@ -392,40 +446,7 @@ const SchichtDienstAendernForm = ({
       });
       setPause(ignoriert ? 0 : initialPause);
       setKommentar(eintrag?.kommentar || '');
-
-      // 2) Soll-Kürzel
-      const soll = await getSollCached({
-        userId: eintrag.user,
-        datum: eintrag.datum,
-        firmaId: firma,
-        unitId: unit,
-      });
-      if (!alive || loadKeyRef.current !== loadKey) return;
-      setSollKuerzel(soll?.kuerzel || '-');
-
-      // 3) Vortag/Folgetag Kürzel (aus v_tagesplan via ID)
-      const vt = dayjs(eintrag.datum).subtract(1, 'day').format('YYYY-MM-DD');
-      const ft = dayjs(eintrag.datum).add(1, 'day').format('YYYY-MM-DD');
-
-      const { data: tpVt } = await ladeTagesplan({
-        userId: eintrag.user,
-        datum: vt,
-        firmaId: firma,
-        unitId: unit,
-      });
-      const vtId = tpVt?.ist_schichtart_id || tpVt?.soll_schichtart_id || null;
-      const vtSchicht = vtId ? schichtarten.find((s) => s.id === vtId) : null;
-
-      const { data: tpFt } = await ladeTagesplan({
-        userId: eintrag.user,
-        datum: ft,
-        firmaId: firma,
-        unitId: unit,
-      });
-      const ftId = tpFt?.ist_schichtart_id || tpFt?.soll_schichtart_id || null;
-      const ftSchicht = ftId ? schichtarten.find((s) => s.id === ftId) : null;
-
-      if (!alive || loadKeyRef.current !== loadKey) return;
+      setSollKuerzel(sollSchicht?.kuerzel || '-');
       setVortagKuerzel(vtSchicht?.kuerzel || '-');
       setFolgetagKuerzel(ftSchicht?.kuerzel || '-');
       setEintragLaedt(false);
@@ -436,7 +457,7 @@ const SchichtDienstAendernForm = ({
     return () => {
       alive = false;
     };
-  }, [offen, eintrag?.user, eintrag?.datum, firma, unit, schichtarten]);
+  }, [offen, eintrag?.user, eintrag?.datum, firma, unit, schichtarten, schichtByKuerzel]);
 
   // UI helper: Schichtwahl
   const handleSchichtwahl = (kuerzel) => {
@@ -515,93 +536,76 @@ const SchichtDienstAendernForm = ({
   }, [auswahl.start, auswahl.ende, auswahl.kuerzel, auswahl.ignoriertarbeitszeit, schichtByKuerzel]);
 
   // Ruhezeit prüfen (Vortag->Heute und Heute->Folgetag)
+  // Wichtig: keine neue DB-Abfrage. Wir nutzen tagesplanRange aus dem Initial-Load.
   useEffect(() => {
-    let alive = true;
-    const run = async () => {
-      if (!offen || !eintrag || !firma || !unit) return;
-      if (!schichtarten.length) return;
+    if (!offen || !eintrag || !firma || !unit) return;
 
-      setRuhezeitWarnung('');
+    setRuhezeitWarnung('');
 
-      const heute = eintrag.datum;
-      const vt = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
-      const ft = dayjs(heute).add(1, 'day').format('YYYY-MM-DD');
+    if (!schichtarten.length) return;
+    if (auswahl.ignoriertarbeitszeit) return;
+    if (!auswahl.start) return;
 
-      const kuerzelHeute = auswahl.kuerzel || '-';
+    const heute = eintrag.datum;
+    const vt = dayjs(heute).subtract(1, 'day').format('YYYY-MM-DD');
+    const ft = dayjs(heute).add(1, 'day').format('YYYY-MM-DD');
 
-      // Für ignoriert_arbeitszeit keine Ruhezeitprüfung
-      if (auswahl.ignoriertarbeitszeit) return;
+    const byDate = new Map((tagesplanRange || []).map((row) => [row.datum, row]));
+    const tpVt = byDate.get(vt) || null;
+    const tpFt = byDate.get(ft) || null;
 
-      // Heute braucht Start (für Ruhezeit vorwärts/rückwärts)
-      if (!auswahl.start) return;
+    const kuerzelHeute = auswahl.kuerzel || '-';
 
-      // Tagespläne laden
-      const [{ data: tpVt }, { data: tpFt }] = await Promise.all([
-        ladeTagesplan({ userId: eintrag.user, datum: vt, firmaId: firma, unitId: unit }),
-        ladeTagesplan({ userId: eintrag.user, datum: ft, firmaId: firma, unitId: unit }),
-      ]);
+    const vtId = tpVt?.ist_schichtart_id || tpVt?.soll_schichtart_id || null;
+    const vtSchicht = vtId ? schichtarten.find((s) => s.id === vtId) : null;
+    const kuerzelVt = vtSchicht?.kuerzel || '-';
 
-      const pruefKey = `${eintrag.user}|${eintrag.datum}|${firma}|${unit}`;
+    const ftId = tpFt?.ist_schichtart_id || tpFt?.soll_schichtart_id || null;
+    const ftSchicht = ftId ? schichtarten.find((s) => s.id === ftId) : null;
+    const kuerzelFt = ftSchicht?.kuerzel || '-';
 
-      if (!alive || loadKeyRef.current !== pruefKey) return;
+    const warnings = [];
 
-      // Vortag Kürzel (Ist/Soll)
-      const vtId = tpVt?.ist_schichtart_id || tpVt?.soll_schichtart_id || null;
-      const vtSchicht = vtId ? schichtarten.find((s) => s.id === vtId) : null;
-      const kuerzelVt = vtSchicht?.kuerzel || '-';
+    // A) Vortag -> Heute
+    if (istArbeitsTag(kuerzelHeute) && istArbeitsTag(kuerzelVt)) {
+      const startVt = tpVt?.ist_startzeit || tpVt?.soll_startzeit || null;
+      const endeVt = tpVt?.ist_endzeit || tpVt?.soll_endzeit || null;
 
-      // Folgetag Kürzel (Ist/Soll)
-      const ftId = tpFt?.ist_schichtart_id || tpFt?.soll_schichtart_id || null;
-      const ftSchicht = ftId ? schichtarten.find((s) => s.id === ftId) : null;
-      const kuerzelFt = ftSchicht?.kuerzel || '-';
+      if (endeVt) {
+        const diffH = berechneRuhezeitInStunden({
+          endeVonDatum: vt,
+          startVonZeit: startVt,
+          endeVonZeit: endeVt,
+          startZuDatum: heute,
+          startZuZeit: auswahl.start,
+        });
 
-      const warnings = [];
+        if (diffH != null && diffH < 11) {
+          warnings.push(`⚠️ Ruhezeit-Verstoß: nur ${formatStunden(diffH)} h zwischen Vortag & heute (min. 11 h).`);
+        }
+      }
+    }
 
-      // A) Vortag -> Heute (Ende Vortag -> Start Heute)
-      if (istArbeitsTag(kuerzelHeute) && istArbeitsTag(kuerzelVt)) {
-        const startVt = tpVt?.ist_startzeit || tpVt?.soll_startzeit || null;
-        const endeVt = tpVt?.ist_endzeit || tpVt?.soll_endzeit || null;
+    // B) Heute -> Folgetag
+    if (istArbeitsTag(kuerzelHeute) && istArbeitsTag(kuerzelFt) && auswahl.ende) {
+      const startFt = tpFt?.ist_startzeit || tpFt?.soll_startzeit || null;
 
-        if (endeVt) {
-          const diffH = berechneRuhezeitInStunden({
-            endeVonDatum: vt,
-            startVonZeit: startVt,
-            endeVonZeit: endeVt,
-            startZuDatum: heute,
-            startZuZeit: auswahl.start,
-          });
-          if (diffH != null && diffH < 11) {
-            warnings.push(`⚠️ Ruhezeit-Verstoß: nur ${formatStunden(diffH)} h zwischen Vortag & heute (min. 11 h).`);
+      if (startFt) {
+        const sToday = buildDateTime(heute, auswahl.start);
+        let eToday = buildDateTime(heute, auswahl.ende);
+        if (sToday && eToday && eToday.isBefore(sToday)) eToday = eToday.add(1, 'day');
+
+        const sNext = buildDateTime(ft, startFt);
+        if (eToday && sNext) {
+          const diffH2 = dayjs.duration(sNext.diff(eToday)).asHours();
+          if (diffH2 < 11) {
+            warnings.push(`⚠️ Ruhezeit-Verstoß: nur ${formatStunden(diffH2)} h zwischen heute & Folgetag (min. 11 h).`);
           }
         }
       }
+    }
 
-      // B) Heute -> Folgetag (Ende Heute -> Start Folgetag)
-      if (istArbeitsTag(kuerzelHeute) && istArbeitsTag(kuerzelFt) && auswahl.ende) {
-        const startFt = tpFt?.ist_startzeit || tpFt?.soll_startzeit || null;
-        if (startFt) {
-          // Ende heute kann über Mitternacht laufen → wir berechnen Ende-Datum ggf. +1 Tag
-          const sToday = buildDateTime(heute, auswahl.start);
-          let eToday = buildDateTime(heute, auswahl.ende);
-          if (sToday && eToday && eToday.isBefore(sToday)) eToday = eToday.add(1, 'day');
-
-          const sNext = buildDateTime(ft, startFt);
-          if (eToday && sNext) {
-            const diffH2 = dayjs.duration(sNext.diff(eToday)).asHours();
-            if (diffH2 < 11) {
-              warnings.push(`⚠️ Ruhezeit-Verstoß: nur ${formatStunden(diffH2)} h zwischen heute & Folgetag (min. 11 h).`);
-            }
-          }
-        }
-      }
-
-      if (warnings.length) setRuhezeitWarnung(warnings.join('\n'));
-    };
-
-    run();
-    return () => {
-      alive = false;
-    };
+    if (warnings.length) setRuhezeitWarnung(warnings.join('\n'));
   }, [
     offen,
     eintrag?.user,
@@ -609,6 +613,7 @@ const SchichtDienstAendernForm = ({
     firma,
     unit,
     schichtarten,
+    tagesplanRange,
     auswahl.kuerzel,
     auswahl.start,
     auswahl.ende,
