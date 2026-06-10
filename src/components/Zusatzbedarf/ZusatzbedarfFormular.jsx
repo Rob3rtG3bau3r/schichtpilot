@@ -14,6 +14,8 @@ const WOCHENTAGE = [
   { value: 0, label: 'Sonntag' },
 ];
 
+const MAX_EINZELTERMINE = 104;
+
 const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
   const { sichtFirma: firma, sichtUnit: unit, userId } = useRollen();
 
@@ -26,16 +28,20 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
   const [schichtartId, setSchichtartId] = useState('');
   const [qualiId, setQualiId] = useState('');
   const [bedarfAnzahl, setBedarfAnzahl] = useState(1);
+
+  // Von/Bis = Dauer eines einzelnen Zusatzbedarfs
   const [dtstart, setDtstart] = useState(heute);
   const [until, setUntil] = useState(heute);
+
+  // Serie/Wiederholung
+  const [serieBis, setSerieBis] = useState(heute);
+  const [freq, setFreq] = useState('none'); // none | daily | weekly | monthly
+  const [interval, setInterval] = useState(1);
+  const [byweekday, setByweekday] = useState('');
 
   const [beschreibung, setBeschreibung] = useState('');
   const [hinweis, setHinweis] = useState('');
   const [farbe, setFarbe] = useState('#3b82f6');
-
-  const [freq, setFreq] = useState('none'); // none | daily | weekly | monthly
-  const [interval, setInterval] = useState(1);
-  const [byweekday, setByweekday] = useState('');
 
   const [alsVorlageSpeichern, setAlsVorlageSpeichern] = useState(false);
   const [vorlageName, setVorlageName] = useState('');
@@ -106,19 +112,18 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
     setSchichtartId(vorlage.schichtart_id ? String(vorlage.schichtart_id) : '');
     setQualiId(vorlage.quali_id ? String(vorlage.quali_id) : '');
     setBedarfAnzahl(Number(vorlage.bedarf_delta || 1));
-    setDtstart(vorlage.dtstart || heute);
-    setUntil(vorlage.until || vorlage.dtstart || heute);
+
+    // Vorlage ist nur Bauplan, Datum/Wiederholung werden bewusst neu gesetzt
+    setDtstart(heute);
+    setUntil(heute);
+    setSerieBis(heute);
+    setFreq('none');
+    setInterval(1);
+    setByweekday('');
+
     setBeschreibung(vorlage.beschreibung || '');
     setHinweis(vorlage.hinweis || '');
     setFarbe(vorlage.farbe || '#3b82f6');
-    setFreq(vorlage.freq || 'none');
-    setInterval(Number(vorlage.interval || 1));
-
-    if (Array.isArray(vorlage.byweekday) && vorlage.byweekday.length > 0) {
-      setByweekday(String(vorlage.byweekday[0]));
-    } else {
-      setByweekday('');
-    }
   }, [vorlage, heute]);
 
   const ausgewaehlteSchichtart = useMemo(() => {
@@ -129,29 +134,111 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
     return qualifikationen.find((q) => String(q.id) === String(qualiId));
   }, [qualifikationen, qualiId]);
 
+  const dauerTage = useMemo(() => {
+    if (!dtstart || !until) return 0;
+
+    const start = dayjs(dtstart).startOf('day');
+    const ende = dayjs(until).startOf('day');
+
+    if (!start.isValid() || !ende.isValid()) return 0;
+    if (ende.isBefore(start, 'day')) return 0;
+
+    return ende.diff(start, 'day') + 1;
+  }, [dtstart, until]);
+
+  const ermittleStarttermine = () => {
+    const start = dayjs(dtstart).startOf('day');
+
+    if (!start.isValid()) return [];
+
+    // Keine Wiederholung:
+    // Genau ein echter Zusatzbedarf, Dauer kommt aus Von/Bis.
+    if (freq === 'none') {
+      return [start.format('YYYY-MM-DD')];
+    }
+
+    const serienEnde = dayjs(serieBis).startOf('day');
+
+    if (!serienEnde.isValid()) return [];
+    if (serienEnde.isBefore(start, 'day')) return [];
+
+    const termine = [];
+    let d = start;
+
+    while (d.isSame(serienEnde, 'day') || d.isBefore(serienEnde, 'day')) {
+      let gilt = false;
+
+      if (freq === 'daily') {
+        const diffDays = d.diff(start, 'day');
+
+        gilt =
+          diffDays >= 0 &&
+          diffDays % Number(interval || 1) === 0;
+      }
+
+      if (freq === 'weekly') {
+        const diffWeeks = d.startOf('week').diff(start.startOf('week'), 'week');
+        const zielWochentag = Number(byweekday);
+        const aktuellerWochentag = d.day(); // Sonntag = 0
+
+        gilt =
+          diffWeeks >= 0 &&
+          diffWeeks % Number(interval || 1) === 0 &&
+          aktuellerWochentag === zielWochentag;
+      }
+
+      if (freq === 'monthly') {
+        const diffMonths = d.diff(start, 'month');
+
+        gilt =
+          diffMonths >= 0 &&
+          diffMonths % Number(interval || 1) === 0 &&
+          d.date() === start.date();
+      }
+
+      if (gilt) {
+        termine.push(d.format('YYYY-MM-DD'));
+      }
+
+      if (termine.length > MAX_EINZELTERMINE) {
+        break;
+      }
+
+      d = d.add(1, 'day');
+    }
+
+    return [...new Set(termine)];
+  };
+
+  const anzahlStarttermine = useMemo(() => {
+    return ermittleStarttermine().length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dtstart, until, serieBis, freq, interval, byweekday]);
+
   const rhythmusText = useMemo(() => {
     if (freq === 'none') {
-      if (dtstart === until) return 'Einmaliger Zusatzbedarf an einem Tag.';
-      return 'Zusatzbedarf für mehrere Tage am Stück.';
+      if (dauerTage === 1) return 'Einmaliger Zusatzbedarf an einem Tag.';
+      return `Einmaliger Zusatzbedarf über ${dauerTage} Tage.`;
     }
 
     if (freq === 'daily') {
-      return `Wiederholung alle ${interval || 1} Tag(e).`;
+      return `Wiederholung alle ${interval || 1} Tag(e) bis ${dayjs(serieBis).format('DD.MM.YYYY')}.`;
     }
 
     if (freq === 'weekly') {
       const tag = WOCHENTAGE.find((w) => String(w.value) === String(byweekday));
+
       return `Wiederholung alle ${interval || 1} Woche(n)${
         tag ? ` am ${tag.label}` : ''
-      }.`;
+      } bis ${dayjs(serieBis).format('DD.MM.YYYY')}.`;
     }
 
     if (freq === 'monthly') {
-      return `Wiederholung alle ${interval || 1} Monat(e) am Tag ${dayjs(dtstart).date()}.`;
+      return `Wiederholung alle ${interval || 1} Monat(e) am Tag ${dayjs(dtstart).date()} bis ${dayjs(serieBis).format('DD.MM.YYYY')}.`;
     }
 
     return '';
-  }, [freq, interval, byweekday, dtstart, until]);
+  }, [freq, interval, byweekday, dtstart, serieBis, dauerTage]);
 
   const resetForm = () => {
     setName('');
@@ -160,6 +247,7 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
     setBedarfAnzahl(1);
     setDtstart(heute);
     setUntil(heute);
+    setSerieBis(heute);
     setBeschreibung('');
     setHinweis('');
     setFarbe('#3b82f6');
@@ -177,13 +265,43 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
     if (!bedarfAnzahl || Number(bedarfAnzahl) < 1) return 'Bitte mindestens 1 Person angeben.';
     if (!dtstart) return 'Bitte ein Startdatum angeben.';
     if (!until) return 'Bitte ein Enddatum angeben.';
+
     if (dayjs(until).isBefore(dayjs(dtstart), 'day')) {
       return 'Das Enddatum darf nicht vor dem Startdatum liegen.';
     }
+
+    if (Number(interval || 0) < 1) {
+      return 'Der Rhythmus-Abstand muss mindestens 1 sein.';
+    }
+
+    if (dauerTage < 1) {
+      return 'Die Dauer des Zusatzbedarfs konnte nicht berechnet werden.';
+    }
+
     if (freq === 'weekly' && byweekday === '') {
       return 'Bitte einen Wochentag für die wöchentliche Wiederholung auswählen.';
     }
-    if (interval < 1) return 'Der Rhythmus-Abstand muss mindestens 1 sein.';
+
+    if (freq !== 'none') {
+      if (!serieBis) {
+        return 'Bitte ein Datum für „Wiederholen bis“ angeben.';
+      }
+
+      if (dayjs(serieBis).isBefore(dayjs(dtstart), 'day')) {
+        return '„Wiederholen bis“ darf nicht vor dem Von-Datum liegen.';
+      }
+    }
+
+    const termine = ermittleStarttermine();
+
+    if (!termine.length) {
+      return 'Für diese Auswahl wurden keine Termine gefunden.';
+    }
+
+    if (termine.length > MAX_EINZELTERMINE) {
+      return `Bitte den Zeitraum begrenzen. Maximal ${MAX_EINZELTERMINE} Einzeltermine pro Speichervorgang.`;
+    }
+
     if (alsVorlageSpeichern && !vorlageName.trim()) {
       return 'Bitte einen Namen für die Vorlage eingeben.';
     }
@@ -200,69 +318,101 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
       return;
     }
 
+    const starttermine = ermittleStarttermine();
+
     setSaving(true);
 
-    const payload = {
-      firma_id: firma,
-      unit_id: unit,
-      created_by: userId || null,
+    try {
+      const basisPayload = {
+        firma_id: firma,
+        unit_id: unit,
+        created_by: userId || null,
 
-      name: name.trim(),
-      schichtart_id: Number(schichtartId),
+        name: name.trim(),
+        schichtart_id: Number(schichtartId),
 
-      quali_id: qualiId ? Number(qualiId) : null,
-      bedarf_delta: Number(bedarfAnzahl || 1),
+        quali_id: qualiId ? Number(qualiId) : null,
+        bedarf_delta: Number(bedarfAnzahl || 1),
 
-      dtstart,
-      until,
+        beschreibung: beschreibung.trim() || null,
+        hinweis: hinweis.trim() || null,
+        farbe,
 
-        freq: freq === 'none' ? 'once' : freq,
-        interval: Number(interval || 1),
-        byweekday:
-        freq === 'weekly' && byweekday !== ''
-            ? [Number(byweekday)]
-            : null,
-
-      beschreibung: beschreibung.trim() || null,
-      hinweis: hinweis.trim() || null,
-      farbe,
-      aktiv: true,
-
-      ist_vorlage: !!alsVorlageSpeichern,
-      vorlage_name: alsVorlageSpeichern ? vorlageName.trim() : null,
-      anfrage_erlaubt: true,
-    };
-
-    const rowsToInsert = [
-    {
-        ...payload,
-        ist_vorlage: false,
-        vorlage_name: null,
-    },
-    ];
-
-    if (alsVorlageSpeichern) {
-    rowsToInsert.push({
-        ...payload,
-        ist_vorlage: true,
-        vorlage_name: vorlageName.trim(),
         aktiv: true,
-    });
+        anfrage_erlaubt: true,
+      };
+
+      const rowsToInsert = starttermine.map((startDatum) => {
+        const endDatum = dayjs(startDatum)
+          .add(Math.max(dauerTage - 1, 0), 'day')
+          .format('YYYY-MM-DD');
+
+        return {
+          ...basisPayload,
+
+          // Jeder gespeicherte Datensatz ist ein echter Zusatzbedarf.
+          // Von/Bis bleibt als Dauer erhalten.
+          dtstart: startDatum,
+          until: endDatum,
+
+          // Serienlogik wird nicht virtuell gespeichert.
+          // Die Serie wurde bereits in echte Einzeltermine aufgelöst.
+          freq: 'once',
+          interval: 1,
+          byweekday: null,
+        };
+      });
+
+      const { error: sonderErr } = await supabase
+        .from('DB_Sonderbedarf')
+        .insert(rowsToInsert);
+
+      if (sonderErr) throw sonderErr;
+
+      if (alsVorlageSpeichern) {
+        const vorlagePayload = {
+          firma_id: firma,
+          unit_id: unit,
+          created_by: userId || null,
+
+          vorlage_name: vorlageName.trim(),
+          name: name.trim(),
+
+          schichtart_id: Number(schichtartId),
+          quali_id: qualiId ? Number(qualiId) : null,
+
+          bedarf_delta: Number(bedarfAnzahl || 1),
+
+          beschreibung: beschreibung.trim() || null,
+          hinweis: hinweis.trim() || null,
+
+          farbe,
+          anfrage_erlaubt: true,
+          aktiv: true,
+          position: null,
+        };
+
+        const { error: vorlageErr } = await supabase
+          .from('DB_SonderbedarfVorlage')
+          .insert(vorlagePayload);
+
+        if (vorlageErr) throw vorlageErr;
+      }
+
+      setFeedback(
+        alsVorlageSpeichern
+          ? `${starttermine.length} Zusatzbedarf-Eintrag${starttermine.length === 1 ? '' : 'e'} und Vorlage wurden gespeichert.`
+          : `${starttermine.length} Zusatzbedarf-Eintrag${starttermine.length === 1 ? '' : 'e'} wurde${starttermine.length === 1 ? '' : 'n'} gespeichert.`
+      );
+
+      resetForm();
+      setTimeout(() => onSaved?.(), 100);
+    } catch (error) {
+      console.error('Fehler beim Speichern des Zusatzbedarfs:', error.message);
+      setFeedback(`Fehler beim Speichern: ${error.message}`);
+    } finally {
+      setSaving(false);
     }
-
-    const { error } = await supabase.from('DB_Sonderbedarf').insert(rowsToInsert);
-
-    setSaving(false);
-
-    if (error) {
-    console.error('Fehler beim Speichern des Zusatzbedarfs:', error.message);
-    setFeedback(`Fehler beim Speichern: ${error.message}`);
-    return;
-    }
-
-    setFeedback('Zusatzbedarf wurde gespeichert.');
-    resetForm();
-    setTimeout(() => onSaved?.(), 100);
   };
 
   return (
@@ -291,7 +441,10 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
 
       {vorlage && (
         <div className="mb-4 rounded-xl bg-blue-500 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 p-3 text-sm text-blue-900 dark:text-blue-100">
-          Vorlage geladen: <span className="font-semibold">{vorlage.vorlage_name || vorlage.name}</span>
+          Vorlage geladen:{' '}
+          <span className="font-semibold">
+            {vorlage.vorlage_name || vorlage.name}
+          </span>
         </div>
       )}
 
@@ -311,7 +464,7 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
 
         <div>
           <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-300">
-            Kürzel / Schichtart 
+            Kürzel / Schichtart
           </label>
           <select
             value={schichtartId}
@@ -366,7 +519,7 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-300">
               Von
@@ -375,9 +528,20 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
               type="date"
               value={dtstart}
               onChange={(e) => {
-                setDtstart(e.target.value);
-                if (dayjs(until).isBefore(dayjs(e.target.value), 'day')) {
-                  setUntil(e.target.value);
+                const neuesDatum = e.target.value;
+
+                setDtstart(neuesDatum);
+
+                if (dayjs(until).isBefore(dayjs(neuesDatum), 'day')) {
+                  setUntil(neuesDatum);
+                }
+
+                if (dayjs(serieBis).isBefore(dayjs(neuesDatum), 'day')) {
+                  setSerieBis(neuesDatum);
+                }
+
+                if (freq === 'weekly') {
+                  setByweekday(String(dayjs(neuesDatum).day()));
                 }
               }}
               className="w-full px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
@@ -395,8 +559,14 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
               onChange={(e) => setUntil(e.target.value)}
               className="w-full px-3 py-2 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700"
             />
-          </div>
+            </div>
+          <div className="rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 px-3 py-2 text-xs text-gray-700 dark:text-gray-200">
+          Dauer:{' '}
+          <span className="font-semibold">
+            {dauerTage > 0 ? `${dauerTage} Tag${dauerTage === 1 ? '' : 'e'}` : '—'}
+          </span>
         </div>
+          </div>
 
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 p-3 bg-gray-500 dark:bg-gray-800/60">
           <label className="block text-xs font-medium mb-2 text-gray-600 dark:text-gray-300">
@@ -405,7 +575,26 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
 
           <select
             value={freq}
-            onChange={(e) => setFreq(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setFreq(value);
+
+              if (value === 'none') {
+                setSerieBis(dtstart);
+                setByweekday('');
+              }
+
+              if (value === 'weekly') {
+                setByweekday(String(dayjs(dtstart).day()));
+                if (dayjs(serieBis).isBefore(dayjs(dtstart), 'day')) {
+                  setSerieBis(dtstart);
+                }
+              }
+
+              if (value !== 'none' && dayjs(serieBis).isBefore(dayjs(dtstart), 'day')) {
+                setSerieBis(dtstart);
+              }
+            }}
             className="w-full px-3 py-2 rounded bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 mb-2"
           >
             <option value="none">Keine Wiederholung</option>
@@ -415,18 +604,33 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
           </select>
 
           {freq !== 'none' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs mb-1 text-gray-600 dark:text-gray-300">
-                  Abstand
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={interval}
-                  onChange={(e) => setInterval(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700"
-                />
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs mb-1 text-gray-600 dark:text-gray-300">
+                    Abstand
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={interval}
+                    onChange={(e) => setInterval(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs mb-1 text-gray-600 dark:text-gray-300">
+                    Wiederholen bis
+                  </label>
+                  <input
+                    type="date"
+                    value={serieBis}
+                    min={dtstart}
+                    onChange={(e) => setSerieBis(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700"
+                  />
+                </div>
               </div>
 
               {freq === 'weekly' && (
@@ -448,6 +652,17 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
                   </select>
                 </div>
               )}
+
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-3 py-2 text-xs text-blue-900 dark:text-blue-100">
+                Es werden voraussichtlich{' '}
+                <span className="font-semibold">
+                  {anzahlStarttermine} Eintrag{anzahlStarttermine === 1 ? '' : 'e'}
+                </span>{' '}
+                erzeugt. Jeder Eintrag dauert{' '}
+                <span className="font-semibold">
+                  {dauerTage > 0 ? `${dauerTage} Tag${dauerTage === 1 ? '' : 'e'}` : '—'}
+                </span>.
+              </div>
             </div>
           )}
 
@@ -526,14 +741,22 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
               {ausgewaehlteSchichtart.kuerzel} · {bedarfAnzahl} Person(en)
               {ausgewaehlteQuali ? ` · Qualifikation: ${ausgewaehlteQuali.qualifikation}` : ''}
             </div>
-            <div className="text-gray-500 dark:text-gray-400 mt-1">{rhythmusText}</div>
+            <div className="text-gray-500 dark:text-gray-400 mt-1">
+              Dauer: {dauerTage > 0 ? `${dauerTage} Tag${dauerTage === 1 ? '' : 'e'}` : '—'}
+            </div>
+            <div className="text-gray-500 dark:text-gray-400 mt-1">
+              {rhythmusText}
+            </div>
           </div>
         )}
 
         {feedback && (
           <div
             className={`rounded-xl px-3 py-2 text-sm ${
-              feedback.includes('Fehler') || feedback.includes('Bitte') || feedback.includes('darf nicht')
+              feedback.includes('Fehler') ||
+              feedback.includes('Bitte') ||
+              feedback.includes('darf nicht') ||
+              feedback.includes('keine Termine')
                 ? 'bg-red-500 dark:bg-red-900/20 text-red-700 dark:text-red-200 border border-red-300 dark:border-red-700'
                 : 'bg-green-500 dark:bg-green-900/20 text-green-700 dark:text-green-200 border border-green-300 dark:border-green-700'
             }`}
@@ -565,7 +788,9 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
             className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl max-w-xl w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-3">Hinweise zum Zusatzbedarf</h3>
+            <h3 className="text-lg font-semibold mb-3">
+              Hinweise zum Zusatzbedarf
+            </h3>
 
             <div className="text-sm space-y-2 text-gray-700 dark:text-gray-200">
               <p>
@@ -574,10 +799,14 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
               </p>
               <p>
                 Es können nur Schichtarten gewählt werden, die nicht sollplanrelevant sind.
-                K und KO werden ausgeschlossen.
+                K, KO und U werden ausgeschlossen.
               </p>
               <p>
                 Eine Qualifikation kann hinterlegt werden, muss aber nicht.
+              </p>
+              <p>
+                Von und Bis beschreiben die Dauer eines einzelnen Zusatzbedarfs.
+                Bei Wiederholung werden daraus echte einzelne Einträge erzeugt.
               </p>
               <p>
                 Die Arbeitszeit wird hier aktuell nicht geprüft. Gezählt wird später, ob

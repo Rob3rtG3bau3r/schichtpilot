@@ -326,9 +326,12 @@ export default function AMAMKandidatenliste({
     () => parseAntrag(basisAnfrage?.antrag),
     [basisAnfrage?.antrag]
   );
+  const istZusatzbedarfAnfrage = basisAnfrage?.anfrage_typ === 'zusatzbedarf';
 
   const modus = useMemo(() => {
     if (basisAnfrage?._fairnessModus) return basisAnfrage._fairnessModus;
+
+    if (istZusatzbedarfAnfrage) return 'zusatzbedarf';
 
     if (antragInfo.type === 'freizeitausgleich') return 'freizeitausgleich';
     if (antragInfo.type === 'urlaub') return 'urlaub';
@@ -337,16 +340,25 @@ export default function AMAMKandidatenliste({
     if (basisAnfrage?._nurKandidat) return 'einspringen';
 
     return 'standard';
-  }, [basisAnfrage?._fairnessModus, antragInfo.type, basisAnfrage?._nurKandidat]);
+  }, [
+    basisAnfrage?._fairnessModus,
+    istZusatzbedarfAnfrage,
+    antragInfo.type,
+    basisAnfrage?._nurKandidat,
+  ]);
 
-  const titel = useMemo(() => {
-    if (modus === 'einspringen') return 'Faire Kandidatenempfehlung';
-    if (modus === 'freizeitausgleich') return 'Fairnessprüfung Freizeitausgleich';
-    if (modus === 'urlaub') return 'Fairnessprüfung Urlaub';
-    return 'Fairnessprüfung';
-  }, [modus]);
+const titel = useMemo(() => {
+  if (modus === 'zusatzbedarf') return 'Fairnessprüfung Zusatzbedarf';
+  if (modus === 'einspringen') return 'Faire Kandidatenempfehlung';
+  if (modus === 'freizeitausgleich') return 'Fairnessprüfung Freizeitausgleich';
+  if (modus === 'urlaub') return 'Fairnessprüfung Urlaub';
+  return 'Fairnessprüfung';
+}, [modus]);
 
   const untertitel = useMemo(() => {
+    if (modus === 'zusatzbedarf') {
+      return 'Angemeldet + frei • Quali passend • wenig Stunden oben';
+    }
     if (modus === 'einspringen') {
       return 'Verfügbar • Ruhezeit ok • Quali passend • wenig Stunden oben';
     }
@@ -362,20 +374,29 @@ export default function AMAMKandidatenliste({
     return 'Faire Entscheidungsgrundlage';
   }, [modus]);
 
-  useEffect(() => {
-    if (
-      !offen ||
-      !analyseGeladen ||
-      !firmaId ||
-      !unitId ||
-      !datum ||
+useEffect(() => {
+  if (
+    !offen ||
+    !analyseGeladen ||
+    !firmaId ||
+    !unitId ||
+    !datum
+  ) {
+    setKandidaten([]);
+    return;
+  }
+
+  if (
+    !istZusatzbedarfAnfrage &&
+    (
       !schichtKuerzel ||
       !requestedArt?.startzeit ||
       !requestedArt?.endzeit
-    ) {
-      setKandidaten([]);
-      return;
-    }
+    )
+  ) {
+    setKandidaten([]);
+    return;
+  }
 
     const ladeKandidaten = async () => {
       setLoading(true);
@@ -384,7 +405,7 @@ export default function AMAMKandidatenliste({
         const jahr = dayjs(datum).year();
         const schKey = String(schichtKuerzel || '').trim().toUpperCase();
 
-        if (!['F', 'S', 'N'].includes(schKey)) {
+        if (!istZusatzbedarfAnfrage && !['F', 'S', 'N'].includes(schKey)) {
           setKandidaten([]);
           return;
         }
@@ -477,16 +498,20 @@ export default function AMAMKandidatenliste({
           });
         }
 
-        const bedarfSortiert = getBedarfForSchicht({
-          bedarfRows,
-          matrixById,
-          datum,
-          schKey,
-        });
+        let bedarfSortiert = [];
 
-        if (!bedarfSortiert.length) {
-          setKandidaten([]);
-          return;
+        if (!istZusatzbedarfAnfrage) {
+          bedarfSortiert = getBedarfForSchicht({
+            bedarfRows,
+            matrixById,
+            datum,
+            schKey,
+          });
+
+          if (!bedarfSortiert.length) {
+            setKandidaten([]);
+            return;
+          }
         }
 
         const schichtUserIds = (planRows || [])
@@ -537,6 +562,10 @@ export default function AMAMKandidatenliste({
             antrag,
             created_at,
             schicht,
+            anfrage_typ,
+            sonderbedarf_id,
+            sonderbedarf_datum,
+            sonderbedarf_schichtart_id,
             created_by_user:created_by (
               vorname,
               nachname
@@ -577,6 +606,108 @@ export default function AMAMKandidatenliste({
          * Kandidaten nach Modus bestimmen
          * --------------------------------------------------------- */
         let kandidatenIds = [];
+        let zusatzAnfrageByUser = new Map();
+let zusatzQuelleByUser = new Map();
+
+if (modus === 'zusatzbedarf') {
+  const sonderId = basisAnfrage?.sonderbedarf_id
+    ? Number(basisAnfrage.sonderbedarf_id)
+    : null;
+
+  if (!sonderId) {
+    setKandidaten([]);
+    return;
+  }
+
+  const { data: sonderbedarf, error: sonderErr } = await supabase
+    .from('DB_Sonderbedarf')
+    .select('id, name, quali_id, schichtart_id, bedarf_delta')
+    .eq('id', sonderId)
+    .maybeSingle();
+
+  if (sonderErr) throw sonderErr;
+
+  const benoetigteQualiId = sonderbedarf?.quali_id
+    ? Number(sonderbedarf.quali_id)
+    : null;
+
+  const zusatzSchichtartId = sonderbedarf?.schichtart_id
+    ? Number(sonderbedarf.schichtart_id)
+    : null;
+
+  const offeneZusatzAnfragen = (offeneAnfragenTag || []).filter((a) => {
+    return (
+      a?.anfrage_typ === 'zusatzbedarf' &&
+      Number(a?.sonderbedarf_id) === sonderId &&
+      dayjs(a?.sonderbedarf_datum || datum).format('YYYY-MM-DD') === datum
+    );
+  });
+
+  offeneZusatzAnfragen.forEach((a) => {
+    const uid = String(a.created_by);
+    zusatzAnfrageByUser.set(uid, a);
+    zusatzQuelleByUser.set(uid, 'angemeldet');
+  });
+
+  // Frei laut Plan: Soll '-' und Ist leer oder '-'
+  const freiUserIds = (planRows || [])
+    .filter((r) => {
+      const sollKuerzel = artsById.get(r.soll_schichtart_id)?.kuerzel || null;
+      const istKuerzel = r.ist_schichtart_id
+        ? artsById.get(r.ist_schichtart_id)?.kuerzel || null
+        : null;
+
+      return sollKuerzel === '-' && (istKuerzel === null || istKuerzel === '-');
+    })
+    .map((r) => String(r.user_id))
+    .filter(Boolean);
+
+  freiUserIds.forEach((uid) => {
+    if (!zusatzQuelleByUser.has(uid)) {
+      zusatzQuelleByUser.set(uid, 'frei');
+    }
+  });
+
+  let bereitsImZusatzbedarf = [];
+
+  if (zusatzSchichtartId) {
+    const { data: kampfRows, error: kampfErr } = await supabase
+      .from('DB_Kampfliste')
+      .select('user')
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId)
+      .eq('datum', datum)
+      .eq('ist_schicht', zusatzSchichtartId);
+
+    if (kampfErr) throw kampfErr;
+
+    bereitsImZusatzbedarf = [
+      ...new Set((kampfRows || []).map((r) => String(r.user)).filter(Boolean)),
+    ];
+  }
+
+  const bereitsSet = new Set(bereitsImZusatzbedarf);
+
+  kandidatenIds = [
+    ...new Set([
+      ...offeneZusatzAnfragen.map((a) => String(a.created_by)).filter(Boolean),
+      ...freiUserIds,
+    ]),
+  ].filter((uid) => !bereitsSet.has(String(uid)));
+
+  // Wenn eine Qualifikation benötigt wird: nur passende Mitarbeitende anzeigen.
+  if (benoetigteQualiId) {
+    kandidatenIds = kandidatenIds.filter((uid) => {
+      return (qualiRows || []).some((q) => {
+        return (
+          String(q.user_id) === String(uid) &&
+          Number(q.quali) === benoetigteQualiId &&
+          isBetweenQualiDate(q, datum)
+        );
+      });
+    });
+  }
+}
 
         if (modus === 'einspringen') {
           // Nur wirklich frei: Soll '-' und Ist leer oder '-'
@@ -852,8 +983,13 @@ export default function AMAMKandidatenliste({
             .filter(Boolean)
             .sort((a, b) => a.position - b.position);
 
-          const primaryAnfrage =
-            modus === 'einspringen'
+        const zusatzAnfrage = zusatzAnfrageByUser.get(id);
+        const zusatzQuelle = zusatzQuelleByUser.get(id) || null;
+
+        const primaryAnfrage =
+          modus === 'zusatzbedarf'
+            ? zusatzAnfrage
+            : modus === 'einspringen'
               ? angebot
               : modus === 'freizeitausgleich'
                 ? fza
@@ -874,12 +1010,14 @@ export default function AMAMKandidatenliste({
             antragText: primaryAnfrage?.antrag || null,
             angefragtAm: primaryAnfrage?.created_at || null,
             qualis: passendeQualis,
+            hatZusatzAnfrage: !!zusatzAnfrage,
+            zusatzQuelle,
           };
         });
 
         rows.sort((a, b) => {
-          // Einspringen: wenig Stunden oben.
-          if (modus === 'einspringen') {
+          // Zusatzbedarf + Einspringen: wenig Stunden oben.
+          if (modus === 'zusatzbedarf' || modus === 'einspringen') {
             if (a.stunden !== b.stunden) return a.stunden - b.stunden;
             return a.name.localeCompare(b.name);
           }
@@ -899,19 +1037,21 @@ export default function AMAMKandidatenliste({
     };
 
     ladeKandidaten();
-  }, [
-    offen,
-    analyseGeladen,
-    firmaId,
-    unitId,
-    datum,
-    schichtKuerzel,
-    requestedArt?.startzeit,
-    requestedArt?.endzeit,
-    modus,
-    basisAnfrage?._nurKandidat,
-    JSON.stringify(fehlendeQualiIds || []),
-  ]);
+    }, [
+      offen,
+      analyseGeladen,
+      firmaId,
+      unitId,
+      datum,
+      schichtKuerzel,
+      requestedArt?.startzeit,
+      requestedArt?.endzeit,
+      modus,
+      istZusatzbedarfAnfrage,
+      basisAnfrage?._nurKandidat,
+      basisAnfrage?.sonderbedarf_id,
+      JSON.stringify(fehlendeQualiIds || []),
+    ]);
 
   return (
     <div className="hidden lg:flex w-80 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl overflow-hidden flex-col">
@@ -942,10 +1082,11 @@ export default function AMAMKandidatenliste({
                 type="button"
                 key={k.user_id}
                 onClick={() => {
-                  const istEchterAntrag =
-                    (modus === 'einspringen' && k.antragId) ||
-                    (modus === 'freizeitausgleich' && k.antragId) ||
-                    (modus === 'urlaub' && k.antragId);
+                const istEchterAntrag =
+                  (modus === 'zusatzbedarf' && k.antragId) ||
+                  (modus === 'einspringen' && k.antragId) ||
+                  (modus === 'freizeitausgleich' && k.antragId) ||
+                  (modus === 'urlaub' && k.antragId);
 
                   onKandidatAuswahl?.({
                     ...basisAnfrage,
@@ -961,20 +1102,26 @@ export default function AMAMKandidatenliste({
                         ? 'Mitarbeiter hat keinen eigenen Freizeitausgleich beantragt.'
                         : modus === 'urlaub'
                           ? 'Mitarbeiter hat keinen eigenen Urlaub beantragt.'
-                          : 'Mitarbeiter hat sich nicht angeboten.'),
+                          : modus === 'zusatzbedarf'
+                            ? 'Mitarbeiter hatte frei und wurde als Zusatzbedarf-Kandidat vorgeschlagen.'
+                            : 'Mitarbeiter hat sich nicht angeboten.'),
                     _nurKandidat: !istEchterAntrag,
                     _fairnessModus: modus,
                   });
                 }}
                 className={[
                   'w-full text-left rounded-xl border px-3 py-2 text-sm hover:scale-[1.01] transition',
-                  k.hatAngebot
-                    ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
-                    : k.hatFzaAntrag
-                      ? 'border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20'
-                      : k.hatUrlaubsantrag
-                        ? 'border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20'
-                        : 'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20',
+                  k.hatZusatzAnfrage
+                    ? 'border-purple-300 bg-purple-50 dark:border-purple-800 dark:bg-purple-900/20'
+                    : k.zusatzQuelle === 'frei'
+                      ? 'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20'
+                      : k.hatAngebot
+                        ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
+                        : k.hatFzaAntrag
+                          ? 'border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20'
+                          : k.hatUrlaubsantrag
+                            ? 'border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20'
+                            : 'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20',
                 ].join(' ')}
                 title={k.antragText || ''}
               >
@@ -989,6 +1136,18 @@ export default function AMAMKandidatenliste({
                 </div>
 
                 <div className="flex flex-wrap gap-1 mt-1">
+                  {k.hatZusatzAnfrage && (
+                    <span className="inline-flex rounded-full bg-purple-200 text-purple-900 dark:bg-purple-800 dark:text-purple-100 px-2 py-0.5 text-[11px] font-semibold">
+                      angemeldet
+                    </span>
+                  )}
+
+                  {!k.hatZusatzAnfrage && k.zusatzQuelle === 'frei' && (
+                    <span className="inline-flex rounded-full bg-blue-200 text-blue-900 dark:bg-blue-800 dark:text-blue-100 px-2 py-0.5 text-[11px] font-semibold">
+                      frei
+                    </span>
+                  )}
+
                   {k.hatAngebot && (
                     <span className="inline-flex rounded-full bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-100 px-2 py-0.5 text-[11px] font-semibold">
                       angeboten

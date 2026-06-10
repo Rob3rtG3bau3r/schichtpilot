@@ -121,13 +121,11 @@ export const useZusatzbedarfStatus = ({
           farbe,
           beschreibung,
           hinweis,
-          ist_vorlage,
           anfrage_erlaubt
         `)
         .eq('firma_id', firma)
         .eq('unit_id', unit)
         .eq('aktiv', true)
-        .eq('ist_vorlage', false)
         .lte('dtstart', monthEnd)
         .gte('until', monthStart);
 

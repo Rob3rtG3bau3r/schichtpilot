@@ -79,13 +79,10 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
           farbe,
           beschreibung,
           hinweis,
-          ist_vorlage,
-          vorlage_name,
           anfrage_erlaubt
         `)
         .eq('firma_id', firma)
         .eq('unit_id', unit)
-        .eq('ist_vorlage', false)
         .order('dtstart', { ascending: true });
 
       if (error) {

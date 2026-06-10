@@ -177,8 +177,8 @@ const AmpelDot = ({ title, color }) => (
 );
 
 const ampelColor = (s) => {
-  // s: 'red' | 'green' | 'darkgreen' | 'grey'
   if (s === 'red') return '#EF4444';
+  if (s === 'orange') return '#F97316';
   if (s === 'green') return '#34D399';
   if (s === 'darkgreen') return '#047857';
   return '#9CA3AF';
@@ -207,6 +207,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
     setKommentar('');
     setKandidatZugesagt(false);
     setAndereAngeboteAblehnen(false);
+    setZeigeZusatzbedarfBesetzung(false);
   }, [anfrage]);
 
   const [ruhezeitLoading, setRuhezeitLoading] = useState(false);
@@ -226,6 +227,9 @@ export default function AnfragenMitarbeiterAnalyseModal({
   const [matrix, setMatrix] = useState([]);              // Qualifikationsmatrix
   const [userQualis, setUserQualis] = useState([]);      // Qualis für Personen (für Besetzung-Liste)
   const [requestedArt, setRequestedArt] = useState(null);// SchichtArt aus anfrage.schicht inkl Farben
+  const [zusatzbedarfMeta, setZusatzbedarfMeta] = useState(null);
+  const [zusatzbedarfBesetzung, setZusatzbedarfBesetzung] = useState([]);
+  const [zeigeZusatzbedarfBesetzung, setZeigeZusatzbedarfBesetzung] = useState(false);
 
   // Für Ampel: alle Schichten F/S/N am Tag
   const [bedarfRows, setBedarfRows] = useState([]);      // DB_Bedarf
@@ -242,6 +246,7 @@ export default function AnfragenMitarbeiterAnalyseModal({
 
   const basisAnfrage = aktiveAnfrage || anfrage;
   const gruppenOhneAuswahl = !!basisAnfrage?._gruppeNichtAusgewaehlt;
+  const istZusatzbedarfAnfrage = basisAnfrage?.anfrage_typ === 'zusatzbedarf';
   const hatAusgewaehltenMitarbeiter =
   !!basisAnfrage?.created_by && !gruppenOhneAuswahl;
 
@@ -460,6 +465,63 @@ const kandidatCheckboxText = useMemo(() => {
         }
         setRequestedArt(reqArt);
 
+        /* B2) Zusatzbedarf-Meta + aktuelle Besetzung */
+if (istZusatzbedarfAnfrage && basisAnfrage?.sonderbedarf_id) {
+  const { data: sb, error: sbErr } = await supabase
+    .from('DB_Sonderbedarf')
+    .select('id, name, bedarf_delta, quali_id, schichtart_id, beschreibung, hinweis')
+    .eq('id', basisAnfrage.sonderbedarf_id)
+    .maybeSingle();
+
+  if (sbErr) throw sbErr;
+
+  setZusatzbedarfMeta(sb || null);
+
+  if (sb?.schichtart_id && datum) {
+    const { data: kampfZusatz, error: kampfZusatzErr } = await supabase
+      .from('DB_Kampfliste')
+      .select('id, user')
+      .eq('firma_id', firmaId)
+      .eq('unit_id', unitId)
+      .eq('datum', datum)
+      .eq('ist_schicht', sb.schichtart_id);
+
+    if (kampfZusatzErr) throw kampfZusatzErr;
+
+    const userIds = [...new Set((kampfZusatz || []).map((r) => r.user).filter(Boolean))];
+
+    let usersById = new Map();
+
+    if (userIds.length) {
+      const { data: users, error: usersErr } = await supabase
+        .from('DB_User')
+        .select('user_id, vorname, nachname')
+        .in('user_id', userIds);
+
+      if (usersErr) throw usersErr;
+
+      (users || []).forEach((u) => {
+        usersById.set(u.user_id, u);
+      });
+    }
+
+    setZusatzbedarfBesetzung(
+      userIds.map((uid) => {
+        const u = usersById.get(uid);
+        return {
+          user: uid,
+          name: u ? `${u.vorname || ''} ${u.nachname || ''}`.trim() : `User ${uid}`,
+        };
+      })
+    );
+  } else {
+    setZusatzbedarfBesetzung([]);
+  }
+} else {
+  setZusatzbedarfMeta(null);
+  setZusatzbedarfBesetzung([]);
+}
+
         /* C) 7-Tage Plan des ausgewählten Mitarbeiters (v_tagesplan) */
 if (hatAusgewaehltenMitarbeiter && range?.from && range?.to) {
   const { data: plan, error: planErr } = await supabase
@@ -667,17 +729,54 @@ if (hatAusgewaehltenMitarbeiter && range?.from && range?.to) {
           N: [...new Set(ass.N)],
         });
 
-        // Besetzung (Anzeige) – optional auf beantragte Schicht filtern
-        const schichtArtId = reqArt?.id ?? null;
+// Besetzung (Anzeige)
+// Normal: beantragte Schicht anzeigen.
+// Zusatzbedarf: primär die aktuelle F/S/N-Hauptschicht des Mitarbeiters anzeigen.
+let besFiltered = [];
 
-        const besFiltered = schichtArtId
-          ? (dayRows || []).filter((r) => (r.ist_schichtart_id || r.soll_schichtart_id) === schichtArtId)
-          : (dayRows || []);
+if (istZusatzbedarfAnfrage && basisAnfrage?.created_by) {
+  let requesterShiftInLoad = null;
 
-        const besUserIds = [...new Set(besFiltered.map((b) => b.user_id).filter(Boolean))];
+  for (const k of ['F', 'S', 'N']) {
+    if ((ass?.[k] || []).some((uid) => String(uid) === String(basisAnfrage.created_by))) {
+      requesterShiftInLoad = k;
+      break;
+    }
+  }
 
-        // Namen holen (für Besetzung-Anzeige)
-        let usersById = new Map();
+  if (requesterShiftInLoad) {
+    besFiltered = (dayRows || []).filter((r) => {
+      const useIst = !!r.ist_schichtart_id;
+      const sid = useIst ? r.ist_schichtart_id : r.soll_schichtart_id;
+      const ku = dayArtsById.get(sid)?.kuerzel;
+
+      return ku === requesterShiftInLoad;
+    });
+  } else {
+    besFiltered = [];
+  }
+} else {
+  const schichtArtId = reqArt?.id ?? null;
+
+  besFiltered = schichtArtId
+    ? (dayRows || []).filter((r) => {
+        const useIst = !!r.ist_schichtart_id;
+        const sid = useIst ? r.ist_schichtart_id : r.soll_schichtart_id;
+        return sid === schichtArtId;
+      })
+    : (dayRows || []);
+}
+
+const besUserIds = [
+  ...new Set(
+    besFiltered
+      .map((b) => b.user_id)
+      .filter(Boolean)
+  ),
+];
+
+// Namen holen (für Besetzung-Anzeige)
+let usersById = new Map();
         if (besUserIds.length) {
           const { data: users, error: uErr } = await supabase
             .from('DB_User')
@@ -781,6 +880,11 @@ if (hatAusgewaehltenMitarbeiter) {
 
   /* --------------------------- Ruhezeitprüfung --------------------------- */
 useEffect(() => {
+  if (istZusatzbedarfAnfrage) {
+    setRuhezeitCheck(null);
+    return;
+  }
+
   if (
     !offen ||
     !basisAnfrage?.created_by ||
@@ -939,13 +1043,7 @@ useEffect(() => {
 
   pruefeRuhezeit();
 }, [
-  offen,
-  basisAnfrage?.created_by,
-  datum,
-  requestedArt?.startzeit,
-  requestedArt?.endzeit,
-  firmaId,
-  unitId,
+  offen,  basisAnfrage?.created_by,  datum,  requestedArt?.startzeit,  requestedArt?.endzeit,  firmaId,  unitId, istZusatzbedarfAnfrage,
 ]);
 
   /* --------------------------- Ampel Logic --------------------------- */
@@ -1142,6 +1240,62 @@ const evaluateShift = (datumISO, schKey, activeUserIds, qualiMap) => {
     return null;
   }, [basisAnfrage?.created_by, dayAssignments]);
 
+  const zusatzHauptschichtAmpel = useMemo(() => {
+  if (!istZusatzbedarfAnfrage || !datum) return null;
+
+  const uid = basisAnfrage?.created_by;
+  if (!uid) return null;
+
+  // Mitarbeiter hat an dem Tag keine F/S/N-Schicht.
+  if (!requesterCurrentShift) {
+    return {
+      hatHauptschicht: false,
+      schicht: null,
+      jetzt: null,
+      wennJa: null,
+    };
+  }
+
+  const aktuelleUser = [...(dayAssignments?.[requesterCurrentShift] || [])];
+
+  const userOhneRequester = aktuelleUser.filter(
+    (x) => String(x) !== String(uid)
+  );
+
+  const qualiMapOhneRequester = { ...(dayUserQualiMap || {}) };
+  delete qualiMapOhneRequester[uid];
+
+  const jetzt = evaluateShift(
+    datum,
+    requesterCurrentShift,
+    aktuelleUser,
+    dayUserQualiMap
+  );
+
+  const wennJa = evaluateShift(
+    datum,
+    requesterCurrentShift,
+    userOhneRequester,
+    qualiMapOhneRequester
+  );
+
+  return {
+    hatHauptschicht: true,
+    schicht: requesterCurrentShift,
+    jetzt,
+    wennJa,
+  };
+}, [
+  istZusatzbedarfAnfrage,
+  datum,
+  basisAnfrage?.created_by,
+  requesterCurrentShift,
+  dayAssignments,
+  dayUserQualiMap,
+  bedarfRows,
+  qualiMatrixMap,
+]);
+
   // Simulation: wie sieht es aus, wenn "Ja" bestätigt wird?
   const simulatedAssignments = useMemo(() => {
     const base = {
@@ -1216,6 +1370,41 @@ const ampelAfter = useMemo(() => {
   return evaluateShift(datum, schKey, simulatedAssignments?.[schKey] || [], dayUserQualiMapAfter);
 }, [datum, schKey, simulatedAssignments, bedarfRows, dayUserQualiMapAfter, qualiMatrixMap]);
 
+const zusatzAmpel = useMemo(() => {
+  if (!istZusatzbedarfAnfrage || !zusatzbedarfMeta) return null;
+
+  const benoetigt = Number(zusatzbedarfMeta.bedarf_delta || 0);
+  const aktuell = Number(zusatzbedarfBesetzung?.length || 0);
+
+  // Wenn der Mitarbeiter schon drin ist, nicht nochmal +1 rechnen.
+  const requesterSchonDrin = (zusatzbedarfBesetzung || []).some(
+    (r) => String(r.user) === String(basisAnfrage?.created_by)
+  );
+
+  const wennJa = requesterSchonDrin ? aktuell : aktuell + 1;
+
+  const stateFor = (have) => {
+    if (benoetigt <= 0) return 'grey';
+    if (have === 0) return 'red';
+    if (have < benoetigt) return 'orange';
+    if (have === benoetigt) return 'green';
+    return 'darkgreen';
+  };
+
+  return {
+    benoetigt,
+    aktuell,
+    wennJa,
+    jetztState: stateFor(aktuell),
+    wennJaState: stateFor(wennJa),
+  };
+}, [
+  istZusatzbedarfAnfrage,
+  zusatzbedarfMeta,
+  zusatzbedarfBesetzung,
+  basisAnfrage?.created_by,
+]);
+
   const urlaubRestNachGenehmigung = useMemo(() => {
     if (urlaubRestAktuell == null) return null;
     if (antragInfo.type !== 'urlaub') return null;
@@ -1276,6 +1465,47 @@ const idsZumAbsagen = [
 
   if (absageErr) throw absageErr;
 };
+const andereZusatzbedarfAnfragenAblehnen = async ({ selectedId, createdBy }) => {
+  if (!istZusatzbedarfAnfrage) return;
+
+  const sonderId = basisAnfrage?.sonderbedarf_id;
+  const sonderDatum = basisAnfrage?.sonderbedarf_datum || datum;
+
+  if (!sonderId || !sonderDatum) return;
+
+  const { data, error } = await supabase
+    .from('DB_AnfrageMA')
+    .select('id')
+    .eq('firma_id', firmaId)
+    .eq('unit_id', unitId)
+    .eq('anfrage_typ', 'zusatzbedarf')
+    .eq('sonderbedarf_id', sonderId)
+    .eq('sonderbedarf_datum', sonderDatum)
+    .is('genehmigt', null)
+    .is('datum_entscheid', null);
+
+  if (error) throw error;
+
+  const idsZumAblehnen = (data || [])
+    .map((r) => r.id)
+    .filter(Boolean)
+    .filter((id) => String(id) !== String(selectedId));
+
+  if (!idsZumAblehnen.length) return;
+
+  const { error: updateErr } = await supabase
+    .from('DB_AnfrageMA')
+    .update({
+      genehmigt: false,
+      verantwortlicher: createdBy || verantwortlicherUserId,
+      datum_entscheid: new Date().toISOString(),
+      kommentar:
+        'Automatisch abgelehnt: Der Zusatzbedarf wurde vergeben und weitere offene Anmeldungen wurden vom Verantwortlichen geschlossen.',
+    })
+    .in('id', idsZumAblehnen);
+
+  if (updateErr) throw updateErr;
+};
   /* --------------------------- SAVE --------------------------- */
   const handleSpeichern = async () => {
     if (!basisAnfrage || entscheidung === null) return;
@@ -1288,10 +1518,15 @@ const idsZumAbsagen = [
       return;
     }
 
-  if (entscheidung === true && ruhezeitCheck && ruhezeitCheck.ok === false) {
-    alert('Genehmigung nicht möglich: Die Ruhezeit von 11 Stunden wird nicht eingehalten.');
-    return;
-  }
+    if (
+      !istZusatzbedarfAnfrage &&
+      entscheidung === true &&
+      ruhezeitCheck &&
+      ruhezeitCheck.ok === false
+    ) {
+      alert('Genehmigung nicht möglich: Die Ruhezeit von 11 Stunden wird nicht eingehalten.');
+      return;
+    }
     if (antragInfo.type === 'urlaub' && entscheidung === true && urlaubGenehmigungBlockiert) {
       return;
     }
@@ -1318,6 +1553,53 @@ const idsZumAbsagen = [
 
       // 2) Wenn genehmigt => zentraler Kampfliste-Write (Verlauf -> Delete -> Insert + Recalc)
       if (entscheidung === true) {
+        if (istZusatzbedarfAnfrage) {
+          const createdBy =
+            (await supabase.auth.getUser()).data?.user?.id || verantwortlicherUserId || null;
+
+          if (!createdBy) {
+            throw new Error('Kein createdBy gefunden (auth user).');
+          }
+
+          if (!basisAnfrage.sonderbedarf_schichtart_id) {
+            throw new Error('Zusatzbedarf hat keine sonderbedarf_schichtart_id.');
+          }
+
+          const zusatzKommentar = [
+            'Zusatzbedarf angenommen',
+            basisAnfrage.antrag,
+            kommentar,
+          ]
+            .filter(Boolean)
+            .join(' | ');
+
+          await speichernInKampfliste({
+            firmaId,
+            unitId,
+            userId: basisAnfrage.created_by,
+            dates: [basisAnfrage.sonderbedarf_datum || datum],
+
+            // Zusatzbedarf-Kürzel, z. B. BR, BW, REI usw.
+            kuerzelNeu: schichtKuerzel,
+
+            createdBy,
+            kommentar: zusatzKommentar,
+
+            // Zusatzbedarf zählt nicht als Urlaub/Frei-Logik.
+            skipUrlaubOnFreeDay: false,
+          });
+
+          if (andereAngeboteAblehnen) {
+            await andereZusatzbedarfAnfragenAblehnen({
+              selectedId: basisAnfrage._nurKandidat ? null : basisAnfrage.id,
+              createdBy,
+            });
+          }
+
+          onSaved?.();
+          onClose?.();
+          return;
+        }
         let zielKuerzel = schichtKuerzel;
           if (antragInfo.type === 'urlaub') zielKuerzel = 'U';
           if (antragInfo.type === 'frei') zielKuerzel = '-';
@@ -1463,6 +1745,93 @@ const idsZumAbsagen = [
             </div>
           </div>
 
+{istZusatzbedarfAnfrage && zusatzHauptschichtAmpel && (
+  <div className="mt-2 flex flex-wrap gap-3 items-center">
+    <div className="text-xs text-gray-600 dark:text-gray-300 font-semibold">
+      Hauptschicht-Ampel
+    </div>
+
+    {!zusatzHauptschichtAmpel.hatHauptschicht ? (
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-1 text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/20">
+        Mitarbeiter hat an diesem Tag keine Früh-, Spät- oder Nachtschicht. Der Zusatzbedarf schwächt keine Hauptschicht.
+      </div>
+    ) : (
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 px-2 py-1">
+          <div className="text-[11px] text-gray-600 dark:text-gray-300 font-semibold">
+            Jetzt
+          </div>
+          <AmpelDot
+            title={`${zusatzHauptschichtAmpel.schicht}: ${zusatzHauptschichtAmpel.jetzt.active}/${zusatzHauptschichtAmpel.jetzt.needed}${
+              zusatzHauptschichtAmpel.jetzt.missingTop
+                ? ` • fehlt ${zusatzHauptschichtAmpel.jetzt.missingTop}`
+                : ''
+            }`}
+            color={ampelColor(zusatzHauptschichtAmpel.jetzt.state)}
+          />
+          <div className="text-[11px] text-gray-500 dark:text-gray-300">
+            {zusatzHauptschichtAmpel.schicht} • {zusatzHauptschichtAmpel.jetzt.active}/{zusatzHauptschichtAmpel.jetzt.needed}
+            {zusatzHauptschichtAmpel.jetzt.missingTop
+              ? ` • fehlt ${zusatzHauptschichtAmpel.jetzt.missingTop}`
+              : ''}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 px-2 py-1">
+          <div className="text-[11px] text-gray-600 dark:text-gray-300 font-semibold">
+            Wenn Ja
+          </div>
+          <AmpelDot
+            title={`${zusatzHauptschichtAmpel.schicht} ohne Mitarbeiter: ${zusatzHauptschichtAmpel.wennJa.active}/${zusatzHauptschichtAmpel.wennJa.needed}${
+              zusatzHauptschichtAmpel.wennJa.missingTop
+                ? ` • fehlt ${zusatzHauptschichtAmpel.wennJa.missingTop}`
+                : ''
+            }`}
+            color={ampelColor(zusatzHauptschichtAmpel.wennJa.state)}
+          />
+          <div className="text-[11px] text-gray-500 dark:text-gray-300">
+            {zusatzHauptschichtAmpel.schicht} • {zusatzHauptschichtAmpel.wennJa.active}/{zusatzHauptschichtAmpel.wennJa.needed}
+            {zusatzHauptschichtAmpel.wennJa.missingTop
+              ? ` • fehlt ${zusatzHauptschichtAmpel.wennJa.missingTop}`
+              : ''}
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)}
+          
+{istZusatzbedarfAnfrage && zusatzAmpel && (
+  <div className="mt-2 flex flex-wrap gap-3 items-center">
+    <div className="text-xs text-gray-600 dark:text-gray-300 font-semibold">
+      Zusatzbedarf-Ampel
+    </div>
+
+    <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 px-2 py-1">
+        <div className="text-[11px] text-gray-600 dark:text-gray-300 font-semibold">Jetzt</div>
+        <AmpelDot
+          title={`Zusatzbedarf: ${zusatzAmpel.aktuell}/${zusatzAmpel.benoetigt}`}
+          color={ampelColor(zusatzAmpel.jetztState)}
+        />
+        <div className="text-[11px] text-gray-500 dark:text-gray-300">
+          {zusatzAmpel.aktuell}/{zusatzAmpel.benoetigt}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 px-2 py-1">
+        <div className="text-[11px] text-gray-600 dark:text-gray-300 font-semibold">Wenn Ja</div>
+        <AmpelDot
+          title={`Zusatzbedarf nach Genehmigung: ${zusatzAmpel.wennJa}/${zusatzAmpel.benoetigt}`}
+          color={ampelColor(zusatzAmpel.wennJaState)}
+        />
+        <div className="text-[11px] text-gray-500 dark:text-gray-300">
+          {zusatzAmpel.wennJa}/{zusatzAmpel.benoetigt}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700">
             <X className="w-5 h-5 text-gray-700 dark:text-gray-200" />
           </button>
@@ -1646,12 +2015,35 @@ const idsZumAbsagen = [
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 py-1 px-3">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    Besetzung am {datum ? dayjs(datum).format('DD.MM.YYYY') : ''}{' '}
-                    {requestedArt?.kuerzel ? `• Schicht ${requestedArt.kuerzel}` : ''}
+                    {istZusatzbedarfAnfrage ? (
+                      <>
+                        Hauptschicht-Besetzung am {datum ? dayjs(datum).format('DD.MM.YYYY') : ''}
+                        {requesterCurrentShift ? ` • Schicht ${requesterCurrentShift}` : ' • keine F/S/N-Schicht'}
+                      </>
+                    ) : (
+                      <>
+                        Besetzung am {datum ? dayjs(datum).format('DD.MM.YYYY') : ''}{' '}
+                        {requestedArt?.kuerzel ? `• Schicht ${requestedArt.kuerzel}` : ''}
+                      </>
+                    )}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-300">
-                    Sortiert nach Quali-Priorität (kleinste Position oben)
-                  </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-gray-500 dark:text-gray-300">
+                        Sortiert nach Quali-Priorität
+                      </div>
+
+                      {istZusatzbedarfAnfrage && (
+                        <button
+                          type="button"
+                          onClick={() => setZeigeZusatzbedarfBesetzung((prev) => !prev)}
+                          className="px-2 py-1 rounded-lg border border-purple-300 dark:border-purple-700 text-xs text-purple-700 dark:text-purple-200 hover:bg-purple-50 dark:hover:bg-purple-900/30"
+                        >
+                          {zeigeZusatzbedarfBesetzung
+                            ? 'Zusatzbedarf ausblenden'
+                            : `Zusatzbedarf anzeigen (${zusatzbedarfBesetzung.length})`}
+                        </button>
+                      )}
+                    </div>
                 </div>
 
                 {besetzungSorted.length === 0 ? (
@@ -1672,7 +2064,36 @@ const idsZumAbsagen = [
                   </div>
                 )}
               </div>
+{istZusatzbedarfAnfrage && zeigeZusatzbedarfBesetzung && (
+  <div className="mt-3 rounded-xl border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 px-3 py-2">
+    <div className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-2">
+      Bereits im Zusatzbedarf eingetragen
+    </div>
 
+    {zusatzbedarfBesetzung.length === 0 ? (
+      <div className="text-xs text-purple-800 dark:text-purple-200">
+        Noch niemand eingetragen.
+      </div>
+    ) : (
+      <div className="space-y-1">
+        {zusatzbedarfBesetzung.map((row) => (
+          <div
+            key={row.user}
+            className="flex items-center justify-between rounded-lg border border-purple-200 dark:border-purple-700 bg-white/70 dark:bg-gray-900/30 px-2 py-1 text-xs"
+          >
+            <span className="font-medium text-purple-950 dark:text-purple-100">
+              {row.name}
+            </span>
+
+            <span className="text-purple-700 dark:text-purple-200">
+              Zusatzbedarf
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+)}
               {/* Genehmigung */}
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-3">
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Genehmigung</div>
@@ -1709,7 +2130,8 @@ const idsZumAbsagen = [
                     {antragInfo.type === 'urlaub' && 'Bei Ja wird Urlaub (U) eingetragen'}
                     {antragInfo.type === 'frei' && 'Bei Ja wird Frei (-) eingetragen'}
                     {antragInfo.type === 'freizeitausgleich' && 'Bei Ja wird Freizeitausgleich (-) eingetragen'}
-                    {istEinspringKandidat && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eingetragen`}
+                    {istZusatzbedarfAnfrage && `Bei Ja wird Zusatzbedarf ${schichtKuerzel || ''} eingetragen`}
+                    {!istZusatzbedarfAnfrage && istEinspringKandidat && `Bei Ja wird ${schichtKuerzel || 'Schicht'} eingetragen`}
                   </div>
                 </div>
               </div>
@@ -1721,6 +2143,20 @@ const idsZumAbsagen = [
                   value={kommentar}
                   onChange={(e) => setKommentar(e.target.value)}
                 />
+              {istZusatzbedarfAnfrage && (
+                <label className="mt-2 flex items-start gap-2 rounded-xl border border-purple-200 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 px-3 py-2 text-xs text-purple-900 dark:text-purple-100 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={andereAngeboteAblehnen}
+                    onChange={(e) => setAndereAngeboteAblehnen(e.target.checked)}
+                    className="mt-0.5"
+                  />
+
+                  <span>
+                    Weitere offene Anmeldungen zu diesem Zusatzbedarf ablehnen, wenn diese Anfrage genehmigt wird.
+                  </span>
+                </label>
+              )}  
               {basisAnfrage?._nurKandidat && (
                 <label className="mb-2 flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-3 py-2 text-xs text-red-800 dark:text-red-200">
                   <input

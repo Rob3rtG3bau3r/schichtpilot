@@ -11,6 +11,7 @@ dayjs.extend(isSameOrAfter);
 import BedarfsAnalyseModal from './BedarfsAnalyseModal';
 import AnfrageAktionModal from './AnfrageAktionModal';
 import ZusatzbedarfZeile from './ZusatzbedarfZeile';
+import ZusatzbedarfAnfrageModal from './ZusatzbedarfAnfrageModal';
 import { Info } from 'lucide-react';
 import { useZusatzbedarfStatus } from '../../hooks/useZusatzbedarfStatus';
 
@@ -213,6 +214,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   const [tage, setTage] = useState([]);
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
+  const [zusatzbedarfNamenMap, setZusatzbedarfNamenMap] = useState({});
 
   const {
     zusatzbedarfStatus,
@@ -224,12 +226,15 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
     refreshKey,
   });
 
-const handleZusatzbedarfClick = (item) => {
-  console.log('Zusatzbedarf geklickt:', item);
+  const handleZusatzbedarfClick = (item) => {
+    console.log('Zusatzbedarf geklickt:', item);
 
-  // Später öffnen wir hier das Anfrage-Modal für Mitarbeitende.
-  // Für Planner/Admin_Dev reicht erstmal die Hover-Info.
-};
+    if (!darfZusatzbedarfAnfragen) return;
+    if (!item?.anfrageErlaubt) return;
+
+    setZusatzbedarfModalItem(item);
+    setZusatzbedarfModalOffen(true);
+  };
 
   // Aus Kalender ausgewählte Tage (global)
   const [selectedDates, setSelectedDates] = useState(new Set());
@@ -257,7 +262,8 @@ const handleZusatzbedarfClick = (item) => {
   const [aktionModalOffen, setAktionModalOffen] = useState(false);
   const [aktionModalDatum, setAktionModalDatum] = useState('');
   const [aktionModalSchicht, setAktionModalSchicht] = useState('');
-
+  const [zusatzbedarfModalOffen, setZusatzbedarfModalOffen] = useState(false);
+  const [zusatzbedarfModalItem, setZusatzbedarfModalItem] = useState(null);
   const [aktionEigeneSchicht, setAktionEigeneSchicht] = useState(null);
   const [aktionEigeneUnterdeckung, setAktionEigeneUnterdeckung] = useState(false);
   const [aktionAngeklickteUnterdeckung, setAktionAngeklickteUnterdeckung] = useState(false);
@@ -266,6 +272,11 @@ const handleZusatzbedarfClick = (item) => {
   // Info
   const [infoOffen, setInfoOffen] = useState(false);
   const isEmployee = rolle === 'Employee';
+
+  const darfZusatzbedarfAnfragen =
+    rolle === 'Employee' ||
+    rolle === 'Team_Leader' ||
+    rolle === 'Planner';
   const canOpenAnalyseModal = allowAnalyse && !isEmployee;
   const canOpenAktionModal = isEmployee;
 
@@ -526,13 +537,13 @@ const handleZusatzbedarfClick = (item) => {
     }
 
     // 3) KAMPFLISTE-OVERLAY (Änderungen + Zeiten + aenderung)
-    const { data: kampf } = await supabase
-  .from('DB_Kampfliste')
-  .select('datum, user, aenderung, startzeit_ist, endzeit_ist, ist_schicht(kuerzel)')
-  .eq('firma_id', firma)
-  .eq('unit_id', unit)
-  .gte('datum', monthStart)
-  .lte('datum', monthEnd);
+  const { data: kampf } = await supabase
+    .from('DB_Kampfliste')
+    .select('datum, user, aenderung, startzeit_ist, endzeit_ist, ist_schicht(id, kuerzel)')
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .gte('datum', monthStart)
+    .lte('datum', monthEnd);
 
 const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
 (kampf || []).forEach((r) => {
@@ -550,7 +561,11 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
     // 4) FINAL: DIENSTE (inkl. Zeiten + aenderung)
     const dienste = [];
     const allUserIdsSet = new Set();
-
+    // Auch Zusatzbedarf-User aus DB_Kampfliste aufnehmen,
+    // damit wir deren Namen im Zusatzbedarf-Notice anzeigen können.
+    (kampf || []).forEach((r) => {
+      if (r?.user) allUserIdsSet.add(r.user);
+    });
     for (const d of tage) {
       const planForDay = planByDate.get(d) || new Map();
       const mMap = membersByDate.get(d) || new Map();
@@ -665,6 +680,33 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
       }
     }
     setUserNameMapState(userNameMap);
+    const zusatzNamenMap = {};
+
+(kampf || []).forEach((r) => {
+  const datumKey = r.datum?.slice(0, 10);
+  const schichtartId = r.ist_schicht?.id;
+  const kuerzel = r.ist_schicht?.kuerzel;
+
+  if (!datumKey || !schichtartId || !kuerzel || !r.user) return;
+
+  // F/S/N sind normale Hauptschichten, die gehören nicht in Zusatzbedarf.
+  if (['F', 'S', 'N'].includes(String(kuerzel).toUpperCase())) return;
+
+  const key = `${datumKey}|${schichtartId}`;
+  const name = userNameMap[r.user] || `User ${r.user}`;
+
+  if (!zusatzNamenMap[key]) zusatzNamenMap[key] = [];
+
+  if (!zusatzNamenMap[key].includes(name)) {
+    zusatzNamenMap[key].push(name);
+  }
+});
+
+Object.keys(zusatzNamenMap).forEach((key) => {
+  zusatzNamenMap[key].sort((a, b) => a.localeCompare(b, 'de'));
+});
+
+setZusatzbedarfNamenMap(zusatzNamenMap);
 
     const isGrey = (uid, dISO) => {
       const arr = ausgrauenByUser.get(String(uid));
@@ -1421,11 +1463,15 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
         key={`zusatzbedarf-${datum}`}
         className="w-[48px] min-w-[48px] h-[6px] leading-none overflow-visible"
       >
-        <ZusatzbedarfZeile
-          datum={datum}
-          items={zusatzbedarfStatus?.[datum] || []}
-          onItemClick={handleZusatzbedarfClick}
-        />
+      <ZusatzbedarfZeile
+        datum={datum}
+        items={(zusatzbedarfStatus?.[datum] || []).map((item) => ({
+          ...item,
+          eingetrageneNamen:
+            zusatzbedarfNamenMap[`${datum}|${item.schichtart_id}`] || [],
+        }))}
+        onItemClick={handleZusatzbedarfClick}
+      />
       </div>
     ))}
   </div>
@@ -1493,6 +1539,20 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
         onSaved={onSavedForDay}
       />
       )}
+
+      <ZusatzbedarfAnfrageModal
+        offen={zusatzbedarfModalOffen}
+        onClose={() => {
+          setZusatzbedarfModalOffen(false);
+          setZusatzbedarfModalItem(null);
+        }}
+        item={zusatzbedarfModalItem}
+        firmaId={firma}
+        unitId={unit}
+        onSaved={() => {
+          reloadZusatzbedarfStatus?.();
+        }}
+      />
 
       {/* Legende */}
       {infoOffen && (

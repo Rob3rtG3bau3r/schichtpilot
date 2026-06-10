@@ -18,35 +18,31 @@ const ZusatzbedarfVorlagen = ({ refreshKey, onVorlageWaehlen }) => {
 
       setLoading(true);
 
-      const { data, error } = await supabase
-        .from('DB_Sonderbedarf')
-        .select(`
-          id,
-          created_at,
-          created_by,
-          firma_id,
-          unit_id,
-          name,
-          quali_id,
-          schichtart_id,
-          bedarf_delta,
-          freq,
-          interval,
-          byweekday,
-          dtstart,
-          until,
-          aktiv,
-          farbe,
-          beschreibung,
-          hinweis,
-          ist_vorlage,
-          vorlage_name,
-          anfrage_erlaubt
-        `)
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('ist_vorlage', true)
-        .order('vorlage_name', { ascending: true });
+  const { data, error } = await supabase
+    .from('DB_SonderbedarfVorlage')
+    .select(`
+      id,
+      created_at,
+      created_by,
+      firma_id,
+      unit_id,
+      vorlage_name,
+      name,
+      quali_id,
+      schichtart_id,
+      bedarf_delta,
+      aktiv,
+      farbe,
+      beschreibung,
+      hinweis,
+      anfrage_erlaubt,
+      position
+    `)
+    .eq('firma_id', firma)
+    .eq('unit_id', unit)
+    .eq('aktiv', true)
+    .order('position', { ascending: true })
+    .order('vorlage_name', { ascending: true });
 
       if (error) {
         console.error('Fehler beim Laden der Zusatzbedarf-Vorlagen:', error.message);
