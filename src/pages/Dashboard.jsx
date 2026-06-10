@@ -7,6 +7,7 @@ import { supabase } from '../supabaseClient';
 import TagesUebersicht from '../components/Dashboard/TagesUebersicht';
 import MeineDienste from '../components/Dashboard/MeineDienste';
 import AnfragenMitarbeiter from '../components/Dashboard/AnfragenMitarbeiter';
+import MeineEingetragenenDienste from '../components/Dashboard/MeineEingetragenenDienste';
 import MeineUebersicht from '../components/Dashboard/MeineUebersicht';
 import TeamPflegen from '../components/Dashboard/TeamPflegen';
 import MitarbeiterEskalation from '../components/Dashboard/MitarbeiterEskalation';
@@ -84,6 +85,8 @@ const Dashboard = () => {
         {/* Rechte Spalte – Anfragen, Übersicht, TeamPflegen */}
         <div className="col-span-12 md:col-span-8 flex flex-col gap-2">
           <AnfragenMitarbeiter />
+
+          <MeineEingetragenenDienste />
 
           <MitarbeiterEskalation />
 
