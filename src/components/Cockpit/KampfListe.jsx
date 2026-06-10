@@ -11,6 +11,7 @@ import { Crown } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 import QualiModal from '../Cockpit/QualiModal';
 import SchichtDienstAendernForm from './SchichtDienstAendernForm';
+import logo from '../../assets/logo.png';
 
 dayjs.locale('de');
 
@@ -58,6 +59,7 @@ const KampfListe = ({
   const [meineSchichtgruppe, setMeineSchichtgruppe] = useState(null);
   const [tage, setTage] = useState([]);
   const [popupEintrag, setPopupEintrag] = useState(null);
+  const [loading, setLoading] = useState(false);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
 
   const darfEmployeeUserSehen = (targetUserId, targetSchichtgruppe) => {
@@ -327,9 +329,13 @@ const KampfListe = ({
     }
   };
 
-  useEffect(() => {
-    const ladeKampfliste = async () => {
-      if (!firma || !unit || !currentUserId) return;
+useEffect(() => {
+  const ladeKampfliste = async () => {
+    if (!firma || !unit || !currentUserId) return;
+
+    setLoading(true);
+
+    try {
 
       const { data: unitData, error: unitErr } = await supabase
         .from('DB_Unit')
@@ -367,21 +373,30 @@ const KampfListe = ({
         [q3 + 1, daysInMonth],
       ].filter(([a, b]) => a <= b);
 
-      const fetchViewRange = async (startDate, endDate) => {
-        const { data, error } = await supabase
-          .from('v_tagesplan')
-          .select(selectCols)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .gte('datum', startDate)
-          .lte('datum', endDate);
+    const fetchViewRange = async (startDate, endDate) => {
+      let query = supabase
+        .from('v_tagesplan')
+        .select(selectCols)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .gte('datum', startDate)
+        .lte('datum', endDate);
 
-        if (error) {
-          console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
-          return [];
-        }
-        return data || [];
-      };
+      // Performance: Wenn Employee nur Eigenansicht sehen darf,
+      // laden wir direkt nur den eingeloggten Mitarbeiter.
+      if (rolle === 'Employee' && sichtbarkeit === 'self' && currentUserId) {
+        query = query.eq('user_id', currentUserId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
+        return [];
+      }
+
+      return data || [];
+    };
 
       const viewChunks = await Promise.all(
         ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
@@ -698,9 +713,14 @@ const KampfListe = ({
       });
 
       setEintraege(sortiert);
-    };
+    } catch (error) {
+      console.error('❌ Fehler beim Laden der Kampfliste:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    ladeKampfliste();
+  ladeKampfliste();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     firma,
@@ -723,9 +743,21 @@ const KampfListe = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayRefreshKey]);
 
-  return (
-    <div className="bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
-      <div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
+return (
+  <div className="relative min-h-[240px] bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
+
+    {loading && (
+      <div className="absolute inset-0 z-[9998] flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600 dark:border-gray-600 dark:border-t-blue-400" />
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            Dienstplan wird geladen...
+          </div>
+        </div>
+      </div>
+    )}
+
+    <div className="w-full" style={{ overflowX: 'visible', overflowY: 'visible' }}>
         <div className="flex min-w-fit relative" style={{ overflow: 'visible' }}>
           <div className="flex flex-col w-[176px] min-w-[176px] flex-shrink-0" style={{ overflow: 'visible' }}>
             {eintraege.map(([userId, e], index) => {
@@ -968,14 +1000,13 @@ const KampfListe = ({
 
                           return (
                             <div
-                              className="absolute left-full top-1/2 ml-2 -translate-y-1/2 z-[9999]"
+                              className="absolute left-1/2 top-full mt-2 -translate-x-1/2 z-[9999]"
                               onMouseEnter={() => showCellTip(key)}
                               onMouseLeave={scheduleHideCellTip}
                               style={{ pointerEvents: 'auto' }}
                             >
                               <div className="relative w-[260px] px-3 py-2 rounded-xl shadow-2xl ring-1 ring-black/10 dark:ring-white/10 bg-white/95 dark:bg-gray-900/95 text-gray-900 dark:text-gray-100 text-xs">
-                                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />
-                                <div className="text-[11px] text-gray-500 dark:text-gray-200 mb-1">{datumLabel}</div>
+                                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-white/95 dark:bg-gray-900/95 ring-1 ring-black/10 dark:ring-white/10" />                                <div className="text-[11px] text-gray-500 dark:text-gray-200 mb-1">{datumLabel}</div>
                                 <div className="text-xs font-sans font-semibold mb-0.5">{e.vollName}</div>
                                 {(eintragTag?.beginn || eintragTag?.ende) && (
                                   <div className="font-mono">
@@ -1013,6 +1044,22 @@ const KampfListe = ({
           </div>
         </div>
       </div>
+      {rolle === 'Employee' && employeeSichtbarkeit === 'self' && eintraege.length === 1 && (
+        <div className="pointer-events-none absolute inset-x-0 top-[100px] flex justify-center">
+          <div className="flex flex-col items-center opacity-50 dark:opacity-15">
+            <div className="rounded-xl bg-gray-900/10 dark:bg-white/0 px-4 py-2">
+              <img
+                src={logo}
+                alt="SchichtPilot"
+                className="h-16 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+              />
+            </div>
+            <div className="mt-2 text-sm font-semibold tracking-wide text-gray-700/40 dark:text-gray-200">
+              Deine persönliche Dienstansicht
+            </div>
+          </div>
+        </div>
+      )}
 
       <QualiModal
         offen={qualiModalOffen}
