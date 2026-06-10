@@ -117,9 +117,6 @@ const ZusatzbedarfVorlagen = ({ refreshKey, onVorlageWaehlen }) => {
           <h3 className="text-md font-semibold text-gray-900 dark:text-gray-100">
             Vorlagen
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Wiederkehrende Zusatzbedarfe.
-          </p>
         </div>
 
         <button

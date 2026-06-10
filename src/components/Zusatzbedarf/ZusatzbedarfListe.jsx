@@ -26,7 +26,10 @@ const freqLabel = (row) => {
     };
 
     const ersterTag = Array.isArray(row.byweekday) ? row.byweekday[0] : null;
-    return `Alle ${row.interval || 1} Woche(n)${ersterTag !== null ? ` · ${tage[ersterTag]}` : ''}`;
+
+    return `Alle ${row.interval || 1} Woche(n)${
+      ersterTag !== null ? ` · ${tage[ersterTag]}` : ''
+    }`;
   }
 
   if (row.freq === 'monthly') {
@@ -41,16 +44,34 @@ const formatDatum = (datum) => {
   return dayjs(datum).format('DD.MM.YYYY');
 };
 
+const berechneDauerText = (row) => {
+  if (!row?.dtstart || !row?.until) return '—';
+
+  const start = dayjs(row.dtstart).startOf('day');
+  const ende = dayjs(row.until).startOf('day');
+
+  if (!start.isValid() || !ende.isValid()) return '—';
+  if (ende.isBefore(start, 'day')) return '—';
+
+  const tage = ende.diff(start, 'day') + 1;
+
+  return `${tage} Tag${tage === 1 ? '' : 'e'}`;
+};
+
 const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
 
   const [rows, setRows] = useState([]);
   const [schichtartMap, setSchichtartMap] = useState({});
   const [qualiMap, setQualiMap] = useState({});
+
   const [eingeklappt, setEingeklappt] = useState(false);
-  const [zeigeVergangene, setZeigeVergangene] = useState(false);
   const [infoOffen, setInfoOffen] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const [zeitFilter, setZeitFilter] = useState('zukunft'); // zukunft | vergangen | alle
+  const [aktivFilter, setAktivFilter] = useState('alle'); // alle | aktiv | inaktiv
+  const [anfrageFilter, setAnfrageFilter] = useState('alle'); // alle | erlaubt | nicht_erlaubt
 
   useEffect(() => {
     const lade = async () => {
@@ -116,9 +137,11 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
           setSchichtartMap({});
         } else {
           const map = {};
+
           (schichtarten || []).forEach((s) => {
             map[s.id] = s;
           });
+
           setSchichtartMap(map);
         }
       } else {
@@ -136,9 +159,11 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
           setQualiMap({});
         } else {
           const map = {};
+
           (qualis || []).forEach((q) => {
             map[q.id] = q;
           });
+
           setQualiMap(map);
         }
       } else {
@@ -156,17 +181,66 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
 
     return (rows || [])
       .filter((r) => {
-        if (zeigeVergangene) return true;
-        if (!r.until) return true;
-        return dayjs(r.until).isSame(heute, 'day') || dayjs(r.until).isAfter(heute, 'day');
+        const ende = r.until ? dayjs(r.until).startOf('day') : null;
+        const start = r.dtstart ? dayjs(r.dtstart).startOf('day') : null;
+
+        if (zeitFilter === 'alle') return true;
+
+        if (zeitFilter === 'zukunft') {
+          if (!ende) return true;
+          return ende.isSame(heute, 'day') || ende.isAfter(heute, 'day');
+        }
+
+        if (zeitFilter === 'vergangen') {
+          if (!ende && !start) return false;
+
+          const vergleich = ende || start;
+          return vergleich.isBefore(heute, 'day');
+        }
+
+        return true;
+      })
+      .filter((r) => {
+        if (aktivFilter === 'alle') return true;
+        if (aktivFilter === 'aktiv') return r.aktiv !== false;
+        if (aktivFilter === 'inaktiv') return r.aktiv === false;
+
+        return true;
+      })
+      .filter((r) => {
+        if (anfrageFilter === 'alle') return true;
+        if (anfrageFilter === 'erlaubt') return r.anfrage_erlaubt !== false;
+        if (anfrageFilter === 'nicht_erlaubt') return r.anfrage_erlaubt === false;
+
+        return true;
       })
       .sort((a, b) => {
         const da = dayjs(a.dtstart).valueOf();
         const db = dayjs(b.dtstart).valueOf();
+
         if (da !== db) return da - db;
+
         return (a.name || '').localeCompare(b.name || '', 'de');
       });
-  }, [rows, zeigeVergangene]);
+  }, [rows, zeitFilter, aktivFilter, anfrageFilter]);
+
+  const filterInfoText = useMemo(() => {
+    const teile = [];
+
+    if (zeitFilter === 'zukunft') teile.push('Heute + Zukunft');
+    if (zeitFilter === 'vergangen') teile.push('Vergangenheit');
+    if (zeitFilter === 'alle') teile.push('Alle Zeiträume');
+
+    if (aktivFilter === 'aktiv') teile.push('Aktiv');
+    if (aktivFilter === 'inaktiv') teile.push('Inaktiv');
+    if (aktivFilter === 'alle') teile.push('Aktiv + Inaktiv');
+
+    if (anfrageFilter === 'erlaubt') teile.push('Anfrage möglich');
+    if (anfrageFilter === 'nicht_erlaubt') teile.push('Anfrage nicht möglich');
+    if (anfrageFilter === 'alle') teile.push('Alle Anfragearten');
+
+    return teile.join(' · ');
+  }, [zeitFilter, aktivFilter, anfrageFilter]);
 
   return (
     <div className="relative p-4 border border-gray-300 dark:border-gray-700 shadow-xl rounded-xl bg-white/60 dark:bg-gray-900/40">
@@ -176,47 +250,117 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
           onClick={() => setEingeklappt((prev) => !prev)}
         >
           {eingeklappt ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-          <div>
-            <h3 className="text-md font-semibold text-gray-900 dark:text-gray-100">
-              Geplanter Zusatzbedarf
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Aktive und zukünftige Einträge.
-            </p>
-          </div>
+
+        <div className="flex items-center gap-2">
+          <h3 className="text-md font-semibold text-gray-900 dark:text-gray-100">
+            Geplanter Zusatzbedarf
+          </h3>
+
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            ({sichtbareRows.length} Eintrag{sichtbareRows.length === 1 ? '' : 'e'})
+          </span>
+        </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <label className="text-xs flex items-center gap-2 text-gray-700 dark:text-gray-300">
-            <input
-              type="checkbox"
-              checked={zeigeVergangene}
-              onChange={(e) => setZeigeVergangene(e.target.checked)}
-              className="accent-blue-600"
-            />
-            Vergangene
-          </label>
-
-          <button
-            type="button"
-            onClick={() => setInfoOffen(true)}
-            className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
-            title="Informationen"
-          >
-            <Info size={20} />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setInfoOffen(true)}
+          className="text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"
+          title="Informationen"
+        >
+          <Info size={20} />
+        </button>
       </div>
 
       {!eingeklappt && (
         <>
+          <div className="mb-4 space-y-2">
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-600 dark:text-gray-300">
+                Zeitraum
+              </label>
+
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setZeitFilter('zukunft')}
+                  className={`px-2 py-1.5 rounded-lg text-xs border ${
+                    zeitFilter === 'zukunft'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200'
+                  }`}
+                >
+                  Heute + Zukunft
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setZeitFilter('vergangen')}
+                  className={`px-2 py-1.5 rounded-lg text-xs border ${
+                    zeitFilter === 'vergangen'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200'
+                  }`}
+                >
+                  Vergangenheit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setZeitFilter('alle')}
+                  className={`px-2 py-1.5 rounded-lg text-xs border ${
+                    zeitFilter === 'alle'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200'
+                  }`}
+                >
+                  Alle
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-gray-600 dark:text-gray-300">
+                  Aktivität
+                </label>
+
+                <select
+                  value={aktivFilter}
+                  onChange={(e) => setAktivFilter(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+                >
+                  <option value="alle">Alle</option>
+                  <option value="aktiv">Aktiv</option>
+                  <option value="inaktiv">Inaktiv</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-gray-600 dark:text-gray-300">
+                  Anfrage
+                </label>
+
+                <select
+                  value={anfrageFilter}
+                  onChange={(e) => setAnfrageFilter(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+                >
+                  <option value="alle">Alle</option>
+                  <option value="erlaubt">Anfrage möglich</option>
+                  <option value="nicht_erlaubt">Anfrage nicht möglich</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           {loading ? (
             <div className="text-sm text-gray-500 dark:text-gray-400">
               Zusatzbedarfe werden geladen…
             </div>
           ) : sichtbareRows.length === 0 ? (
             <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-              Keine Zusatzbedarfe vorhanden.
+              Keine Zusatzbedarfe für diesen Filter vorhanden.
             </div>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -258,6 +402,10 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
                           </span>
 
                           <span className="px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600">
+                            Dauer: {berechneDauerText(row)}
+                          </span>
+
+                          <span className="px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600">
                             {freqLabel(row)}
                           </span>
 
@@ -284,7 +432,7 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
                         )}
                       </div>
 
-                      <div className="flex flex-col items-end gap-1 text-xs">
+                      <div className="flex flex-col items-end gap-1 text-xs shrink-0">
                         <span
                           className={`px-2 py-0.5 rounded-full border ${
                             row.aktiv
@@ -295,11 +443,17 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
                           {row.aktiv ? 'aktiv' : 'inaktiv'}
                         </span>
 
-                        {row.anfrage_erlaubt && (
-                          <span className="px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-200 border border-purple-300 dark:border-purple-700">
-                            Anfrage möglich
-                          </span>
-                        )}
+                        <span
+                          className={`px-2 py-0.5 rounded-full border ${
+                            row.anfrage_erlaubt !== false
+                              ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-200 border-purple-300 dark:border-purple-700'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-700'
+                          }`}
+                        >
+                          {row.anfrage_erlaubt !== false
+                            ? 'Anfrage möglich'
+                            : 'Anfrage nicht möglich'}
+                        </span>
                       </div>
                     </div>
                   </button>
@@ -319,16 +473,30 @@ const ZusatzbedarfListe = ({ refreshKey, onAuswahl }) => {
             className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-xl max-w-lg w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-3">Geplanter Zusatzbedarf</h3>
+            <h3 className="text-lg font-semibold mb-3">
+              Geplanter Zusatzbedarf
+            </h3>
 
             <div className="text-sm space-y-2 text-gray-700 dark:text-gray-200">
               <p>
                 Hier siehst du alle gespeicherten Zusatzbedarfe dieser Unit.
               </p>
+
               <p>
-                Zusatzbedarf ist bewusst von Früh, Spät und Nacht getrennt. Er wird später
-                im Mitarbeiterbedarf klein unterhalb der Nachtschicht angezeigt.
+                Die Liste zeigt echte einzelne Zusatzbedarf-Einträge. Wiederholungen werden
+                beim Speichern bereits in einzelne Einträge aufgelöst.
               </p>
+
+              <p>
+                Über die Filter kannst du zwischen Zukunft, Vergangenheit, Aktivität und
+                Anfrage-Möglichkeit unterscheiden.
+              </p>
+
+              <p>
+                Zusatzbedarf ist bewusst von Früh, Spät und Nacht getrennt. Er wird im
+                Mitarbeiterbedarf klein unterhalb der Nachtschicht angezeigt.
+              </p>
+
               <p>
                 Gezählt werden später die Personen, die nach Annahme in der Kampfliste mit
                 dem passenden Zusatz-Kürzel eingetragen sind.

@@ -14,10 +14,10 @@ const Zusatzbedarf = () => {
   };
 
   return (
-    <div className="px-6 pb-6">
-      <div className="grid grid-cols-12 gap-3">
+    <div className="pb-4">
+      <div className="grid grid-cols-12 gap-1">
         {/* Links: Vorlagen */}
-        <div className="col-span-3 bg-gray-200 dark:bg-gray-800 p-2 rounded-xl">
+        <div className="col-span-3 bg-gray-200 dark:bg-gray-800 p-1 rounded-xl">
           <ZusatzbedarfVorlagen
             refreshKey={refreshKey}
             onVorlageWaehlen={(vorlage) => setAusgewaehlteVorlage(vorlage)}
@@ -25,7 +25,7 @@ const Zusatzbedarf = () => {
         </div>
 
         {/* Mitte: Formular */}
-        <div className="col-span-4 bg-gray-200 dark:bg-gray-800 p-2 rounded-xl">
+        <div className="col-span-4 bg-gray-200 dark:bg-gray-800 p-1 rounded-xl">
           <ZusatzbedarfFormular
             vorlage={ausgewaehlteVorlage}
             onSaved={() => {
@@ -36,15 +36,15 @@ const Zusatzbedarf = () => {
         </div>
 
         {/* Rechts: Liste + Bearbeitung */}
-        <div className="col-span-5 flex flex-col gap-3">
-          <div className="bg-gray-200 dark:bg-gray-800 p-2 rounded-xl">
+        <div className="col-span-5 flex flex-col gap-1">
+          <div className="bg-gray-200 dark:bg-gray-800 p-1 rounded-xl">
             <ZusatzbedarfListe
               refreshKey={refreshKey}
               onAuswahl={(eintrag) => setAusgewaehlterEintrag(eintrag)}
             />
           </div>
 
-          <div className="bg-gray-200 dark:bg-gray-800 p-2 rounded-xl">
+          <div className="bg-gray-200 dark:bg-gray-800 p-1 rounded-xl">
             <ZusatzbedarfBearbeiten
               eintrag={ausgewaehlterEintrag}
               onClose={() => setAusgewaehlterEintrag(null)}

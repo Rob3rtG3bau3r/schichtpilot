@@ -160,7 +160,7 @@ const bauePayloadFuerDatum = (zielDatum) => ({
   genehmigt: null,
   verantwortlicher: null,
   datum_entscheid: null,
-  entscheidener: null,
+  entscheider: null,
 
   antwort_gesehen: false,
   anfrage_von: 'Mitarbeiter',

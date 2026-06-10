@@ -565,7 +565,7 @@ const ZusatzbedarfFormular = ({ vorlage, onSaved }) => {
           <span className="font-semibold">
             {dauerTage > 0 ? `${dauerTage} Tag${dauerTage === 1 ? '' : 'e'}` : '—'}
           </span>
-        </div>
+          </div>
           </div>
 
         <div className="rounded-xl border border-gray-300 dark:border-gray-700 p-3 bg-gray-500 dark:bg-gray-800/60">

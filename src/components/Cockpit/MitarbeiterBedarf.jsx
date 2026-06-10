@@ -155,35 +155,35 @@ const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) =
   return { abdeckung, totalMissing, fehlend, topMissingKuerzel, nichtVerwendete };
 };
 
-const countMonthlyUnterdeckungen = (status, tage) => {
-  let frueh = 0;
-  let spaet = 0;
-  let nacht = 0;
+  const countMonthlyUnterdeckungen = (status, tage) => {
+    let frueh = 0;
+    let spaet = 0;
+    let nacht = 0;
 
-  for (const datum of tage || []) {
-    const f = status?.F?.[datum];
-    const s = status?.S?.[datum];
-    const n = status?.N?.[datum];
+    for (const datum of tage || []) {
+      const f = status?.F?.[datum];
+      const s = status?.S?.[datum];
+      const n = status?.N?.[datum];
 
-    if (String(f?.farbe || '').includes('bg-red')) frueh++;
-    if (String(s?.farbe || '').includes('bg-red')) spaet++;
-    if (String(n?.farbe || '').includes('bg-red')) nacht++;
-  }
+      if (String(f?.farbe || '').includes('bg-red')) frueh++;
+      if (String(s?.farbe || '').includes('bg-red')) spaet++;
+      if (String(n?.farbe || '').includes('bg-red')) nacht++;
+    }
 
-  return {
-    frueh_unterdeckung: frueh,
-    spaet_unterdeckung: spaet,
-    nacht_unterdeckung: nacht,
+    return {
+      frueh_unterdeckung: frueh,
+      spaet_unterdeckung: spaet,
+      nacht_unterdeckung: nacht,
+    };
   };
-};
 
-const saveMonthlyUnterdeckung = async ({
-  firma,
-  unit,
-  jahr,
-  monat,
-  counts,
-}) => {
+  const saveMonthlyUnterdeckung = async ({
+    firma,
+    unit,
+    jahr,
+    monat,
+    counts,
+  }) => {
   if (!firma || !unit || jahr == null || monat == null || !counts) return;
 
   const payload = {
@@ -227,7 +227,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   });
 
   const handleZusatzbedarfClick = (item) => {
-    console.log('Zusatzbedarf geklickt:', item);
+    //console.log('Zusatzbedarf geklickt:', item);
 
     if (!darfZusatzbedarfAnfragen) return;
     if (!item?.anfrageErlaubt) return;
@@ -276,6 +276,7 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   const darfZusatzbedarfAnfragen =
     rolle === 'Employee' ||
     rolle === 'Team_Leader' ||
+    rolle === 'Admin_Dev' ||
     rolle === 'Planner';
   const canOpenAnalyseModal = allowAnalyse && !isEmployee;
   const canOpenAktionModal = isEmployee;
