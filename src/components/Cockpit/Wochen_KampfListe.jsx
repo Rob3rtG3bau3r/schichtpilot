@@ -11,7 +11,7 @@ import { Crown } from 'lucide-react';
 import { useRollen } from '../../context/RollenContext';
 import QualiModal from '../Cockpit/QualiModal';
 import SchichtDienstAendernForm from './SchichtDienstAendernForm';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/sp_logo.png';
 
 dayjs.locale('de');
 

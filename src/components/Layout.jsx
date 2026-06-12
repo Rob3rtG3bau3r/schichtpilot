@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, Link } from 'react-router-dom';
-import logo from '../assets/logo.png';
+import logo from '../assets/sp_logo.png';
 import Navigation from './Navigation';
 import { supabase } from '../supabaseClient';
 import { useRollen } from '../context/RollenContext';
