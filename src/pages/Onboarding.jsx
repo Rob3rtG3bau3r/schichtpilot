@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate, Link } from "react-router-dom";
-import logo from "../assets/logo.png";
+import logo from '../assets/sp_logo.png';
 
 const Onboarding = () => {
   const navigate = useNavigate();

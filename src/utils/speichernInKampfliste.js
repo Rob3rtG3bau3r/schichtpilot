@@ -3,7 +3,7 @@ import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration";
 import { supabase } from "../supabaseClient";
 import { berechneUndSpeichereStunden, berechneUndSpeichereUrlaub } from "./berechnungen";
-import { pruefeUndAktualisiereEskalationen } from './pruefeUndAktualisiereEskalationen';
+import { pruefeUndAktualisiereEskalationenBatchSave } from './pruefeUndAktualisiereEskalationen';
 
 dayjs.extend(duration);
 
@@ -358,16 +358,19 @@ export const speichernInKampfliste = async ({
     }
   }
 
-    // 8) Eskalationen nach erfolgreichem Speichern neu prüfen
-    for (const d of deleteDates) {
-      await pruefeUndAktualisiereEskalationen({
-        userId,
-        firmaId,
-        unitId,
-        datum: d,
-        createdBy,
-      });
-    }
+// 8) Eskalationen nach erfolgreichem Speichern neu prüfen
+// Performance:
+// - Arbeitszeit wird direkt aus insertBatch geprüft.
+// - Ruhezeit wird nur an den Außengrenzen geprüft.
+await pruefeUndAktualisiereEskalationenBatchSave({
+  userId,
+  firmaId,
+  unitId,
+  createdBy,
+  savedRows: insertBatch,
+  kuerzelNeu,
+  ignoriertArbeitszeit: !!schicht?.ignoriert_arbeitszeit,
+});
 
     return {
     ok: true,

@@ -1,7 +1,7 @@
 // src/pages/Datenschutz.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import logo from "../assets/logo.png";
+import logo from '../assets/sp_logo.png';
 import { erstelleDatenschutzPDF } from "../utils/DatenschutzPDF";
 
 const Datenschutz = () => {

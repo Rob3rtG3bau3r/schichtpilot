@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import logo from "../assets/logo.png";
+import logo from '../assets/sp_logo.png';
 import { supabase } from "../supabaseClient";
 import jsPDF from "jspdf";
 import { useLocation } from "react-router-dom";

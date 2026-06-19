@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/sp_logo.png';
 import InstallButton from "../../components/InstallButton";
 
 const MobileLogin = () => {

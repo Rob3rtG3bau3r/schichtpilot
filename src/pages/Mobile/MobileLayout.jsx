@@ -1,6 +1,6 @@
 // src/pages/Mobile/MobileLayout.jsx
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import logo from "../../assets/logo.png";
+import logo from '../../assets/sp_logo.png';
 import { useEffect, useState } from "react";
 import { ensurePushSubscription } from "../../utils/pushClient";
 import { savePushSubscriptionToDb } from "../../utils/pushSave";

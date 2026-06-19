@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from "../supabaseClient";
-import logo from "../assets/logo.png";
+import logo from '../assets/sp_logo.png';
 import qrCode from "../assets/qr_code_mockup.png";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 

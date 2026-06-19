@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle } from 'lucide-react';
-import logo from '../assets/logo.png';
+import logo from '../assets/sp_logo.png';
 
 const pakete = [
   {
