@@ -61,6 +61,9 @@ const KampfListe = ({
   const [popupEintrag, setPopupEintrag] = useState(null);
   const [loading, setLoading] = useState(false);
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
+  const lastFullReloadAtRef = useRef(null);
+  const [lokalerReloadKey, setLokalerReloadKey] = useState(0);
+  
 
   const darfEmployeeUserSehen = (targetUserId, targetSchichtgruppe) => {
     if (rolle !== 'Employee') return true;
@@ -329,11 +332,217 @@ const KampfListe = ({
     }
   };
 
+const ladeNurTage = async (dates = [], userIdFilter = null) => {
+  try {
+    if (!firma || !unit) return;
+
+    const cleanDates = Array.from(
+      new Set(
+        (Array.isArray(dates) ? dates : [dates])
+          .map((d) => String(d).slice(0, 10))
+          .filter(Boolean)
+      )
+    ).sort();
+
+    if (!cleanDates.length) return;
+
+    const selectCols =
+      'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
+      'hat_aenderung, kommentar, ist_created_at, ist_created_by';
+
+    let query = supabase
+      .from('v_tagesplan')
+      .select(selectCols)
+      .eq('firma_id', firma)
+      .eq('unit_id', unit)
+      .in('datum', cleanDates);
+
+    if (userIdFilter) {
+      query = query.eq('user_id', userIdFilter);
+    }
+
+    const { data: viewRows, error: vErr } = await query;
+
+    if (vErr) {
+      console.error('❌ Fehler v_tagesplan (Tage):', vErr.message || vErr);
+      return;
+    }
+
+    const rows = viewRows || [];
+
+    const schichtIds = Array.from(
+      new Set(rows.map((r) => r.ist_schichtart_id).filter((x) => x != null))
+    );
+
+    let schichtMap = new Map();
+
+    if (schichtIds.length) {
+      const { data: schichten, error: sErr } = await supabase
+        .from('DB_SchichtArt')
+        .select('id, kuerzel, farbe_bg, farbe_text')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .in('id', schichtIds);
+
+      if (sErr) {
+        console.error('❌ Fehler DB_SchichtArt (Tage):', sErr.message || sErr);
+      } else {
+        schichtMap = new Map((schichten || []).map((s) => [s.id, s]));
+      }
+    }
+
+    const userIds = rows.map((r) => r.user_id).filter(Boolean);
+    const createdByIds = rows.map((r) => r.ist_created_by).filter(Boolean);
+    const alleUserIds = Array.from(new Set([...userIds, ...createdByIds])).map(String);
+
+    let userById = new Map();
+
+    if (alleUserIds.length) {
+      const { data: userInfos, error: uErr } = await supabase
+        .from('DB_User')
+        .select('user_id, vorname, nachname, rolle')
+        .in('user_id', alleUserIds);
+
+      if (uErr) {
+        console.error('❌ Fehler DB_User (Tage):', uErr.message || uErr);
+      } else {
+        userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
+      }
+    }
+
+    const cellByUserAndDate = new Map();
+
+    for (const r of rows) {
+      const uid = String(r.user_id);
+      const datum = String(r.datum).slice(0, 10);
+      const key = `${uid}|${datum}`;
+
+      const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
+      const creatorId = r.ist_created_by ? String(r.ist_created_by) : null;
+      const creatorInfo = creatorId ? userById.get(creatorId) : null;
+
+      cellByUserAndDate.set(key, {
+        kuerzel: s?.kuerzel || '-',
+        bg: s?.farbe_bg || '',
+        text: s?.farbe_text || '',
+        created_by: creatorId,
+        created_by_name: creatorInfo
+          ? `${creatorInfo.vorname} ${creatorInfo.nachname} (${creatorInfo.rolle})`
+          : 'Unbekannt',
+        created_at: r.ist_created_at || null,
+        ist_schicht_id: s?.id || null,
+        beginn: r.ist_startzeit || '',
+        ende: r.ist_endzeit || '',
+        aenderung: !!r.hat_aenderung,
+        kommentar: r.kommentar || null,
+      });
+    }
+
+  setEintraege((prev) => {
+    if (!Array.isArray(prev) || prev.length === 0) return prev;
+
+    return prev.map(([uid, row]) => {
+      const userIdStr = String(uid);
+
+      // WICHTIG:
+      // Wenn ein User-Filter gesetzt ist, dürfen wir nur diese eine Zeile anfassen.
+      // Sonst löschen wir bei allen anderen Usern die Zellen des Tages.
+      if (userIdFilter && String(userIdStr) !== String(userIdFilter)) {
+        return [uid, row];
+      }
+
+      const nextRow = {
+        ...row,
+        tage: {
+          ...(row?.tage || {}),
+        },
+      };
+
+      // Nur bei der betroffenen Zeile die betroffenen Tage ersetzen.
+      for (const d of cleanDates) {
+        delete nextRow.tage[d];
+
+        const cell = cellByUserAndDate.get(`${userIdStr}|${d}`);
+        if (cell) {
+          nextRow.tage[d] = cell;
+        }
+      }
+
+      return [uid, nextRow];
+    });
+  });
+  } catch (e) {
+    console.error('❌ ladeNurTage Exception:', e);
+  }
+};
+const gabEsFremdeMonatsAenderungenSeitFullReload = async ({
+  affectedDates = [],
+  changedUserId = null,
+}) => {
+  try {
+    if (!firma || !unit || !lastFullReloadAtRef.current) return false;
+
+    const monthStart = `${prefix}-01`;
+    const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
+
+    const affectedSet = new Set(
+      (Array.isArray(affectedDates) ? affectedDates : [affectedDates])
+        .map((d) => String(d).slice(0, 10))
+        .filter(Boolean)
+    );
+
+    const { data, error } = await supabase
+      .from('DB_Kampfliste')
+      .select('id, datum, user, created_at, created_by')
+      .eq('firma_id', firma)
+      .eq('unit_id', unit)
+      .gte('datum', monthStart)
+      .lte('datum', monthEnd)
+      .gt('created_at', lastFullReloadAtRef.current)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('❌ Fehler Sync-Prüfung DB_Kampfliste:', error.message || error);
+
+      // Sicherheitsregel:
+      // Wenn die Prüfung fehlschlägt, lieber komplett neu laden.
+      return true;
+    }
+
+    const rows = data || [];
+
+    // Eigene gerade gespeicherte Zeilen ignorieren.
+    // Sonst würde nach jedem Speichern immer ein Vollreload kommen.
+    const fremdeRows = rows.filter((r) => {
+      const datum = String(r.datum).slice(0, 10);
+        const istGeradeGespeicherteZelle =
+          changedUserId &&
+          String(r.user) === String(changedUserId) &&
+          affectedSet.has(datum);
+
+      return !istGeradeGespeicherteZelle;
+    });
+
+    return fremdeRows.length > 0;
+  } catch (e) {
+    console.error('❌ gabEsFremdeMonatsAenderungenSeitFullReload Exception:', e);
+
+    // Sicherheitsregel:
+    // Bei Fehler lieber komplett neu laden.
+    return true;
+  }
+};
 useEffect(() => {
   const ladeKampfliste = async () => {
     if (!firma || !unit || !currentUserId) return;
 
     setLoading(true);
+
+    // Wichtig:
+    // Wir merken den Startzeitpunkt des Voll-Loads.
+    // Änderungen, die danach passieren, sollen später erkannt werden.
+    const fullLoadStartedAt = new Date().toISOString();
 
     try {
 
@@ -713,6 +922,7 @@ useEffect(() => {
       });
 
       setEintraege(sortiert);
+      lastFullReloadAtRef.current = fullLoadStartedAt;
     } catch (error) {
       console.error('❌ Fehler beim Laden der Kampfliste:', error);
     } finally {
@@ -728,20 +938,21 @@ useEffect(() => {
     jahr,
     monat,
     reloadkey,
+    lokalerReloadKey,
     sichtbareGruppen,
     setGruppenZähler,
     rolle,
     currentUserId,
   ]);
 
-  useEffect(() => {
-    if (!firma || !unit) return;
-    if (!dayRefreshKey) return;
-    if (!dayRefreshDatum) return;
+useEffect(() => {
+  if (!firma || !unit) return;
+  if (!dayRefreshKey) return;
+  if (!dayRefreshDatum) return;
 
-    ladeNurTag(dayRefreshDatum);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayRefreshKey]);
+  ladeNurTage(dayRefreshDatum);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [dayRefreshKey]);
 
 return (
   <div className="relative min-h-[240px] bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
@@ -941,9 +1152,12 @@ return (
                             kommentar: eintragTag?.kommentar || '',
                           };
 
-                          setPopupEintrag(eintragObjekt);
-                          setAusgewählterDienst(eintragObjekt);
-                          setPopupOffen(true);
+setPopupEintrag(eintragObjekt);
+
+// Das Modal wird jetzt direkt in KampfListe gerendert.
+// Deshalb NICHT zusätzlich das Parent-Modal öffnen.
+// setAusgewählterDienst(eintragObjekt);
+// setPopupOffen(true);
                         }}
                       >
                         {eintragTag?.aenderung && (
@@ -1068,18 +1282,31 @@ return (
         userName={modalUser.name}
       />
 
-      {popupEintrag && !istNurLesend && (
-        <SchichtDienstAendernForm
-          eintrag={popupEintrag}
-          onClose={() => {
-            setPopupOffen(false);
-            setPopupEintrag(null);
-          }}
-          onRefresh={() => {
-            if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();
-          }}
-        />
-      )}
+    {popupEintrag && !istNurLesend && (
+      <SchichtDienstAendernForm
+        offen={!!popupEintrag}
+        eintrag={popupEintrag}
+        onClose={() => {
+          setPopupEintrag(null);
+        }}
+      aktualisieren={async (affectedDates, changedUserId) => {
+        const brauchtVollReload = await gabEsFremdeMonatsAenderungenSeitFullReload({
+          affectedDates,
+          changedUserId,
+        });
+
+        if (brauchtVollReload) {
+          setLokalerReloadKey((x) => x + 1);
+          return;
+        }
+
+        ladeNurTage(affectedDates, changedUserId);
+      }}
+        onRefresh={() => {
+          if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();
+        }}
+      />
+    )}
     </div>
   );
 };

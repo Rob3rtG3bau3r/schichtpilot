@@ -783,29 +783,38 @@ const SchichtDienstAendernForm = ({
       }
     }
         // ✅ Zentrales Speichern (Verlauf -> Delete -> Insert + Recalc)
-    await speichernInKampfliste({
-      firmaId: f,
-      unitId: u,
-      userId: eintrag.user,
-      dates,
-      kuerzelNeu: auswahl.kuerzel,
-      createdBy,
-      kommentar,
-      schichtgruppe: eintrag.schichtgruppe,
-      start: auswahl.start || null,
-      ende: auswahl.ende || null,
-      pauseHours: Number(pause) || 0,
-      selectedSchicht,
-      skipUrlaubOnFreeDay: true,
-      perfSkipRecalc: PERF_SKIP_RECALC,
-    });
+const saveResult = await speichernInKampfliste({
+  firmaId: f,
+  unitId: u,
+  userId: eintrag.user,
+  dates,
+  kuerzelNeu: auswahl.kuerzel,
+  createdBy,
+  kommentar,
+  schichtgruppe: eintrag.schichtgruppe,
+  start: auswahl.start || null,
+  ende: auswahl.ende || null,
+  pauseHours: Number(pause) || 0,
+  selectedSchicht,
+  skipUrlaubOnFreeDay: true,
+  perfSkipRecalc: PERF_SKIP_RECALC,
+});
 
     setSaveMessage(`${startDatum.format('DD.MM.YYYY')} Erfolgreich gespeichert`);
     setTimeout(() => setSaveMessage(''), 1500);
     setKommentar('');
 
-    aktualisieren?.(eintrag.datum, eintrag.user);
-    reloadListe?.();
+    const affectedDates = saveResult?.affectedDates?.length
+      ? saveResult.affectedDates
+      : dates;
+
+    // Kampfliste gezielt aktualisieren.
+    // Kann später ein einzelnes Datum oder mehrere Tage verarbeiten.
+    aktualisieren?.(affectedDates, eintrag.user);
+
+    // Den großen Reload erstmal nicht mehr direkt auslösen.
+    // reloadListe?.();
+
     onRefresh?.();
     onRefreshMitarbeiterBedarf?.();
 
