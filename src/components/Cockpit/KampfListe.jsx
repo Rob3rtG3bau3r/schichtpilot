@@ -475,22 +475,12 @@ const ladeNurTage = async (dates = [], userIdFilter = null) => {
     console.error('❌ ladeNurTage Exception:', e);
   }
 };
-const gabEsFremdeMonatsAenderungenSeitFullReload = async ({
-  affectedDates = [],
-  changedUserId = null,
-}) => {
+const gabEsFremdeMonatsAenderungenSeitFullReload = async () => {
   try {
     if (!firma || !unit || !lastFullReloadAtRef.current) return false;
 
     const monthStart = `${prefix}-01`;
     const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
-
-    const affectedSet = new Set(
-      (Array.isArray(affectedDates) ? affectedDates : [affectedDates])
-        .map((d) => String(d).slice(0, 10))
-        .filter(Boolean)
-    );
-
     const { data, error } = await supabase
       .from('DB_Kampfliste')
       .select('id, datum, user, created_at, created_by')
@@ -515,13 +505,14 @@ const gabEsFremdeMonatsAenderungenSeitFullReload = async ({
     // Eigene gerade gespeicherte Zeilen ignorieren.
     // Sonst würde nach jedem Speichern immer ein Vollreload kommen.
     const fremdeRows = rows.filter((r) => {
-      const datum = String(r.datum).slice(0, 10);
-        const istGeradeGespeicherteZelle =
-          changedUserId &&
-          String(r.user) === String(changedUserId) &&
-          affectedSet.has(datum);
+      // Alles, was vom aktuell eingeloggten User gespeichert wurde,
+      // zählt NICHT als fremde Änderung.
+      if (String(r.created_by || '') === String(currentUserId || '')) {
+        return false;
+      }
 
-      return !istGeradeGespeicherteZelle;
+      // Alles von anderen Usern zählt als fremde Änderung.
+      return true;
     });
 
     return fremdeRows.length > 0;
@@ -1289,19 +1280,16 @@ setPopupEintrag(eintragObjekt);
         onClose={() => {
           setPopupEintrag(null);
         }}
-      aktualisieren={async (affectedDates, changedUserId) => {
-        const brauchtVollReload = await gabEsFremdeMonatsAenderungenSeitFullReload({
-          affectedDates,
-          changedUserId,
-        });
+        aktualisieren={async (affectedDates, changedUserId) => {
+          const brauchtVollReload = await gabEsFremdeMonatsAenderungenSeitFullReload();
 
-        if (brauchtVollReload) {
-          setLokalerReloadKey((x) => x + 1);
-          return;
-        }
+          if (brauchtVollReload) {
+            setLokalerReloadKey((x) => x + 1);
+            return;
+          }
 
-        ladeNurTage(affectedDates, changedUserId);
-      }}
+          ladeNurTage(affectedDates, changedUserId);
+        }}
         onRefresh={() => {
           if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();
         }}

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import { supabase } from '../supabaseClient';
 import { useRollen } from '../context/RollenContext';
+import { pruefeUndAktualisiereEskalationen } from '../utils/pruefeUndAktualisiereEskalationen';
 
 const STATUS_OPTIONS = [
   { value: 'alle', label: 'Alle' },
@@ -55,7 +56,8 @@ export default function Eskalationen() {
     () => ['Planner', 'Admin_Dev', 'SuperAdmin'].includes(rolle),
     [rolle]
   );
-
+  const [erneutPruefenId, setErneutPruefenId] = useState(null);
+  const [infoMeldung, setInfoMeldung] = useState('');
   const istSuperAdmin = rolle === 'SuperAdmin';
 
   const aktuellesJahr = dayjs().year();
@@ -93,9 +95,9 @@ export default function Eskalationen() {
 
   const title =
     tab === 'zukunft'
-      ? 'Offene Eskalationen – Zukunft'
+      ? 'Handlungsbedarf – aktive Eskalationen'
       : tab === 'vergangen'
-      ? 'Offene Eskalationen – Vergangenheit'
+      ? 'Bereits passierte Eskalationen'
       : 'Alle Eskalationen';
 
   const handleJahrChange = (neuesJahr) => {
@@ -186,13 +188,13 @@ export default function Eskalationen() {
 
       if (tab === 'zukunft') {
         query = query
-          .eq('status', 'offen')
+          .in('status', ['offen', 'geprueft'])
           .gte('datum', heute);
       }
 
       if (tab === 'vergangen') {
         query = query
-          .eq('status', 'offen')
+          .in('status', ['offen', 'geprueft'])
           .lt('datum', heute);
       }
 
@@ -315,6 +317,48 @@ export default function Eskalationen() {
     await ladeEskalationen();
   };
 
+const erneutPruefen = async (e) => {
+  if (!e?.id) return;
+
+  setErneutPruefenId(e.id);
+  setError('');
+  setInfoMeldung('');
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const createdBy = sessionData?.session?.user?.id || null;
+
+    await pruefeUndAktualisiereEskalationen({
+      userId: e.user_id,
+      firmaId: e.firma_id,
+      unitId: e.unit_id,
+      datum: e.datum,
+      createdBy,
+    });
+
+    await ladeEskalationen();
+
+    const { data: neu, error: neuErr } = await supabase
+      .from('DB_Eskalation')
+      .select('id, status, hinweis, resolved_reason')
+      .eq('id', e.id)
+      .maybeSingle();
+
+    if (neuErr) throw neuErr;
+
+    if (!neu || neu.status === 'automatisch_geloest') {
+      setInfoMeldung('Erneut geprüft: Die Eskalation besteht nicht mehr und wurde automatisch gelöst.');
+    } else {
+      setInfoMeldung('Erneut geprüft: Die Eskalation besteht weiterhin.');
+    }
+  } catch (err) {
+    console.error('Erneute Prüfung fehlgeschlagen:', err);
+    setError(err.message || 'Erneute Prüfung konnte nicht durchgeführt werden.');
+  } finally {
+    setErneutPruefenId(null);
+  }
+};
+
   const SortHeader = ({ sortKey, children, className = '' }) => (
     <th className={`py-2 pr-4 ${className}`}>
       <button
@@ -355,7 +399,7 @@ export default function Eskalationen() {
                   : 'bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700'
               }`}
             >
-              Offen Zukunft
+              Handlungsbedarf
             </button>
 
             <button
@@ -367,7 +411,7 @@ export default function Eskalationen() {
                   : 'bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700'
               }`}
             >
-              Offen Vergangenheit
+              Bereits vergangen
             </button>
 
             <button
@@ -466,6 +510,12 @@ export default function Eskalationen() {
             </div>
           </div>
 
+        {infoMeldung && (
+          <div className="mb-3 rounded-xl border border-blue-400 bg-blue-600/10 p-3 text-sm text-blue-700 dark:text-blue-200">
+            {infoMeldung}
+          </div>
+        )}
+
           {loading ? (
             <div className="text-sm opacity-70">Lade Eskalationen…</div>
           ) : error ? (
@@ -542,23 +592,38 @@ export default function Eskalationen() {
                         {e.created_at ? dayjs(e.created_at).format('DD.MM.YYYY HH:mm') : '-'}
                       </td>
 
-                      <td className="py-3 pr-4 whitespace-nowrap">
-                        {e.status === 'offen' ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPruefModal(e);
-                              setPruefKommentar(e.kommentar || '');
-                              setError('');
-                            }}
-                            className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs"
-                          >
-                            Akzeptieren
-                          </button>
-                        ) : (
-                          <span className="text-xs opacity-60">-</span>
-                        )}
-                      </td>
+<td className="py-3 pr-4 whitespace-nowrap">
+  <div className="flex flex-wrap gap-1">
+    {e.status === 'offen' && (
+      <button
+        type="button"
+        onClick={() => {
+          setPruefModal(e);
+          setPruefKommentar(e.kommentar || '');
+          setError('');
+        }}
+        className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs"
+      >
+        Akzeptieren
+      </button>
+    )}
+
+    {(e.status === 'offen' || e.status === 'geprueft') && (
+      <button
+        type="button"
+        onClick={() => erneutPruefen(e)}
+        disabled={erneutPruefenId === e.id}
+        className="px-3 py-1 rounded-lg bg-gray-600 hover:bg-gray-700 disabled:opacity-50 text-white text-xs"
+      >
+        {erneutPruefenId === e.id ? 'Prüfe…' : 'Erneut prüfen'}
+      </button>
+    )}
+
+    {e.status === 'automatisch_geloest' && (
+      <span className="text-xs opacity-60">-</span>
+    )}
+  </div>
+</td>
                     </tr>
                   ))}
                 </tbody>

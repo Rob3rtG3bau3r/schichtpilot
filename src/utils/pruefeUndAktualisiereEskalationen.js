@@ -220,7 +220,7 @@ const loeseEskalationenAutomatisch = async ({
     .eq('unit_id', unitId)
     .eq('user_id', userId)
     .eq('datum', datum)
-    .eq('status', 'offen')
+    .in('status', ['offen', 'geprueft'])
     .in('typ', typen);
 
   if (error) {

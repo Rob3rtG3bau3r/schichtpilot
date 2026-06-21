@@ -166,14 +166,117 @@ export const speichernInKampfliste = async ({
 
   const oldByDate = new Map((oldRows ?? []).map((r) => [String(r.datum).slice(0, 10), r]));
 
-  // 3) SollPlan Cache
-  const sollCache = new Map();
-  const getSoll = async (dateStr) => {
-    if (sollCache.has(dateStr)) return sollCache.get(dateStr);
-    const v = await ladeSollAusSollPlanFuerUser({ userId, datum: dateStr, firmaId, unitId, sb: client });
-    sollCache.set(dateStr, v);
-    return v;
+// 3) SollPlan / Schichtzuweisung als Zeitraum-Cache
+// Vorher wurde pro Datum DB_SchichtZuweisung + DB_SollPlan geladen.
+// Jetzt laden wir beides einmal für den gesamten betroffenen Zeitraum.
+const sortedDates = [...dates]
+  .map((d) => String(d).slice(0, 10))
+  .filter(Boolean)
+  .sort();
+
+const rangeStart = sortedDates[0];
+const rangeEnd = sortedDates[sortedDates.length - 1];
+
+let zuweisungen = [];
+
+if (rangeStart && rangeEnd) {
+  const { data: zuwData, error: zuwErr } = await client
+    .from("DB_SchichtZuweisung")
+    .select("schichtgruppe, von_datum, bis_datum")
+    .eq("user_id", userId)
+    .eq("firma_id", firmaId)
+    .eq("unit_id", unitId)
+    .lte("von_datum", rangeEnd)
+    .or(`bis_datum.is.null,bis_datum.gte.${rangeStart}`)
+    .order("von_datum", { ascending: true });
+
+  if (zuwErr) throw zuwErr;
+
+  zuweisungen = zuwData || [];
+}
+
+const getZuweisungFuerDatum = (dateStr) => {
+  let best = null;
+
+  for (const z of zuweisungen) {
+    const vonOk = dayjs(z.von_datum).isSameOrBefore(dateStr, "day");
+    const bisOk = !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(dateStr, "day");
+
+    if (vonOk && bisOk) {
+      if (!best || String(z.von_datum) > String(best.von_datum)) {
+        best = z;
+      }
+    }
+  }
+
+  return best;
+};
+
+const gruppenImZeitraum = Array.from(
+  new Set(
+    sortedDates
+      .map((dateStr) => getZuweisungFuerDatum(dateStr)?.schichtgruppe)
+      .filter(Boolean)
+  )
+);
+
+let sollRows = [];
+
+if (gruppenImZeitraum.length && sortedDates.length) {
+  const { data: sollData, error: sollErr } = await client
+    .from("DB_SollPlan")
+    .select("datum, schichtgruppe, kuerzel, startzeit, endzeit, pause_dauer")
+    .eq("firma_id", firmaId)
+    .eq("unit_id", unitId)
+    .in("datum", sortedDates)
+    .in("schichtgruppe", gruppenImZeitraum);
+
+  if (sollErr) throw sollErr;
+
+  sollRows = sollData || [];
+}
+
+const sollByKey = new Map(
+  sollRows.map((r) => [
+    `${String(r.schichtgruppe)}|${String(r.datum).slice(0, 10)}`,
+    r,
+  ])
+);
+
+const getSoll = (dateStr) => {
+  const zuweisung = getZuweisungFuerDatum(dateStr);
+  const gruppe = zuweisung?.schichtgruppe || null;
+
+  if (!gruppe) {
+    return {
+      kuerzel: "-",
+      start: null,
+      ende: null,
+      pause: null,
+      schichtgruppe: null,
+    };
+  }
+
+  const row = sollByKey.get(`${String(gruppe)}|${String(dateStr).slice(0, 10)}`);
+
+  if (!row) {
+    return {
+      kuerzel: "-",
+      start: null,
+      ende: null,
+      pause: null,
+      schichtgruppe: gruppe,
+    };
+  }
+
+  return {
+    kuerzel: row.kuerzel || "-",
+    start: row.startzeit || null,
+    ende: row.endzeit || null,
+    pause: row.pause_dauer ?? null,
+    schichtgruppe: gruppe,
   };
+};
 
   // 4) Recalc Sets (dedup)
   const recalcStundenSet = new Set(); // JSON.stringify({jahr,monat})
@@ -193,7 +296,7 @@ export const speichernInKampfliste = async ({
     const oldRow = oldByDate.get(datumStr) ?? null;
     const oldIstKuerzel = oldRow?.ist_rel?.kuerzel ?? null;
 
-    const sollPlan = await getSoll(datumStr);
+    const sollPlan = getSoll(datumStr);
     const gruppeFinal = schichtgruppe ?? oldRow?.schichtgruppe ?? sollPlan?.schichtgruppe ?? null;
     const sollK =
       sollPlan?.kuerzel && sollPlan.kuerzel !== "-"
