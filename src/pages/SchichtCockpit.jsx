@@ -211,25 +211,27 @@ const SchichtCockpit = () => {
                 />
               )}
 
-              <KampfListe
-                key={reloadKey}
-                reloadkey={reloadKey}
-                firma={firma}
-                unit={unit}
-                jahr={jahr}
-                monat={monat}
-                setPopupOffen={setPopupOffen}
-                setAusgewählterDienst={setAusgewählterDienst}
-                sichtbareGruppen={sichtbareGruppen}
-                setGruppenZähler={setGruppenZähler}
+            <KampfListe
+              key={reloadKey}
+              reloadkey={reloadKey}
+              firma={firma}
+              unit={unit}
+              jahr={jahr}
+              monat={monat}
+              setPopupOffen={setPopupOffen}
+              setAusgewählterDienst={setAusgewählterDienst}
+              sichtbareGruppen={sichtbareGruppen}
+              setGruppenZähler={setGruppenZähler}
 
-                // ✅ NEU (optional): Tages-Refresh
-                dayRefreshDatum={modalDatum}
-                dayRefreshKey={dayRefreshKey}
+              dayRefreshDatum={modalDatum}
+              dayRefreshKey={dayRefreshKey}
 
-                // ✅ wenn KampfListe irgendwo am Tag speichert, kann sie das nutzen
-                onSavedForDay={handleSavedForDay}
-              />
+              onSavedForDay={handleSavedForDay}
+
+              onRefreshMitarbeiterBedarf={() => {
+                setRefreshMitarbeiterKey((prev) => prev + 1);
+              }}
+            />
             </>
           )}
 

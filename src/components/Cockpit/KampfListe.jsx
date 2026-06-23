@@ -1288,7 +1288,7 @@ setPopupEintrag(eintragObjekt);
             return;
           }
 
-          ladeNurTage(affectedDates, changedUserId);
+          await ladeNurTage(affectedDates, changedUserId);
         }}
         onRefresh={() => {
           if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();

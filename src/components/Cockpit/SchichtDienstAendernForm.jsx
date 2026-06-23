@@ -810,7 +810,7 @@ const saveResult = await speichernInKampfliste({
 
     // Kampfliste gezielt aktualisieren.
     // Kann später ein einzelnes Datum oder mehrere Tage verarbeiten.
-    aktualisieren?.(affectedDates, eintrag.user);
+    await aktualisieren?.(affectedDates, eintrag.user);
 
     // Den großen Reload erstmal nicht mehr direkt auslösen.
     // reloadListe?.();
