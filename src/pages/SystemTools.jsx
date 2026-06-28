@@ -1,6 +1,6 @@
 // src/pages/SystemTools.jsx
 import React, { useEffect, useState } from 'react';
-import { Wrench, Users, Settings, Clock, Database, UserPlus, BadgeEuro, BarChart3 } from 'lucide-react';
+import { Wrench, Users, Settings, Clock, Database, UserPlus, BadgeEuro, BarChart3, Lightbulb } from 'lucide-react';
 import SystemTab from '../components/SystemTools/SystemTab';
 import KundenTab from '../components/SystemTools/KundenTab';
 import FeaturesTab from '../components/SystemTools/FeaturesTab';
@@ -9,6 +9,7 @@ import DataCleanUpTab from '../components/SystemTools/DataCleanUpTab';
 import TestzugangTab from '../components/SystemTools/TestzugangTab';
 import SystemAbrechnungTab from '../components/SystemTools/SystemAbrechnungTab';
 import LoginStatsTab from '../components/SystemTools/LoginStatsTab';
+import TooltipPflegeTab from '../components/SystemTools/TooltipPflegeTab';
 
 const TabButton = ({ active, onClick, icon: Icon, children, edge }) => (
   <button
@@ -37,6 +38,7 @@ export default function SystemTools() {
         <div className="flex flex-wrap gap-1">
           <TabButton edge="left"  active={tab==='system'}   onClick={() => setTab('system')}   icon={Wrench}>System</TabButton>
           <TabButton               active={tab==='kunden'}   onClick={() => setTab('kunden')}   icon={Users}>Kunden</TabButton>
+          <TabButton               active={tab === 'tooltipps'}  onClick={() => setTab('tooltipps')}  icon={Lightbulb}>  Tooltip Pflege</TabButton>
           <TabButton               active={tab==='abrechnung'}  onClick={() => setTab('abrechnung')}  icon={BadgeEuro}   edge="right">Abrechnung</TabButton>
           <TabButton               active={tab==='features'} onClick={() => setTab('features')} icon={Settings}>Features</TabButton>
           <TabButton               active={tab==='login'}    onClick={() => setTab('login')}    icon={Clock}>Login-Logs</TabButton>
@@ -48,6 +50,7 @@ export default function SystemTools() {
 
       {tab === 'system'      && <SystemTab />}
       {tab === 'kunden'      && <KundenTab />}
+      {tab === 'tooltipps' && <TooltipPflegeTab />}
       {tab === 'abrechnung' && <SystemAbrechnungTab />}
       {tab === 'features'    && <FeaturesTab />}
       {tab === 'login'       && <LoginTab />}
