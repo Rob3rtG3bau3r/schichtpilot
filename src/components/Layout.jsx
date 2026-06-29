@@ -233,11 +233,34 @@ const Layout = () => {
             );
           });
 
-          // 1a. "Immer" gewinnt immer
+          // 1a. "Immer"-Infos je Ebene sammeln:
+          // maximal 1x global, 1x Firma, 1x Unit.
+          // Wenn mehrere Ebenen passen, rotieren sie untereinander.
           const immerInfos = passendeInfos.filter((i) => i.rotation_modus === 'immer');
 
-          if (immerInfos.length > 0) {
-            const selectedInfo = immerInfos[0];
+          const globaleImmerInfo = immerInfos.find((i) => !i.firma_id && !i.unit_id);
+
+          const firmenImmerInfo = immerInfos.find((i) =>
+            i.firma_id &&
+            !i.unit_id &&
+            String(i.firma_id) === String(sichtFirma)
+          );
+
+          const unitImmerInfo = immerInfos.find((i) =>
+            i.unit_id &&
+            String(i.unit_id) === String(sichtUnit)
+          );
+
+          const immerKandidaten = [
+            globaleImmerInfo,
+            firmenImmerInfo,
+            unitImmerInfo,
+          ].filter(Boolean);
+
+          if (immerKandidaten.length > 0) {
+            const selectedInfo =
+              immerKandidaten[(currentCounter - 1) % immerKandidaten.length];
+
             const text = findeText(selectedInfo.texte, sprache);
 
             if (text?.text) {
@@ -245,6 +268,7 @@ const Layout = () => {
                 typ: 'info',
                 titel: text.titel || 'Info',
                 text: text.text,
+                darstellung: selectedInfo.darstellung || 'normal',
               });
               return;
             }
@@ -268,6 +292,7 @@ const Layout = () => {
               typ: 'info',
               titel: infoText.titel || 'Info',
               text: infoText.text,
+              darstellung: selectedInfo.darstellung || 'normal',
             });
             return;
           }
@@ -304,6 +329,7 @@ const Layout = () => {
               typ: 'tipp',
               titel: tippText.titel || 'Tipp',
               text: tippText.text,
+              darstellung: 'normal',
             });
             return;
           }
@@ -519,14 +545,34 @@ const Layout = () => {
     return <div className="text-white p-4">Lade Benutzerdaten...</div>;
   }
 
+  const headerHinweisStyle = (() => {
+    if (!headerHinweis || headerHinweis.typ !== 'info') {
+      return 'text-white';
+    }
+
+    if (headerHinweis.darstellung === 'kritisch') {
+      return 'bg-red-700/20 text-white border border-red-400 shadow-lg rounded-xl px-3 py-1.5';
+    }
+
+    if (headerHinweis.darstellung === 'warnung') {
+      return 'bg-yellow-400/20 text-gray-100 border border-yellow-300 shadow-lg rounded-xl px-3 py-1.5';
+    }
+
+    if (headerHinweis.darstellung === 'hinweis') {
+      return 'bg-blue-800/20 text-white border border-blue-400 shadow-md rounded-xl px-3 py-1.5';
+    }
+
+    return 'text-white';
+  })();
+
   return (
     <div className="min-h-screen w-full">
       <header
-        className={`flex justify-between items-center px-8 pt-2 pb-2 ${
+        className={`flex justify-between items-center px-4 pt-2 pb-2 ${
           umgeloggt ? 'bg-red-700' : 'bg-gray-800'
         } text-white relative`}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <img src={logo} alt="SchichtPilot" className="h-16" />
 
           {firmenLogo && (
@@ -544,7 +590,7 @@ const Layout = () => {
         <div className="absolute left-1/2 transform -translate-x-1/2 text-center max-w-[760px] px-4">
           {headerHinweis ? (
             <div
-              className="text-sm font-semibold leading-snug max-w-[760px] mx-auto overflow-hidden"
+              className={`text-sm font-semibold leading-snug max-w-[760px] mx-auto overflow-hidden ${headerHinweisStyle}`}
               title={`Hallo ${nutzerName || 'Pilot'}, ${headerHinweis.text}`}
               style={{
                 display: '-webkit-box',
@@ -552,9 +598,15 @@ const Layout = () => {
                 WebkitBoxOrient: 'vertical',
               }}
             >
-              <span className="mr-1">
-                {headerHinweis.typ === 'info' ? 'ℹ️' : '💡'}
-              </span>
+        <span className="mr-1">
+          {headerHinweis.typ === 'info'
+            ? headerHinweis.darstellung === 'kritisch'
+              ? '🔴'
+              : headerHinweis.darstellung === 'warnung'
+                ? '⚠️'
+                : 'ℹ️'
+            : '💡'}
+        </span>
               Hallo {nutzerName || 'Pilot'}, {headerHinweis.text}
             </div>
           ) : (

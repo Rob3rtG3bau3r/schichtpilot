@@ -54,6 +54,7 @@ const emptyInfo = {
   rollen: ['all'],
   prioritaet: 50,
   rotation_modus: 'rotation',
+  darstellung: 'normal',
   anzeige_ab: '',
   anzeige_bis: '',
   texte: [
@@ -110,6 +111,12 @@ export default function TooltipPflegeTab() {
   const [meldung, setMeldung] = useState('');
   const [lade, setLade] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tooltipSuche, setTooltipSuche] = useState('');
+  const [tooltipRollenFilter, setTooltipRollenFilter] = useState('all');
+
+  const [infoSuche, setInfoSuche] = useState('');
+  const [infoRollenFilter, setInfoRollenFilter] = useState('all');
+  const [infoRotationFilter, setInfoRotationFilter] = useState('all');
 
   useEffect(() => {
     ladeDaten();
@@ -256,6 +263,7 @@ export default function TooltipPflegeTab() {
       rollen: item.rollen || ['all'],
       prioritaet: item.prioritaet ?? 50,
       rotation_modus: item.rotation_modus || 'rotation',
+      darstellung: item.darstellung || 'normal',
       anzeige_ab: toInputDateTime(item.anzeige_ab),
       anzeige_bis: toInputDateTime(item.anzeige_bis),
       texte: normalisiereTexte(item.texte, [
@@ -393,16 +401,84 @@ export default function TooltipPflegeTab() {
     ladeDaten();
   };
 
+const pruefeImmerKonflikt = async () => {
+  if (formInfo.rotation_modus !== 'immer' || !formInfo.aktiv) {
+    return null;
+  }
+
+  let query = supabase
+    .from('DB_ToolInfo')
+    .select('id')
+    .eq('aktiv', true)
+    .eq('rotation_modus', 'immer')
+    .limit(1);
+
+  if (formInfo.id) {
+    query = query.neq('id', formInfo.id);
+  }
+
+  // Global / SchichtPilot
+  if (!formInfo.firma_id && !formInfo.unit_id) {
+    query = query.is('firma_id', null).is('unit_id', null);
+  }
+
+  // Firma
+  if (formInfo.firma_id && !formInfo.unit_id) {
+    query = query
+      .eq('firma_id', Number(formInfo.firma_id))
+      .is('unit_id', null);
+  }
+
+  // Unit
+  if (formInfo.firma_id && formInfo.unit_id) {
+    query = query.eq('unit_id', Number(formInfo.unit_id));
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return `Fehler bei der Prüfung: ${error.message}`;
+  }
+
+  if (data && data.length > 0) {
+
+    setModus('info');
+    setInfoRotationFilter('immer');
+    setInfoSuche('');
+    setInfoRollenFilter('all');
+
+    if (!formInfo.firma_id && !formInfo.unit_id) {
+      return 'Es gibt bereits eine aktive globale ToolInfo mit "Immer".';
+    }
+
+    if (formInfo.firma_id && !formInfo.unit_id) {
+      return 'Es gibt bereits eine aktive ToolInfo mit "Immer" für diese Firma.';
+    }
+
+    if (formInfo.unit_id) {
+      return 'Es gibt bereits eine aktive ToolInfo mit "Immer" für diese Unit.';
+    }
+  }
+
+  return null;
+};
+  
   const speichernInfo = async () => {
     setMeldung('');
 
-    const zeitraumFehler = validiereZeitraumInfo();
-    if (zeitraumFehler) {
-      setMeldung(zeitraumFehler);
-      return;
-    }
+const zeitraumFehler = validiereZeitraumInfo();
+if (zeitraumFehler) {
+  setMeldung(zeitraumFehler);
+  return;
+}
 
-    const textRowsPrepared = vorbereiteteTexte(formInfo.texte);
+const immerKonflikt = await pruefeImmerKonflikt();
+if (immerKonflikt) {
+  setMeldung(immerKonflikt);
+  return;
+}
+
+const textRowsPrepared = vorbereiteteTexte(formInfo.texte);
 
     if (textRowsPrepared.length === 0) {
       setMeldung('Bitte mindestens eine Sprachvariante eintragen.');
@@ -419,6 +495,7 @@ export default function TooltipPflegeTab() {
       rollen: formInfo.rollen,
       prioritaet: Number(formInfo.prioritaet || 50),
       rotation_modus: formInfo.rotation_modus,
+      darstellung: formInfo.darstellung || 'normal',
       anzeige_ab: formInfo.anzeige_ab,
       anzeige_bis: formInfo.anzeige_bis,
     };
@@ -709,6 +786,58 @@ export default function TooltipPflegeTab() {
       || null;
   };
 
+  const passtZurSuche = (item, suchText) => {
+    if (!suchText.trim()) return true;
+
+    const needle = suchText.trim().toLowerCase();
+    const texte = item.texte || [];
+
+    const textTreffer = texte.some((t) => {
+      return (
+        String(t.titel || '').toLowerCase().includes(needle) ||
+        String(t.text || '').toLowerCase().includes(needle) ||
+        String(t.sprache || '').toLowerCase().includes(needle)
+      );
+    });
+
+    return (
+      String(item.key || '').toLowerCase().includes(needle) ||
+      String(item.quelle || '').toLowerCase().includes(needle) ||
+      textTreffer
+    );
+  };
+
+  const passtZurRolle = (item, rollenFilter) => {
+    if (!rollenFilter || rollenFilter === 'all') return true;
+
+    const rollen = item.rollen || [];
+
+    return rollen.includes('all') || rollen.includes(rollenFilter);
+  };
+  const passtZurRotation = (item, rotationFilter) => {
+    if (!rotationFilter || rotationFilter === 'all') return true;
+    return item.rotation_modus === rotationFilter;
+  };
+
+  const gefilterteTooltips = useMemo(() => {
+  return (tooltips || []).filter((item) => {
+    return (
+      passtZurSuche(item, tooltipSuche) &&
+      passtZurRolle(item, tooltipRollenFilter)
+    );
+  });
+}, [tooltips, tooltipSuche, tooltipRollenFilter]);
+
+const gefilterteInfos = useMemo(() => {
+  return (infos || []).filter((item) => {
+    return (
+      passtZurSuche(item, infoSuche) &&
+      passtZurRolle(item, infoRollenFilter) &&
+      passtZurRotation(item, infoRotationFilter)
+    );
+  });
+}, [infos, infoSuche, infoRollenFilter, infoRotationFilter]);
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-4">
@@ -905,18 +1034,59 @@ export default function TooltipPflegeTab() {
             </div>
 
             <div className="rounded-lg border border-gray-700 bg-gray-950 p-4">
-              <h3 className="font-semibold mb-3">Vorhandene ToolTipps</h3>
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-3">
+                <div>
+                  <h3 className="font-semibold">Vorhandene ToolTipps</h3>
+                  <p className="text-xs text-gray-500">
+                    {gefilterteTooltips.length} von {tooltips.length} Einträgen
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full md:w-auto">
+                  <div>
+                    <label className="block text-[11px] text-gray-400 mb-1">
+                      Suche
+                    </label>
+                    <input
+                      value={tooltipSuche}
+                      onChange={(e) => setTooltipSuche(e.target.value)}
+                      className="w-full md:w-[240px] rounded bg-gray-800 border border-gray-700 px-3 py-2 text-sm"
+                      placeholder="Key, Titel oder Text..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-gray-400 mb-1">
+                      Rolle
+                    </label>
+                    <select
+                      value={tooltipRollenFilter}
+                      onChange={(e) => setTooltipRollenFilter(e.target.value)}
+                      className="w-full md:w-[190px] rounded bg-gray-800 border border-gray-700 px-3 py-2 text-sm"
+                    >
+                      <option value="all">Alle Rollen</option>
+                      {rollenOptionen
+                        .filter((r) => r !== 'all')
+                        .map((rolle) => (
+                          <option key={rolle} value={rolle}>
+                            {rolle}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
 
               {lade && <div className="text-sm text-gray-400">Lade...</div>}
 
-              {!lade && tooltips.length === 0 && (
+              {!lade && gefilterteTooltips.length === 0 && (
                 <div className="text-sm text-gray-400">
-                  Noch keine ToolTipps vorhanden.
+                  Keine passenden ToolTipps gefunden.
                 </div>
               )}
 
               <div className="space-y-2">
-                {tooltips.map((item) => {
+                {gefilterteTooltips.map((item) => {
                   const text = ersterText(item);
 
                   return (
@@ -1002,7 +1172,7 @@ export default function TooltipPflegeTab() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
                     Quelle
@@ -1034,7 +1204,22 @@ export default function TooltipPflegeTab() {
                     <option value="jedes_3_mal">Jedes 3. Mal</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Darstellung
+                  </label>
 
+                  <select
+                    value={formInfo.darstellung}
+                    onChange={(e) => setFormInfo({ ...formInfo, darstellung: e.target.value })}
+                    className="w-full rounded bg-gray-800 border border-gray-700 px-3 py-2 text-sm"
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="hinweis">Hinweis</option>
+                    <option value="warnung">Warnung</option>
+                    <option value="kritisch">Kritisch</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
                     Priorität
@@ -1099,18 +1284,75 @@ export default function TooltipPflegeTab() {
             </div>
 
             <div className="rounded-lg border border-gray-700 bg-gray-950 p-4">
-              <h3 className="font-semibold mb-3">Vorhandene ToolInfos</h3>
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-3">
+                <div>
+                  <h3 className="font-semibold">Vorhandene ToolInfos</h3>
+                  <p className="text-xs text-gray-500">
+                    {gefilterteInfos.length} von {infos.length} Einträgen
+                  </p>
+                </div>
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">
+                  Rotation
+                </label>
+
+                <select
+                  value={infoRotationFilter}
+                  onChange={(e) => setInfoRotationFilter(e.target.value)}
+                  className="w-full md:w-[170px] rounded bg-gray-800 border border-gray-700 px-3 py-2 text-sm"
+                >
+                  <option value="all">Alle</option>
+                  <option value="immer">Immer</option>
+                  <option value="rotation">Rotation</option>
+                  <option value="jedes_2_mal">Jedes 2. Mal</option>
+                  <option value="jedes_3_mal">Jedes 3. Mal</option>
+                </select>
+              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full md:w-auto">
+                  <div>
+                    <label className="block text-[11px] text-gray-400 mb-1">
+                      Suche
+                    </label>
+                    <input
+                      value={infoSuche}
+                      onChange={(e) => setInfoSuche(e.target.value)}
+                      className="w-full md:w-[240px] rounded bg-gray-800 border border-gray-700 px-3 py-2 text-sm"
+                      placeholder="Titel oder Text..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-gray-400 mb-1">
+                      Rolle
+                    </label>
+                    <select
+                      value={infoRollenFilter}
+                      onChange={(e) => setInfoRollenFilter(e.target.value)}
+                      className="w-full md:w-[190px] rounded bg-gray-800 border border-gray-700 px-3 py-2 text-sm"
+                    >
+                      <option value="all">Alle Rollen</option>
+                      {rollenOptionen
+                        .filter((r) => r !== 'all')
+                        .map((rolle) => (
+                          <option key={rolle} value={rolle}>
+                            {rolle}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
 
               {lade && <div className="text-sm text-gray-400">Lade...</div>}
 
-              {!lade && infos.length === 0 && (
+              {!lade && gefilterteInfos.length === 0 && (
                 <div className="text-sm text-gray-400">
-                  Noch keine ToolInfos vorhanden.
+                   Keine passenden ToolInfos gefunden.
                 </div>
               )}
 
               <div className="space-y-2">
-                {infos.map((item) => {
+                {gefilterteInfos.map((item) => {
                   const text = ersterText(item);
 
                   return (
@@ -1144,6 +1386,7 @@ export default function TooltipPflegeTab() {
                             : '–'}
                         </span>
                         <span>Rotation: {item.rotation_modus}</span>
+                        <span>Darstellung: {item.darstellung || 'normal'}</span>
                         <span>Rollen: {(item.rollen || []).join(', ')}</span>
                         <span>Scope: <ScopeLabel item={item} /></span>
                       </div>
