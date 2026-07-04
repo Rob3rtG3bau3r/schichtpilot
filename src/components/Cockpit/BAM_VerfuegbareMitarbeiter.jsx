@@ -1,7 +1,7 @@
 // src/components/Dashboard/BAM_VerfuegbareMitarbeiter.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
-import { Info } from 'lucide-react';
+import { HelpCircle, Info } from 'lucide-react';
 
 export default function BAM_VerfuegbareMitarbeiter({
   modalDatum,
@@ -16,6 +16,8 @@ export default function BAM_VerfuegbareMitarbeiter({
   onSendPush,
   sucheTage,
   setSucheTage,
+  getBewertungsDetails,
+  onExplainUser,
 }) {
 
   const [multiAktiv, setMultiAktiv] = useState(false);
@@ -255,6 +257,9 @@ const sendBulk = () => {
             })
             .map((f) => {
               const bewertung = getBewertungsStufe(f);
+              const bewertungDetails = typeof getBewertungsDetails === 'function'
+                ? getBewertungsDetails(f)
+                : null;
               const istKollisionRot = bewertung === 'rot';
               if (!kollidiertAktiv && istKollisionRot) return null;
 
@@ -269,9 +274,18 @@ const sendBulk = () => {
 
               const tooltip =
                 `${f.name}\n` +
+                `Bewertung: ${bewertung || '—'}\n` +
+                `Ruhe vorher: ${f.ruheVorherStunden != null ? `${Number(f.ruheVorherStunden).toFixed(1)} h` : '—'}\n` +
+                `Ruhe nachher: ${f.ruheNachherStunden != null ? `${Number(f.ruheNachherStunden).toFixed(1)} h` : '—'}\n` +
+                `Letzte Schicht vorher: ${f.letzteSchichtVorher?.kuerzel || '—'}\n` +
+                `Urlaub davor: ${f.urlaubImNaechstenBlockVorher ? 'ja' : 'nein'}\n` +
+                `Urlaub danach: ${f.urlaubImNaechstenBlockNachher ? 'ja' : 'nein'}\n` +
                 `Std.-Diff.: ${f.stundenDifferenz != null ? `${Number(f.stundenDifferenz).toFixed(2)} h` : '—'}\n` +
                 `Tel1: ${f.tel1 || '—'}\n` +
                 `Tel2: ${f.tel2 || '—'}\n` +
+                (bewertungDetails?.gruende?.length
+                  ? `\nGründe:\n${bewertungDetails.gruende.map((g) => `- ${g}`).join('\n')}\n`
+                  : '') +
                 (opt ? `Optionen: ${opt}\n` : '') +
                 (n ? `Notiz heute: ${n.notiz || '—'}` : '');
 
@@ -301,6 +315,7 @@ const sendBulk = () => {
                         />
                       )}
 
+                    <div className="inline-flex items-center gap-2">
                       <button
                         type="button"
                         className="inline-flex items-center gap-2 hover:underline text-left"
@@ -322,6 +337,21 @@ const sendBulk = () => {
                           />
                         ) : null}
                       </button>
+
+                      {typeof onExplainUser === 'function' ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onExplainUser(f);
+                          }}
+                          className="inline-flex items-center justify-center rounded-lg p-1 hover:bg-white/60 dark:hover:bg-gray-800/70"
+                          title="Bewertung erklären"
+                        >
+                          <HelpCircle size={14} className="text-gray-500 dark:text-gray-300" />
+                        </button>
+                      ) : null}
+                    </div>
                     </div>
                   </td>
                   <td className="text-[10px] text-gray-500 px-1">{f.vor3}</td>

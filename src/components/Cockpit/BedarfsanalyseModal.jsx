@@ -16,6 +16,8 @@ import BAM_MitarbeiterimDienst from './BAM_MitarbeiterimDienst';
 import BAM_SchichtTausch from './BAM_SchichtTausch';
 import BAM_VerfuegbareMitarbeiter from './BAM_VerfuegbareMitarbeiter';
 import BAM_PushNachrichten, { useBamPush } from './BAM_PushNachrichten';
+import BAM_BewertungInfoModal from './BAM_BewertungInfoModal';
+import { getBewertungsDetails_Roehm5 } from '../../bamLogik/Roehm_BMA_5Schicht_Logik';
 
 const BedarfsAnalyseModal = ({
   offen,
@@ -32,6 +34,7 @@ const BedarfsAnalyseModal = ({
   const [mitarbeiter, setMitarbeiter] = useState([]);           // im Dienst (Ziel-Schicht)
   const [freieMitarbeiter, setFreieMitarbeiter] = useState([]); // Kandidatenliste T-3..T+3
   const [userNameById, setUserNameById] = useState({});
+  const [schichtZeitenByKuerzel, setSchichtZeitenByKuerzel] = useState({});
   const [kollidiertAktiv, setKollidiertAktiv] = useState(false);
   const [infoOffen, setInfoOffen] = useState(false);
 
@@ -39,6 +42,7 @@ const BedarfsAnalyseModal = ({
   const [selected, setSelected] = useState(null);             // { uid, name, tel1, tel2, mode: 'frei'|'tausch', tauschQuelle?: 'F'|'S'|'N' }
   const [notizText, setNotizText] = useState('');
   const [sucheTage, setSucheTage] = useState(1); // 1 | 2 | 3
+  const [bewertungInfo, setBewertungInfo] = useState(null);
 
 // Für Prüfung über mehrere Tage:
 const [dienstCodeByUserDate, setDienstCodeByUserDate] = useState({}); // { [uid]: { [datum]: 'F'|'S'|'N'|'-' } }
@@ -96,6 +100,223 @@ const [ausgrauByUserDate, setAusgrauByUserDate] = useState({});       // { [uid]
 
   const SCH_LABEL = { F: 'Früh', S: 'Spät', N: 'Nacht' };
   const SCH_INDEX = { 'Früh': 0, 'Spät': 1, 'Nacht': 2 };
+  const normalisiereZeit = (value) => {
+    const raw = String(value || '').trim();
+
+    if (!raw) return null;
+
+    // erlaubt "06:00", "06:00:00"
+    const match = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+
+    const hh = String(match[1]).padStart(2, '0');
+    const mm = match[2];
+
+    return `${hh}:${mm}`;
+  };
+
+const buildSchichtZeitenMap = (rows = []) => {
+  const map = {};
+
+  // Diese Kürzel sind für BAM keine Arbeitsdienste.
+  // Wichtig: Das ist unabhängig von ignoriert_arbeitszeit.
+  const KEIN_BAM_ARBEITSDIENST = new Set([
+    '-',
+    'U',
+    'K',
+    'KO',
+  ]);
+
+  for (const row of rows || []) {
+    const kuerzel = String(row?.kuerzel || '').trim().toUpperCase();
+    if (!kuerzel) continue;
+
+    // Frei/Urlaub/Krank zählen für Ruhezeit nicht als Dienst.
+    if (KEIN_BAM_ARBEITSDIENST.has(kuerzel)) continue;
+
+    const start = normalisiereZeit(row?.startzeit);
+    const ende = normalisiereZeit(row?.endzeit);
+
+    // Ohne Start/Ende kann keine Ruhezeit berechnet werden.
+    if (!start || !ende) continue;
+
+    // 00:00–00:00 nicht pauschal ausschließen,
+    // weil diese Entscheidung fachlich über das Kürzel laufen soll.
+    map[kuerzel] = {
+      start,
+      ende,
+    };
+  }
+
+  return map;
+};
+
+  const isArbeitsSchicht = (kuerzel, zeitenMap = schichtZeitenByKuerzel) => {
+    const k = String(kuerzel || '').trim().toUpperCase();
+    return !!zeitenMap?.[k];
+  };
+
+const buildDienstIntervall = (datumISO, kuerzel, zeitenMap = schichtZeitenByKuerzel) => {
+  const k = String(kuerzel || '').trim().toUpperCase();
+  const zeiten = zeitenMap?.[k];
+
+  if (!zeiten?.start || !zeiten?.ende) return null;
+
+  const startText = zeiten.start;
+  const endeText = zeiten.ende;
+
+  let start = dayjs(`${datumISO}T${startText}`);
+  let ende = dayjs(`${datumISO}T${endeText}`);
+
+  const gehtUeberMitternacht = !ende.isAfter(start);
+
+  if (gehtUeberMitternacht) {
+    ende = ende.add(1, 'day');
+  }
+
+  const startHour = Number(startText.slice(0, 2));
+  const endeHour = Number(endeText.slice(0, 2));
+
+  const istNachtDienst =
+    gehtUeberMitternacht ||
+    startHour >= 20 ||
+    endeHour <= 6;
+
+  return {
+    kuerzel: k,
+    datum: datumISO,
+    start,
+    ende,
+    startText,
+    endeText,
+    gehtUeberMitternacht,
+    istNachtDienst,
+  };
+};
+
+  const diffStunden = (a, b) => {
+    return Number(dayjs.duration(b.diff(a)).asHours().toFixed(2));
+  };
+
+  const berechneRuhezeitenFuerBam = ({
+    zielDatum,
+    zielSchicht,
+    byDate,
+    logicDates,
+    zeitenMap = schichtZeitenByKuerzel,
+  }) => {
+    const ziel = buildDienstIntervall(zielDatum, zielSchicht, zeitenMap);
+
+    if (!ziel) {
+      return {
+        ruheVorherStunden: null,
+        ruheNachherStunden: null,
+        letzteSchichtVorher: null,
+        naechsteSchichtNachher: null,
+        letzterRelevanterEintragVorher: null,
+        naechsterRelevanterEintragNachher: null,
+        urlaubImNaechstenBlockVorher: false,
+        urlaubImNaechstenBlockNachher: false,
+      };
+    }
+
+    let letzterDienst = null;
+    let naechsterDienst = null;
+
+    let letzterRelevanterEintragVorher = null;
+    let naechsterRelevanterEintragNachher = null;
+
+    for (const d of logicDates || []) {
+      const code = String(byDate?.[d] || '-').toUpperCase();
+
+      // Vor Zieltag: letzter relevanter Eintrag, der nicht frei ist
+      if (dayjs(d).isBefore(dayjs(zielDatum), 'day') && code !== '-') {
+        if (!letzterRelevanterEintragVorher || dayjs(d).isAfter(dayjs(letzterRelevanterEintragVorher.datum), 'day')) {
+          letzterRelevanterEintragVorher = {
+            datum: d,
+            kuerzel: code,
+          };
+        }
+      }
+
+      // Nach Zieltag: erster relevanter Eintrag, der nicht frei ist
+      if (dayjs(d).isAfter(dayjs(zielDatum), 'day') && code !== '-') {
+        if (!naechsterRelevanterEintragNachher || dayjs(d).isBefore(dayjs(naechsterRelevanterEintragNachher.datum), 'day')) {
+          naechsterRelevanterEintragNachher = {
+            datum: d,
+            kuerzel: code,
+          };
+        }
+      }
+
+if (!isArbeitsSchicht(code, zeitenMap)) continue;
+
+const intervall = buildDienstIntervall(d, code, zeitenMap);
+      if (!intervall) continue;
+
+      // Letzter Arbeitsdienst vor Zielschicht
+      if (intervall.ende.isSameOrBefore(ziel.start)) {
+        if (!letzterDienst || intervall.ende.isAfter(letzterDienst.ende)) {
+          letzterDienst = intervall;
+        }
+      }
+
+      // Nächster Arbeitsdienst nach Zielschicht
+      if (intervall.start.isSameOrAfter(ziel.ende)) {
+        if (!naechsterDienst || intervall.start.isBefore(naechsterDienst.start)) {
+          naechsterDienst = intervall;
+        }
+      }
+    }
+
+    return {
+        zielSchichtIntervall: {
+          kuerzel: ziel.kuerzel,
+          datum: ziel.datum,
+          start: ziel.start.toISOString(),
+          ende: ziel.ende.toISOString(),
+          startText: ziel.startText,
+          endeText: ziel.endeText,
+          gehtUeberMitternacht: ziel.gehtUeberMitternacht,
+          istNachtDienst: ziel.istNachtDienst,
+        },
+
+  ruheVorherStunden: letzterDienst ? diffStunden(letzterDienst.ende, ziel.start) : 999,
+  ruheNachherStunden: naechsterDienst ? diffStunden(ziel.ende, naechsterDienst.start) : 999,
+
+  letzteSchichtVorher: letzterDienst
+        ? {
+            kuerzel: letzterDienst.kuerzel,
+            datum: letzterDienst.datum,
+            start: letzterDienst.start.toISOString(),
+            ende: letzterDienst.ende.toISOString(),
+            startText: letzterDienst.startText,
+            endeText: letzterDienst.endeText,
+            gehtUeberMitternacht: letzterDienst.gehtUeberMitternacht,
+            istNachtDienst: letzterDienst.istNachtDienst,
+          }
+        : null,
+
+      naechsteSchichtNachher: naechsterDienst
+        ? {
+            kuerzel: naechsterDienst.kuerzel,
+            datum: naechsterDienst.datum,
+            start: naechsterDienst.start.toISOString(),
+            ende: naechsterDienst.ende.toISOString(),
+            startText: naechsterDienst.startText,
+            endeText: naechsterDienst.endeText,
+            gehtUeberMitternacht: naechsterDienst.gehtUeberMitternacht,
+            istNachtDienst: naechsterDienst.istNachtDienst,
+          }
+        : null,
+
+      letzterRelevanterEintragVorher,
+      naechsterRelevanterEintragNachher,
+
+      urlaubImNaechstenBlockVorher: letzterRelevanterEintragVorher?.kuerzel === 'U',
+      urlaubImNaechstenBlockNachher: naechsterRelevanterEintragNachher?.kuerzel === 'U',
+    };
+  };
 
   const sch = String(modalSchicht || '').toUpperCase(); // 'F' | 'S' | 'N'
   const modalJahr = dayjs(modalDatum).year();
@@ -367,6 +588,25 @@ await speichernInKampfliste({
 
   // ===== Bewertungs-Logik (bestehend) =====
   const getBewertungsStufe = (f) => getBewertungsStufeFn(f, modalSchicht);
+  const getBewertungsDetails = (f) => {
+  // Aktuell für Röhm-Logik.
+  // Später kann das wie resolveBamLogik dynamisch pro bam_logik_key aufgelöst werden.
+  if (bamLogikKey === 'ROEHM_5SCHICHT') {
+    return getBewertungsDetails_Roehm5(f, modalSchicht);
+  }
+
+  return {
+    stufe: getBewertungsStufeFn(f, modalSchicht),
+    gruende: ['Für diese BAM-Logik sind noch keine Detailgründe hinterlegt.'],
+  };
+};
+
+const openBewertungInfo = (row) => {
+  setBewertungInfo({
+    kandidat: row,
+    details: getBewertungsDetails(row),
+  });
+};
   const buildPruefTage = (startDatum, anzahl) => {
   return Array.from({ length: Number(anzahl || 1) }, (_, i) =>
     dayjs(startDatum).add(i, 'day').format('YYYY-MM-DD')
@@ -383,7 +623,19 @@ const buildFensterFuerUserUndTag = (uid, zielDatum) => {
   const plus2  = dayjs(zielDatum).add(2, 'day').format('YYYY-MM-DD');
   const plus3  = dayjs(zielDatum).add(3, 'day').format('YYYY-MM-DD');
 
-  return {
+  const tageFuerPruefung = [
+    minus3,
+    minus2,
+    minus1,
+    zielDatum,
+    plus1,
+    plus2,
+    plus3,
+    dayjs(zielDatum).add(4, 'day').format('YYYY-MM-DD'),
+    dayjs(zielDatum).add(5, 'day').format('YYYY-MM-DD'),
+  ];
+
+  const fenster = {
     uid: String(uid),
     vor3: byDate[minus3] || '-',
     vor2: byDate[minus2] || '-',
@@ -393,11 +645,24 @@ const buildFensterFuerUserUndTag = (uid, zielDatum) => {
     nach2: byDate[plus2] || '-',
     nach3: byDate[plus3] || '-',
 
-    // Helper für bamLogik
+    // alte Helper für bamLogik
     vorvortag: byDate[minus2] || '-',
     vorher: byDate[minus1] || '-',
     nachher: byDate[plus1] || '-',
     folgetagplus: byDate[plus2] || '-',
+  };
+
+  const ruheInfo = berechneRuhezeitenFuerBam({
+    zielDatum,
+    zielSchicht: sch,
+    byDate,
+    logicDates: tageFuerPruefung,
+    zeitenMap: schichtZeitenByKuerzel,
+  });
+
+  return {
+    ...fenster,
+    ...ruheInfo,
   };
 };
 
@@ -524,6 +789,22 @@ const logicDates = [
 
 const windowStart = logicDates[0];
 const windowEnd = logicDates[logicDates.length - 1];
+// (0) Schichtarten / Arbeitszeiten der Unit laden
+const { data: schichtArtRows, error: schichtArtErr } = await supabase
+  .from('DB_SchichtArt')
+  .select('kuerzel, startzeit, endzeit')
+  .eq('firma_id', firma)
+  .eq('unit_id', unit);
+
+if (schichtArtErr) {
+  console.error('DB_SchichtArt error', schichtArtErr);
+}
+
+const schichtZeitenMap = buildSchichtZeitenMap(schichtArtRows || []);
+
+if (alive) {
+  setSchichtZeitenByKuerzel(schichtZeitenMap);
+}
 
       // (A) Soll-Plan
       const { data: soll } = await supabase
@@ -695,46 +976,73 @@ if (allUserIdsAtDay.length) {
       const dienstCodesByUserDateObj = {};
 
       for (const uid of visibleIds) {
-        const profil = userNameMap[uid] || { voll: 'Unbekannt, ', tel1: '', tel2: '' };
+  const profil = userNameMap[uid] || { voll: 'Unbekannt, ', tel1: '', tel2: '' };
 
-        const res = {
-          uid,
-          name: profil.voll,
-          tel1: profil.tel1 || '',
-          tel2: profil.tel2 || '',
+  const res = {
+    uid,
+    name: profil.voll,
+    tel1: profil.tel1 || '',
+    tel2: profil.tel2 || '',
 
-          vor3: '-', vor2: '-', vor1: '-',
-          heute: '-',
-          nach1: '-', nach2: '-', nach3: '-',
+    vor3: '-', vor2: '-', vor1: '-',
+    heute: '-',
+    nach1: '-', nach2: '-', nach3: '-',
 
-          // helper keys für Bewertung:
-          vorvortag: '-', vorher: '-', nachher: '-', folgetagplus: '-',
-        };
+    zielSchichtIntervall: null,
 
-        dienstCodesByUserDateObj[String(uid)] = {};
+    // alte Helper für Anzeige / Fallback
+    vorvortag: '-',
+    vorher: '-',
+    nachher: '-',
+    folgetagplus: '-',
 
-        for (let i = 0; i < logicDates.length; i++) {
-          const d = logicDates[i];
-          const grp = membersByDate.get(d)?.get(uid)?.gruppe;
-          const base = planByDate.get(d)?.get(grp) || null;
-          const over = overrideWinAll.get(`${d}|${uid}`);
-          const finalK = over ?? base ?? '-';
-          const show = rolle === 'Employee' ? maskForEmployee(finalK) : (finalK || '-');
-          dienstCodesByUserDateObj[String(uid)][d] = show;
+    // neue Helper für Stundenlogik
+    ruheVorherStunden: null,
+    ruheNachherStunden: null,
+    letzteSchichtVorher: null,
+    naechsteSchichtNachher: null,
 
-          const idxVisible = visibleDates.indexOf(d);
+    letzterRelevanterEintragVorher: null,
+    naechsterRelevanterEintragNachher: null,
+    urlaubImNaechstenBlockVorher: false,
+    urlaubImNaechstenBlockNachher: false,
+  };
 
-          if (idxVisible === 0) res.vor3 = show;
-          if (idxVisible === 1) { res.vor2 = show; res.vorvortag = show; }
-          if (idxVisible === 2) { res.vor1 = show; res.vorher = show; }
-          if (idxVisible === 3) res.heute = show;
-          if (idxVisible === 4) { res.nach1 = show; res.nachher = show; }
-          if (idxVisible === 5) { res.nach2 = show; res.folgetagplus = show; }
-          if (idxVisible === 6) res.nach3 = show;
-        }
+  dienstCodesByUserDateObj[String(uid)] = {};
 
-        fensterObj[String(uid)] = res;
-      }
+  for (let i = 0; i < logicDates.length; i++) {
+    const d = logicDates[i];
+    const grp = membersByDate.get(d)?.get(uid)?.gruppe;
+    const base = planByDate.get(d)?.get(grp) || null;
+    const over = overrideWinAll.get(`${d}|${uid}`);
+    const finalK = over ?? base ?? '-';
+    const show = rolle === 'Employee' ? maskForEmployee(finalK) : (finalK || '-');
+
+    dienstCodesByUserDateObj[String(uid)][d] = show;
+
+    const idxVisible = visibleDates.indexOf(d);
+
+    if (idxVisible === 0) res.vor3 = show;
+    if (idxVisible === 1) { res.vor2 = show; res.vorvortag = show; }
+    if (idxVisible === 2) { res.vor1 = show; res.vorher = show; }
+    if (idxVisible === 3) res.heute = show;
+    if (idxVisible === 4) { res.nach1 = show; res.nachher = show; }
+    if (idxVisible === 5) { res.nach2 = show; res.folgetagplus = show; }
+    if (idxVisible === 6) res.nach3 = show;
+  }
+
+  const ruheInfo = berechneRuhezeitenFuerBam({
+    zielDatum: modalDatum,
+    zielSchicht: sch,
+    byDate: dienstCodesByUserDateObj[String(uid)],
+    logicDates,
+    zeitenMap: schichtZeitenMap,
+  });
+
+  Object.assign(res, ruheInfo);
+
+  fensterObj[String(uid)] = res;
+}
       if (alive) {
         setDienstFensterByUserId(fensterObj);
         setDienstCodeByUserDate(dienstCodesByUserDateObj);
@@ -836,7 +1144,78 @@ if (allUserIdsAtDay.length) {
             })
           : freiUserIds;
 
-        const kandidaten = kandidatenBasis.filter((uid) => kannMehrTage(uid, sucheTage));
+        const buildFensterLocal = (uid, zielDatum) => {
+          const byDate = dienstCodesByUserDateObj[String(uid)] || {};
+
+          const minus3 = dayjs(zielDatum).subtract(3, 'day').format('YYYY-MM-DD');
+          const minus2 = dayjs(zielDatum).subtract(2, 'day').format('YYYY-MM-DD');
+          const minus1 = dayjs(zielDatum).subtract(1, 'day').format('YYYY-MM-DD');
+          const plus1  = dayjs(zielDatum).add(1, 'day').format('YYYY-MM-DD');
+          const plus2  = dayjs(zielDatum).add(2, 'day').format('YYYY-MM-DD');
+          const plus3  = dayjs(zielDatum).add(3, 'day').format('YYYY-MM-DD');
+
+          const tageFuerPruefung = [
+            minus3,
+            minus2,
+            minus1,
+            zielDatum,
+            plus1,
+            plus2,
+            plus3,
+            dayjs(zielDatum).add(4, 'day').format('YYYY-MM-DD'),
+            dayjs(zielDatum).add(5, 'day').format('YYYY-MM-DD'),
+          ];
+
+          const fenster = {
+            uid: String(uid),
+            vor3: byDate[minus3] || '-',
+            vor2: byDate[minus2] || '-',
+            vor1: byDate[minus1] || '-',
+            heute: byDate[zielDatum] || '-',
+            nach1: byDate[plus1] || '-',
+            nach2: byDate[plus2] || '-',
+            nach3: byDate[plus3] || '-',
+
+            vorvortag: byDate[minus2] || '-',
+            vorher: byDate[minus1] || '-',
+            nachher: byDate[plus1] || '-',
+            folgetagplus: byDate[plus2] || '-',
+          };
+
+          const ruheInfo = berechneRuhezeitenFuerBam({
+            zielDatum,
+            zielSchicht: sch,
+            byDate,
+            logicDates: tageFuerPruefung,
+            zeitenMap: schichtZeitenMap,
+          });
+
+          return {
+            ...fenster,
+            ...ruheInfo,
+          };
+        };
+
+        const pruefeMehrTageLocal = (uid, anzahl) => {
+          const tage = buildPruefTage(modalDatum, anzahl);
+
+          for (const d of tage) {
+            const istAusgegraut = !!ausgrauMapByUserDate?.[String(uid)]?.[d];
+            if (istAusgegraut) return false;
+
+            const fenster = buildFensterLocal(uid, d);
+            const codeHeute = fenster.heute || '-';
+
+            if (codeHeute !== '-') return false;
+
+            const bewertung = getBewertungsStufeFn(fenster, sch);
+            if (bewertung === 'rot') return false;
+          }
+
+          return true;
+        };
+
+        const kandidaten = kandidatenBasis.filter((uid) => pruefeMehrTageLocal(uid, sucheTage));
 
         const freieZeilen = kandidaten
           .map((uid) => {
@@ -1329,13 +1708,15 @@ const pickUserById = (uid) => {
               setKollidiertAktiv={setKollidiertAktiv}
               freieMitarbeiter={freieMitarbeiter}
               getBewertungsStufe={getBewertungsStufe}
+              getBewertungsDetails={getBewertungsDetails}
               flagsSummary={flagsSummary}
               notizByUser={notizByUser}
               onPickUser={pickUserFromFreeRow}
+              onExplainUser={openBewertungInfo}
               onSendPush={(userIds, msg) => sendPushToUsers(userIds, msg)}
               sucheTage={sucheTage}
               setSucheTage={setSucheTage}
-/>
+            />
           </div>
         </div>
 
@@ -1435,8 +1816,15 @@ const pickUserById = (uid) => {
           </div>
         )}
       </BAM_UI>
-
       <BAM_InfoModal offen={infoOffen} onClose={() => setInfoOffen(false)} />
+      <BAM_BewertungInfoModal
+        offen={!!bewertungInfo}
+        onClose={() => setBewertungInfo(null)}
+        kandidat={bewertungInfo?.kandidat}
+        details={bewertungInfo?.details}
+        modalSchicht={sch}
+        modalDatum={dayjs(modalDatum).format('DD.MM.YYYY')}
+      />  
     </>
   );
 };
