@@ -9,8 +9,6 @@ dayjs.locale('de');
 
 const MeineEingetragenenDienste = () => {
   const { rolle, userId, sichtUnit: unit } = useRollen();
-
-  const [offen, setOffen] = useState(true);
   const [vergangenheitAnzeigen, setVergangenheitAnzeigen] = useState(false);
   const [dienste, setDienste] = useState([]);
   const [schichtartenMap, setSchichtartenMap] = useState({});
@@ -89,24 +87,17 @@ const MeineEingetragenenDienste = () => {
 
   if (!darfSehen) return null;
 
-  return (
-    <div className="rounded-xl shadow-xl py-4 px-1 border border-gray-300 dark:border-gray-700">
-      {/* Überschrift */}
-      <div className="flex justify-between items-center">
-        <h3
-          className="text-sm font-semibold cursor-pointer flex items-center gap-2"
-          onClick={() => setOffen(!offen)}
-        >
-          {offen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-          Meine eingetragenen Dienste
-        </h3>
-
-        <div className="flex items-center gap-3 pr-2">
-          <span className="text-xs text-gray-600 dark:text-gray-300">
-            {dienste.length} Eintrag{dienste.length === 1 ? '' : 'e'}
-          </span>
+return (
+  <div className="space-y-3">
+    <div className="flex justify-between items-center gap-3">
+      <div>
         </div>
-      </div>
+          <div className="flex items-center gap-3 pr-2">
+            <span className="text-xs text-gray-600 dark:text-gray-300">
+              {dienste.length} Eintrag{dienste.length === 1 ? '' : 'e'}
+            </span>
+          </div>
+        </div>
 
       {offen && (
         <div className="mt-2 space-y-3">

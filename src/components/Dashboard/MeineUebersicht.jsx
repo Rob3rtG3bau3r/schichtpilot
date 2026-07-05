@@ -22,7 +22,7 @@ const MeineUebersicht = () => {
   const [loading, setLoading] = useState(true);
 
   // States für auf-/zuklappen
-  const [offen, setOffen] = useState(true);
+  
   const [tabelleOffen, setTabelleOffen] = useState(false);
   const [chartOffen, setChartOffen] = useState(false);
   const [abzugOffen, setAbzugOffen] = useState(false);
@@ -164,13 +164,9 @@ const MeineUebersicht = () => {
     <div className="rounded-xl shadow-xl py-4 px-1 border border-gray-300 dark:border-gray-700">
       {/* Überschrift */}
       <div className="flex justify-between items-center">
-        <h3
-          className="text-sm font-semibold cursor-pointer flex items-center gap-2"
-          onClick={() => setOffen(!offen)}
-        >
-          {offen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+        <h4 className="text-sm font-semibold flex items-center gap-2">
           Übersicht {selectedYear}
-        </h3>
+        </h4>
 
         <div className="flex items-center gap-2">
           {/* ✅ Vorjahr (mit Limit) */}
@@ -230,7 +226,6 @@ const MeineUebersicht = () => {
         </div>
       </div>
 
-      {offen && (
         <div className="mt-2 space-y-3">
           {/* Info-Box */}
           <div className="bg-gradient-to-r from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-700 p-3 border border-gray-400 rounded-xl shadow-xl mb-2">
@@ -416,7 +411,6 @@ const MeineUebersicht = () => {
             )}
           </div>
         </div>
-      )}
 
       {/* Info Modal */}
       {infoOffen && (

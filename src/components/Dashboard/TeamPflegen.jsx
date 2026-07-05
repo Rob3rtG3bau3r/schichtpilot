@@ -13,7 +13,7 @@ const TeamPflegen = () => {
     return <div className="text-center text-gray-500">Kein Zugriff auf diese Seite.</div>;
   }
 
-  const [offen, setOffen] = useState(false);
+  
   const [mitarbeiter, setMitarbeiter] = useState([]);
   const [teams, setTeams] = useState([]);
   const [aktiveTeams, setAktiveTeams] = useState([]);
@@ -324,10 +324,10 @@ const TeamPflegen = () => {
 
   return (
     <div className="rounded-xl shadow-xl px-1 py-4 border border-gray-200 dark:border-gray-700">
-      <div className="flex justify-between items-center cursor-pointer" onClick={() => setOffen(!offen)}>
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          {offen ? <ChevronDown size={18} /> : <ChevronRight size={18} />} Team Übersicht {viewYear}
-        </h3>
+      <div className="flex justify-between items-center">
+        <h4 className="text-sm font-semibold flex items-center gap-2">
+          Team Übersicht {viewYear}
+        </h4>
 
         <div className="flex items-center gap-2">
           <button
@@ -342,8 +342,6 @@ const TeamPflegen = () => {
           </button>
         </div>
       </div>
-
-      {offen && (
         <>
           {/* Jahr + Stichtag */}
           <div className="mt-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
@@ -464,7 +462,6 @@ const TeamPflegen = () => {
               ))}
           </div>
         </>
-      )}
 
       {statistikUser && <StatistikModal user={statistikUser} onClose={() => setStatistikUser(null)} />}
 
