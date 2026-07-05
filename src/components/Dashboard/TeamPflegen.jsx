@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../../supabaseClient";
 import { useRollen } from "../../context/RollenContext";
-import { ChevronDown, ChevronRight, Info, BarChart2, Calendar } from "lucide-react";
+import { Info, BarChart2, Calendar } from "lucide-react";
 import StatistikModal from "./StatistikModal";
 import dayjs from "dayjs";
 

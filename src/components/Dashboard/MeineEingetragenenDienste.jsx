@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/de';
-import { ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
 
@@ -13,7 +12,6 @@ const MeineEingetragenenDienste = () => {
   const [dienste, setDienste] = useState([]);
   const [schichtartenMap, setSchichtartenMap] = useState({});
   const [loading, setLoading] = useState(false);
-  const autoEinklappenGeprueft = useRef(false);
 
   const darfSehen = ['Planner', 'Admin_Dev'].includes(rolle);
 
@@ -41,12 +39,6 @@ const MeineEingetragenenDienste = () => {
 
         const { data, error } = await query;
         if (error) throw error;
-
-        setDienste(data || []);
-        if (!vergangenheitAnzeigen && !autoEinklappenGeprueft.current) {
-            setOffen((data || []).length > 0);
-            autoEinklappenGeprueft.current = true;
-}
 
         const schichtIds = [
           ...new Set(
@@ -99,7 +91,7 @@ return (
           </div>
         </div>
 
-      {offen && (
+
         <div className="mt-2 space-y-3">
           {/* Filterzeile */}
           <div className="bg-gradient-to-r from-gray-100 to-gray-300 dark:from-gray-800 dark:to-gray-700 p-2 border border-gray-400 rounded-xl shadow-xl mb-2">
@@ -187,7 +179,6 @@ return (
             )}
           </div>
         </div>
-      )}
     </div>
   );
 };

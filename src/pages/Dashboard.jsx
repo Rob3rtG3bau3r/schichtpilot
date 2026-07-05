@@ -122,8 +122,7 @@ const Dashboard = () => {
   const [istInKampfliste, setIstInKampfliste] = useState(false);
   const [tagesuebersichtAktiv, setTagesuebersichtAktiv] = useState(false);
   const [aktiverBereich, setAktiverBereich] = useState(null);
-
-const bereichRef = useRef(null);
+  const bereichRef = useRef(null);
 
   const darfTeamPflegenSehen = ['Team_Leader', 'Planner', 'Admin_Dev'].includes(rolle);
 
@@ -353,6 +352,7 @@ if (aktiverBereich === 'unitinfos') {
               <DashboardCard
                 title={aktiverBereichMeta?.label}
                 subtitle={aktiverBereichMeta?.hint}
+                compact
               >
                 {renderAktiverBereich()}
               </DashboardCard>

@@ -7,8 +7,6 @@ import {
   ToggleLeft,
   ToggleRight,
   RefreshCw,
-  ChevronDown,
-  ChevronRight,
 } from 'lucide-react';
 
 import { supabase } from '../../supabaseClient';
@@ -264,13 +262,13 @@ const UnitInfos = () => {
       texte: normalisiereTexte(item.texte || []),
     });
 
-    setOffen(true);
+
   };
 
   const neueInfo = () => {
     setFormInfo(emptyInfo);
     setMeldung('');
-    setOffen(true);
+
   };
 
   const validiereZeitraum = () => {
@@ -449,7 +447,6 @@ const UnitInfos = () => {
     <div className="rounded-xl border border-gray-400 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
 
 
-      {offen && (
         <div className="p-3 space-y-3">
           {meldung && (
             <div className="rounded-lg border border-blue-400 bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 px-3 py-2 text-sm">
@@ -821,7 +818,6 @@ const UnitInfos = () => {
             </div>
           </div>
         </div>
-      )}
     </div>
   );
 };
