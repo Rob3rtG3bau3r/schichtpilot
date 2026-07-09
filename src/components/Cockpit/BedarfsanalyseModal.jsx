@@ -543,20 +543,19 @@ await speichernInKampfliste({
 }
 
       if (typeof onSaved === 'function') {
-      const tageZumMelden = flags.macht_schicht
-        ? buildPruefTage(modalDatum, sucheTage)
-        : [modalDatum];
+        const tageZumMelden = flags.macht_schicht
+          ? buildPruefTage(modalDatum, sucheTage)
+          : [modalDatum];
 
-  for (const d of tageZumMelden) {
-    await onSaved({
-      datum: d,
-      firma_id: firma,
-      unit_id: unit,
-      user_id: selected.uid,
-      macht_schicht: !!flags.macht_schicht,
-    });
-  }
-}
+        await onSaved({
+          datum: tageZumMelden[0],
+          dates: tageZumMelden,
+          firma_id: firma,
+          unit_id: unit,
+          user_id: selected.uid,
+          macht_schicht: !!flags.macht_schicht,
+        });
+      }
 
       setNotizByUser((prev) => {
         const m = new Map(prev);

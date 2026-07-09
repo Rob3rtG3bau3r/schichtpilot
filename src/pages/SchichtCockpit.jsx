@@ -1,5 +1,5 @@
 // src/pages/SchichtCockpit.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import KalenderStruktur from '../components/Cockpit/KalenderStruktur';
 import Sollplan from '../components/Cockpit/Sollplan';
 import CockpitMenue from '../components/Cockpit/CockpitMenue';
@@ -64,17 +64,34 @@ const SchichtCockpit = () => {
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshMitarbeiterKey, setRefreshMitarbeiterKey] = useState(0);
 
-  // ✅ NEU: Tages-Refresh (nur bestimmter Tag)
-  // { "2025-12-20": 3, "2025-12-21": 1, ... }
-  const [refreshByDate, setRefreshByDate] = useState({});
+  // ✅ Tages-/Bereichs-Refresh für die Kampfliste
+  // Wichtig: kein reloadKey-Bump, sonst wird die Kampfliste komplett neu gemountet.
+  const [dayRefreshRequest, setDayRefreshRequest] = useState({
+    dates: [],
+    key: 0,
+    userId: null,
+  });
 
-  const bumpRefreshForDate = (datum) => {
-    const d = String(datum || '').slice(0, 10);
-    if (!d) return;
+  const normalizeDates = (value) => {
+    const arr = Array.isArray(value) ? value : [value];
 
-    setRefreshByDate((prev) => ({
-      ...prev,
-      [d]: (prev[d] || 0) + 1,
+    return Array.from(
+      new Set(
+        arr
+          .map((d) => String(d || '').slice(0, 10))
+          .filter(Boolean)
+      )
+    ).sort();
+  };
+
+  const bumpRefreshForDates = (dates, userId = null) => {
+    const cleanDates = normalizeDates(dates);
+    if (!cleanDates.length) return;
+
+    setDayRefreshRequest((prev) => ({
+      dates: cleanDates,
+      userId: userId || null,
+      key: prev.key + 1,
     }));
   };
 
@@ -143,20 +160,30 @@ const SchichtCockpit = () => {
   const isMonatsAnsicht = ansichtModus === 'monat';
   const isWochenAnsicht = ansichtModus === 'woche';
 
-  // ✅ “aktueller Tages-Key” für das Datum, das zuletzt “betroffen” war
-  // Wenn du später aus BedarfsAnalyseModal ein datum reingibst: bumpRefreshForDate(datum)
-  const dayRefreshKey = useMemo(() => {
-    const d = String(modalDatum || '').slice(0, 10);
-    return d ? (refreshByDate[d] || 0) : 0;
-  }, [refreshByDate, modalDatum]);
+  const dayRefreshDatum = dayRefreshRequest.dates;
+  const dayRefreshKey = dayRefreshRequest.key;
+  const dayRefreshUserId = dayRefreshRequest.userId;
 
-  // ✅ Callback, wenn irgendwo “am Tag” gespeichert wurde (z.B. BedarfsAnalyseModal)
-  const handleSavedForDay = ({ datum }) => {
-    bumpRefreshForDate(datum);
+  // ✅ Callback, wenn irgendwo gezielt ein Tag/mehrere Tage gespeichert wurden
+  // Unterstützt sowohl alte Signatur (datum-String) als auch neue Payloads:
+  // { datum }, { dates }, { datum, user_id }, { dates, user_id, macht_schicht }
+  const handleSavedForDay = (payload) => {
+    const rawDates = Array.isArray(payload?.dates)
+      ? payload.dates
+      : payload?.datum || payload;
 
-    // Fallback: wenn Kinder noch nicht “tagesweise” können -> trotzdem alles refreshen
-    setReloadKey((p) => p + 1);
+    const dates = normalizeDates(rawDates);
+    if (!dates.length) return;
+
+    const machtSchicht = payload?.macht_schicht !== false;
+
+    // Bedarf darf neu rechnen, weil sich durch den Dienst die Besetzung ändern kann.
     setRefreshMitarbeiterKey((p) => p + 1);
+
+    // Kampfliste nur aktualisieren, wenn wirklich ein Dienst geschrieben wurde.
+    if (machtSchicht) {
+      bumpRefreshForDates(dates, payload?.user_id || null);
+    }
   };
 
   return (
@@ -205,14 +232,14 @@ const SchichtCockpit = () => {
                   jahr={jahr}
                   monat={monat}
                   refreshKey={refreshMitarbeiterKey}
-                  dayRefreshDatum={modalDatum}
+                  dayRefreshDatum={dayRefreshDatum}
                   dayRefreshKey={dayRefreshKey}
+                  dayRefreshUserId={dayRefreshUserId}
                   onSavedForDay={handleSavedForDay}
                 />
               )}
 
             <KampfListe
-              key={reloadKey}
               reloadkey={reloadKey}
               firma={firma}
               unit={unit}
@@ -223,8 +250,9 @@ const SchichtCockpit = () => {
               sichtbareGruppen={sichtbareGruppen}
               setGruppenZähler={setGruppenZähler}
 
-              dayRefreshDatum={modalDatum}
+              dayRefreshDatum={dayRefreshDatum}
               dayRefreshKey={dayRefreshKey}
+              dayRefreshUserId={dayRefreshUserId}
 
               onSavedForDay={handleSavedForDay}
 
@@ -256,13 +284,13 @@ const SchichtCockpit = () => {
                   refreshKey={refreshMitarbeiterKey}
 
                   // ✅ NEU (optional): Tages-Refresh
-                  dayRefreshDatum={modalDatum}
+                  dayRefreshDatum={dayRefreshDatum}
                   dayRefreshKey={dayRefreshKey}
+                  dayRefreshUserId={dayRefreshUserId}
                 />
               )}
 
               <Wochen_Kampfliste
-                key={reloadKey}
                 reloadkey={reloadKey}
                 firma={firma}
                 unit={unit}
@@ -275,8 +303,9 @@ const SchichtCockpit = () => {
                 setGruppenZähler={setGruppenZähler}
 
                 // ✅ NEU (optional): Tages-Refresh
-                dayRefreshDatum={modalDatum}
+                dayRefreshDatum={dayRefreshDatum}
                 dayRefreshKey={dayRefreshKey}
+                dayRefreshUserId={dayRefreshUserId}
 
                 onSavedForDay={handleSavedForDay}
               />
@@ -300,12 +329,7 @@ const SchichtCockpit = () => {
           onRefreshMitarbeiterBedarf={() => setRefreshMitarbeiterKey((prev) => prev + 1)}
 
           // ✅ NEU: Wenn du im Form ein konkretes Datum kennst:
-          onSavedForDay={(datum) => {
-            bumpRefreshForDate(datum);
-            // fallback:
-            setReloadKey((p) => p + 1);
-            setRefreshMitarbeiterKey((p) => p + 1);
-          }}
+          onSavedForDay={(payload) => handleSavedForDay(payload)}
         />
       </div>
 

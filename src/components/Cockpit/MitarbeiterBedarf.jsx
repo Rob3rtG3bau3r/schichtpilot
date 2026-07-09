@@ -208,7 +208,14 @@ const calcCoverage = ({ aktiveUser, userQualiMap, bedarfSortiert, matrixMap }) =
   }
 };
 
-const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
+const MitarbeiterBedarf = ({
+  jahr,
+  monat,
+  refreshKey = 0,
+  dayRefreshDatum = null,
+  dayRefreshKey = 0,
+  onSavedForDay,
+}) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   
   const [tage, setTage] = useState([]);
@@ -350,6 +357,18 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
     tipHideTimer.current = setTimeout(() => setTipData(null), 120);
   };
 
+  const clearTooltipCacheForDates = (dates = []) => {
+    const cleanDates = normalisiereRefreshDates(dates);
+    if (!cleanDates.length) return;
+
+    for (const datum of cleanDates) {
+      tooltipCache.current.delete(`F|${datum}`);
+      tooltipCache.current.delete(`S|${datum}`);
+      tooltipCache.current.delete(`N|${datum}`);
+      tooltipCache.current.delete(`BAR|${datum}`);
+    }
+  };
+
   // Cache leeren bei Kontextwechsel
   useEffect(() => {
     tooltipCache.current = new Map();
@@ -403,6 +422,17 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
     const out = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
     return out;
+  };
+
+  const normalisiereRefreshDates = (value) => {
+    const raw = Array.isArray(value) ? value : [value];
+    return Array.from(
+      new Set(
+        raw
+          .map((d) => String(d || '').slice(0, 10))
+          .filter((d) => d && tage.includes(d))
+      )
+    ).sort();
   };
 
   const schichtInnerhalbGrenzen = (b, datumISO, schLabel) => {
@@ -470,11 +500,17 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
   };
 
   // ===== Daten laden =====
-  const ladeMitarbeiterBedarf = async () => {
+  const ladeMitarbeiterBedarf = async (optionen = {}) => {
     if (!firma || !unit || tage.length === 0) return;
 
-    const monthStart = tage[0];
-    const monthEnd = tage[tage.length - 1];
+    const onlyDates = normalisiereRefreshDates(optionen?.dates);
+    const istTeilRefresh = onlyDates.length > 0;
+    const arbeitsTage = istTeilRefresh ? onlyDates : tage;
+
+    if (arbeitsTage.length === 0) return;
+
+    const monthStart = arbeitsTage[0];
+    const monthEnd = arbeitsTage[arbeitsTage.length - 1];
 
     // 0) Schichtzeiten (für Zeit-Prüfung)
     const shiftTimes = {}; // F|S|N -> {s,e} in Minuten
@@ -524,9 +560,9 @@ const MitarbeiterBedarf = ({ jahr, monat, refreshKey = 0, onSavedForDay }) => {
       .or(`bis_datum.is.null, bis_datum.gte.${monthStart}`);
 
     const membersByDate = new Map();
-    (tage || []).forEach((d) => membersByDate.set(d, new Map()));
+    (arbeitsTage || []).forEach((d) => membersByDate.set(d, new Map()));
     for (const z of zuw || []) {
-      for (const d of tage) {
+      for (const d of arbeitsTage) {
         if (dayjs(z.von_datum).isAfter(d, 'day')) continue;
         if (z.bis_datum && dayjs(z.bis_datum).isBefore(d, 'day')) continue;
         const map = membersByDate.get(d);
@@ -567,7 +603,7 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
     (kampf || []).forEach((r) => {
       if (r?.user) allUserIdsSet.add(r.user);
     });
-    for (const d of tage) {
+    for (const d of arbeitsTage) {
       const planForDay = planByDate.get(d) || new Map();
       const mMap = membersByDate.get(d) || new Map();
 
@@ -680,7 +716,11 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
         });
       }
     }
-    setUserNameMapState(userNameMap);
+    if (istTeilRefresh) {
+      setUserNameMapState((prev) => ({ ...prev, ...userNameMap }));
+    } else {
+      setUserNameMapState(userNameMap);
+    }
     const zusatzNamenMap = {};
 
 (kampf || []).forEach((r) => {
@@ -707,7 +747,19 @@ Object.keys(zusatzNamenMap).forEach((key) => {
   zusatzNamenMap[key].sort((a, b) => a.localeCompare(b, 'de'));
 });
 
-setZusatzbedarfNamenMap(zusatzNamenMap);
+if (istTeilRefresh) {
+  const dateSet = new Set(arbeitsTage);
+  setZusatzbedarfNamenMap((prev) => {
+    const next = { ...prev };
+    Object.keys(next).forEach((key) => {
+      const datumKey = String(key).split('|')[0];
+      if (dateSet.has(datumKey)) delete next[key];
+    });
+    return { ...next, ...zusatzNamenMap };
+  });
+} else {
+  setZusatzbedarfNamenMap(zusatzNamenMap);
+}
 
     const isGrey = (uid, dISO) => {
       const arr = ausgrauenByUser.get(String(uid));
@@ -724,7 +776,7 @@ setZusatzbedarfNamenMap(zusatzNamenMap);
     // 7) Bewertung/Status
     const status = { F: {}, S: {}, N: {} };
 
-    for (const datum of tage) {
+    for (const datum of arbeitsTage) {
       for (const schicht of ['F', 'S', 'N']) {
         // 1) Kandidaten (Zeitfenster)
         const bedarfTag = (bedarf || []).filter((b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis));
@@ -1010,7 +1062,7 @@ const timeIssueCount = timeIssues?.length || 0;
 
     // 8) Farbleiste (Sonder-/Zeitbedarfe)
     const leiste = {};
-    for (const tag of tage) {
+    for (const tag of arbeitsTage) {
       const tagBedarfe = (bedarf || []).filter(
         (b) => b.farbe && !b.normalbetrieb && (!b.von || tag >= b.von) && (!b.bis || tag <= b.bis)
       );
@@ -1042,24 +1094,68 @@ const timeIssueCount = timeIssues?.length || 0;
       }
     }
 
-    setBedarfsLeiste(leiste);
-    setBedarfStatus(status);
+    if (istTeilRefresh) {
+      const dateSet = new Set(arbeitsTage);
 
-    const monthlyCounts = countMonthlyUnterdeckungen(status, tage);
+      setBedarfsLeiste((prev) => {
+        const next = { ...prev };
+        for (const datum of dateSet) {
+          delete next[datum];
+          if (leiste[datum]) next[datum] = leiste[datum];
+        }
+        return next;
+      });
 
-    await saveMonthlyUnterdeckung({
-      firma,
-      unit,
-      jahr,
-      monat,
-      counts: monthlyCounts,
-    });
+      setBedarfStatus((prev) => {
+        const next = {
+          F: { ...(prev?.F || {}) },
+          S: { ...(prev?.S || {}) },
+          N: { ...(prev?.N || {}) },
+        };
+
+        for (const schicht of ['F', 'S', 'N']) {
+          for (const datum of dateSet) {
+            if (status?.[schicht]?.[datum]) {
+              next[schicht][datum] = status[schicht][datum];
+            } else {
+              delete next[schicht][datum];
+            }
+          }
+        }
+
+        return next;
+      });
+    } else {
+      setBedarfsLeiste(leiste);
+      setBedarfStatus(status);
+
+      const monthlyCounts = countMonthlyUnterdeckungen(status, tage);
+
+      await saveMonthlyUnterdeckung({
+        firma,
+        unit,
+        jahr,
+        monat,
+        counts: monthlyCounts,
+      });
+    }
       };
 
   useEffect(() => {
     ladeMitarbeiterBedarf();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tage, firma, unit, refreshKey]);
+
+  useEffect(() => {
+    if (!dayRefreshKey) return;
+
+    const cleanDates = normalisiereRefreshDates(dayRefreshDatum);
+    if (!cleanDates.length) return;
+
+    clearTooltipCacheForDates(cleanDates);
+    ladeMitarbeiterBedarf({ dates: cleanDates });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayRefreshKey]);
 
   // Tooltip-Builder (Zelle)
   const buildCellTooltip = (_kuerzel, _datum, cell) => {

@@ -48,6 +48,7 @@ const KampfListe = ({
   onRefreshMitarbeiterBedarf,
   dayRefreshDatum,
   dayRefreshKey,
+  dayRefreshUserId,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
@@ -60,9 +61,12 @@ const KampfListe = ({
   const [tage, setTage] = useState([]);
   const [popupEintrag, setPopupEintrag] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState('idle');
   const heutigesDatum = dayjs().format('YYYY-MM-DD');
   const lastFullReloadAtRef = useRef(null);
   const [lokalerReloadKey, setLokalerReloadKey] = useState(0);
+  const loadSeqRef = useRef(0);
   
 
   const darfEmployeeUserSehen = (targetUserId, targetSchichtgruppe) => {
@@ -120,11 +124,18 @@ const KampfListe = ({
   // Tooltip Name-Spalte
   const [hoveredUserId, setHoveredUserId] = useState(null);
   const hideTimerRef = useRef(null);
+  const showTimerRef = useRef(null);
+
   const showTipFor = (id) => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    setHoveredUserId(id);
+    if (showTimerRef.current) clearTimeout(showTimerRef.current);
+
+    // Performance/UX: Tooltip erst zeigen, wenn der Nutzer kurz verweilt.
+    showTimerRef.current = setTimeout(() => setHoveredUserId(id), 350);
   };
+
   const scheduleHideTip = () => {
+    if (showTimerRef.current) clearTimeout(showTimerRef.current);
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => setHoveredUserId(null), 120);
   };
@@ -132,16 +143,52 @@ const KampfListe = ({
   // Tooltip Zellen
   const [hoveredCellKey, setHoveredCellKey] = useState(null);
   const cellHideTimerRef = useRef(null);
+  const cellShowTimerRef = useRef(null);
+
   const showCellTip = (key) => {
     if (cellHideTimerRef.current) clearTimeout(cellHideTimerRef.current);
-    setHoveredCellKey(key);
+    if (cellShowTimerRef.current) clearTimeout(cellShowTimerRef.current);
+
+    // Wichtig: Beim schnellen Überfahren der Kampfliste kein Tooltip-Render.
+    cellShowTimerRef.current = setTimeout(() => setHoveredCellKey(key), 400);
   };
+
   const scheduleHideCellTip = () => {
+    if (cellShowTimerRef.current) clearTimeout(cellShowTimerRef.current);
     if (cellHideTimerRef.current) clearTimeout(cellHideTimerRef.current);
     cellHideTimerRef.current = setTimeout(() => setHoveredCellKey(null), 120);
   };
 
+  useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (showTimerRef.current) clearTimeout(showTimerRef.current);
+      if (cellHideTimerRef.current) clearTimeout(cellHideTimerRef.current);
+      if (cellShowTimerRef.current) clearTimeout(cellShowTimerRef.current);
+    };
+  }, []);
+
   const prefix = `${jahr}-${String(monat + 1).padStart(2, '0')}`;
+
+  const waitForNextPaint = () =>
+    new Promise((resolve) => {
+      if (typeof window === 'undefined' || !window.requestAnimationFrame) {
+        setTimeout(resolve, 0);
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(resolve);
+      });
+    });
+
+  const loadingTextByPhase = {
+    loading: 'Daten werden geladen...',
+    processing: 'Daten werden verarbeitet...',
+    rendering: 'Ansicht wird aufgebaut...',
+  };
+
+  const loadingText = loadingTextByPhase[loadingPhase] || 'Dienstplan wird geladen...';
 
   // Monatstage bauen
   useEffect(() => {
@@ -210,8 +257,8 @@ const KampfListe = ({
     }
   };
 
-  const isGrey = (uid, dateISO) => {
-    const arr = ausgrauenByUser.get(String(uid));
+  const isGreyInMap = (map, uid, dateISO) => {
+    const arr = map?.get?.(String(uid));
     if (!arr || arr.length === 0) return false;
     const d = dayjs(dateISO);
     for (const r of arr) {
@@ -222,6 +269,8 @@ const KampfListe = ({
     }
     return false;
   };
+
+  const isGrey = (uid, dateISO) => isGreyInMap(ausgrauenByUser, uid, dateISO);
 
   const ladeNurTag = async (dateISO) => {
     try {
@@ -524,19 +573,277 @@ const gabEsFremdeMonatsAenderungenSeitFullReload = async () => {
     return true;
   }
 };
+
+const ladeStundenUndUrlaubFuerUser = async (userId) => {
+  try {
+    const uid = String(userId || '').trim();
+    if (!firma || !unit || !uid) return;
+
+    const jahrNum = Number(jahr) || new Date().getFullYear();
+
+    const [urlaubRes, stundenRes, abzugRes] = await Promise.all([
+      supabase
+        .from('DB_Urlaub')
+        .select('user_id, jahr, urlaub_gesamt, summe_jahr')
+        .eq('jahr', jahrNum)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('user_id', uid),
+
+      supabase
+        .from('DB_Stunden')
+        .select('user_id, jahr, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
+        .eq('jahr', jahrNum)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('user_id', uid),
+
+      supabase
+        .from('DB_StundenAbzug')
+        .select('user_id, stunden')
+        .eq('jahr', jahrNum)
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .eq('user_id', uid),
+    ]);
+
+    if (urlaubRes.error) {
+      console.error('❌ DB_Urlaub Fehler (User-Refresh):', urlaubRes.error.message || urlaubRes.error);
+    }
+
+    if (stundenRes.error) {
+      console.error('❌ DB_Stunden Fehler (User-Refresh):', stundenRes.error.message || stundenRes.error);
+    }
+
+    if (abzugRes.error) {
+      console.error('❌ DB_StundenAbzug Fehler (User-Refresh):', abzugRes.error.message || abzugRes.error);
+    }
+
+    const urlaubRow = (urlaubRes.data || [])[0] || null;
+
+    setUrlaubInfoMap((prev) => {
+      const next = { ...(prev || {}) };
+
+      if (!urlaubRow) {
+        delete next[uid];
+        return next;
+      }
+
+      const gesamt = Number(urlaubRow.urlaub_gesamt) || 0;
+      const summe = Number(urlaubRow.summe_jahr) || 0;
+      next[uid] = { summe, gesamt, rest: gesamt - summe };
+      return next;
+    });
+
+    const abzug = (abzugRes.data || []).reduce(
+      (sum, row) => sum + (Number(row.stunden) || 0),
+      0
+    );
+
+    const stundenRow = (stundenRes.data || [])[0] || null;
+
+    setStundenInfoMap((prev) => {
+      const next = { ...(prev || {}) };
+
+      if (!stundenRow) {
+        delete next[uid];
+        return next;
+      }
+
+      const vorgabe = Number(stundenRow.vorgabe_stunden) || 0;
+      const summeJahrRaw = Number(stundenRow.summe_jahr) || 0;
+      const uebernahme = Number(stundenRow.uebernahme_vorjahr) || 0;
+
+      const summeEffektiv = summeJahrRaw - abzug;
+      const istInklVorjahr = summeEffektiv + uebernahme;
+      const rest = istInklVorjahr - vorgabe;
+
+      next[uid] = {
+        summe: istInklVorjahr,
+        gesamt: vorgabe,
+        rest,
+        abzug,
+      };
+
+      return next;
+    });
+  } catch (e) {
+    console.error('❌ ladeStundenUndUrlaubFuerUser Exception:', e);
+  }
+};
+
 useEffect(() => {
   const ladeKampfliste = async () => {
     if (!firma || !unit || !currentUserId) return;
 
+    const loadSeq = loadSeqRef.current + 1;
+    loadSeqRef.current = loadSeq;
+
     setLoading(true);
+    setRendering(false);
+    setLoadingPhase('loading');
+    setHoveredUserId(null);
+    setHoveredCellKey(null);
+
+    // Bei einem echten Voll-Reload keine alten Zusatzwerte aus einer anderen Unit/Monat anzeigen.
+    setQualiCountMap({});
+    setUrlaubInfoMap({});
+    setStundenInfoMap({});
+    setAusgrauenByUser(new Map());
 
     // Wichtig:
     // Wir merken den Startzeitpunkt des Voll-Loads.
     // Änderungen, die danach passieren, sollen später erkannt werden.
     const fullLoadStartedAt = new Date().toISOString();
 
-    try {
+    const ladeZusatzdatenNach = async ({ visibleUserIds, monthStart, monthEnd, jahrNum, basisRows }) => {
+      if (!visibleUserIds?.length) return;
 
+      try {
+        const [ausRes, qualiMap, urlaubRes, stundenRes, abzugRes] = await Promise.all([
+          supabase
+            .from('DB_Ausgrauen')
+            .select('user_id, von, bis')
+            .eq('firma_id', firma)
+            .eq('unit_id', unit)
+            .in('user_id', visibleUserIds)
+            .lte('von', monthEnd)
+            .or(`bis.is.null, bis.gte.${monthStart}`),
+
+          ladeQualiCounts(visibleUserIds, firma, unit, dayjs(monthEnd).endOf('day').toISOString()),
+
+          supabase
+            .from('DB_Urlaub')
+            .select('user_id, jahr, urlaub_gesamt, summe_jahr')
+            .eq('jahr', jahrNum)
+            .eq('firma_id', firma)
+            .eq('unit_id', unit)
+            .in('user_id', visibleUserIds),
+
+          supabase
+            .from('DB_Stunden')
+            .select('user_id, jahr, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
+            .eq('jahr', jahrNum)
+            .eq('firma_id', firma)
+            .eq('unit_id', unit)
+            .in('user_id', visibleUserIds),
+
+          supabase
+            .from('DB_StundenAbzug')
+            .select('user_id, stunden')
+            .eq('jahr', jahrNum)
+            .eq('firma_id', firma)
+            .eq('unit_id', unit)
+            .in('user_id', visibleUserIds),
+        ]);
+
+        // Nutzer hat währenddessen Monat/Unit gewechselt: Ergebnis ignorieren.
+        if (loadSeqRef.current !== loadSeq) return;
+
+        if (ausRes.error) {
+          console.error('❌ Fehler DB_Ausgrauen:', ausRes.error.message || ausRes.error);
+        }
+
+        if (urlaubRes.error) {
+          console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
+        }
+
+        if (stundenRes.error) {
+          console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
+        }
+
+        if (abzugRes.error) {
+          console.error('❌ DB_StundenAbzug Fehler:', abzugRes.error.message || abzugRes.error);
+        }
+
+        const idsSet = new Set(visibleUserIds.map(String));
+
+        const mapAus = new Map();
+        for (const uid of visibleUserIds) mapAus.set(String(uid), []);
+        for (const r of ausRes.data || []) {
+          const uid = String(r.user_id);
+          const arr = mapAus.get(uid) || [];
+          arr.push({ von: r.von, bis: r.bis || null });
+          mapAus.set(uid, arr);
+        }
+        for (const [, arr] of mapAus) {
+          arr.sort((a, b) => dayjs(a.von).diff(dayjs(b.von)));
+        }
+
+        const urlaubInfo = {};
+        for (const r of urlaubRes.data || []) {
+          const uid = String(r.user_id);
+          if (!idsSet.has(uid)) continue;
+          const gesamt = Number(r.urlaub_gesamt) || 0;
+          const summe = Number(r.summe_jahr) || 0;
+          urlaubInfo[uid] = { summe, gesamt, rest: gesamt - summe };
+        }
+
+        const abzugSumByUser = {};
+        for (const r of abzugRes.data || []) {
+          const uid = String(r.user_id);
+          abzugSumByUser[uid] = (abzugSumByUser[uid] || 0) + (Number(r.stunden) || 0);
+        }
+
+        const stundenInfo = {};
+        for (const r of stundenRes.data || []) {
+          const uid = String(r.user_id);
+          if (!idsSet.has(uid)) continue;
+
+          const vorgabe = Number(r.vorgabe_stunden) || 0;
+          const summeJahrRaw = Number(r.summe_jahr) || 0;
+          const uebernahme = Number(r.uebernahme_vorjahr) || 0;
+          const abzug = Number(abzugSumByUser[uid]) || 0;
+
+          const summeEffektiv = summeJahrRaw - abzug;
+          const istInklVorjahr = summeEffektiv + uebernahme;
+          const rest = istInklVorjahr - vorgabe;
+
+          stundenInfo[uid] = {
+            summe: istInklVorjahr,
+            gesamt: vorgabe,
+            rest,
+            abzug,
+          };
+        }
+
+        setAusgrauenByUser(mapAus);
+        setQualiCountMap(qualiMap || {});
+        setUrlaubInfoMap(urlaubInfo);
+        setStundenInfoMap(stundenInfo);
+
+        // Sichtbare Zeilen mit Quali-Zahl und Ausgrauen nachziehen.
+        // Die eigentliche Kampfliste war zu diesem Zeitpunkt schon sichtbar.
+        setEintraege((prev) => {
+          if (!Array.isArray(prev) || prev.length === 0) return prev;
+
+          return prev.map(([uid, row]) => {
+            const userIdStr = String(uid);
+            return [
+              uid,
+              {
+                ...row,
+                qualiCount: qualiMap?.[userIdStr] || 0,
+                greyToday: isGreyInMap(mapAus, userIdStr, heutigesDatum),
+              },
+            ];
+          });
+        });
+
+        const zaehler = {};
+        for (const [uid, row] of basisRows || []) {
+          if (isGreyInMap(mapAus, uid, heutigesDatum)) continue;
+          const gruppe = row.schichtgruppe || 'Unbekannt';
+          zaehler[gruppe] = (zaehler[gruppe] || 0) + 1;
+        }
+        setGruppenZähler(zaehler);
+      } catch (e) {
+        if (loadSeqRef.current !== loadSeq) return;
+        console.error('❌ Fehler beim Nachladen der Kampflisten-Zusatzdaten:', e);
+      }
+    };
+
+    try {
       const { data: unitData, error: unitErr } = await supabase
         .from('DB_Unit')
         .select('employee_sichtbarkeit')
@@ -548,12 +855,15 @@ useEffect(() => {
         console.error('❌ Fehler beim Laden von DB_Unit.employee_sichtbarkeit:', unitErr.message || unitErr);
       }
 
+      if (loadSeqRef.current !== loadSeq) return;
+
       const sichtbarkeit = unitData?.employee_sichtbarkeit || 'unit';
       setEmployeeSichtbarkeit(sichtbarkeit);
 
       const daysInMonth = new Date(jahr, monat + 1, 0).getDate();
       const monthStart = `${prefix}-01`;
       const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
+      const jahrNum = Number(jahr) || new Date().getFullYear();
 
       let viewRows = [];
       const selectCols =
@@ -573,35 +883,37 @@ useEffect(() => {
         [q3 + 1, daysInMonth],
       ].filter(([a, b]) => a <= b);
 
-    const fetchViewRange = async (startDate, endDate) => {
-      let query = supabase
-        .from('v_tagesplan')
-        .select(selectCols)
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .gte('datum', startDate)
-        .lte('datum', endDate);
+      const fetchViewRange = async (startDate, endDate) => {
+        let query = supabase
+          .from('v_tagesplan')
+          .select(selectCols)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .gte('datum', startDate)
+          .lte('datum', endDate);
 
-      // Performance: Wenn Employee nur Eigenansicht sehen darf,
-      // laden wir direkt nur den eingeloggten Mitarbeiter.
-      if (rolle === 'Employee' && sichtbarkeit === 'self' && currentUserId) {
-        query = query.eq('user_id', currentUserId);
-      }
+        // Performance: Wenn Employee nur Eigenansicht sehen darf,
+        // laden wir direkt nur den eingeloggten Mitarbeiter.
+        if (rolle === 'Employee' && sichtbarkeit === 'self' && currentUserId) {
+          query = query.eq('user_id', currentUserId);
+        }
 
-      const { data, error } = await query;
+        const { data, error } = await query;
 
-      if (error) {
-        console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
-        return [];
-      }
+        if (error) {
+          console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
+          return [];
+        }
 
-      return data || [];
-    };
+        return data || [];
+      };
 
       const viewChunks = await Promise.all(
         ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
       );
       viewRows = viewChunks.flat();
+
+      if (loadSeqRef.current !== loadSeq) return;
 
       const schichtIds = Array.from(
         new Set((viewRows || []).map((r) => r.ist_schichtart_id).filter((x) => x != null))
@@ -622,6 +934,8 @@ useEffect(() => {
           schichtMap = new Map((schichten || []).map((s) => [s.id, s]));
         }
       }
+
+      if (loadSeqRef.current !== loadSeq) return;
 
       const kampfData = (viewRows || [])
         .filter((r) => {
@@ -650,12 +964,14 @@ useEffect(() => {
       const userIds = kampfData.map((e) => e.user).filter(Boolean);
       const createdByIds = kampfData.map((e) => e.created_by).filter(Boolean);
       const alleUserIds = [...new Set([...userIds, ...createdByIds])].map(String);
-      const idsSet = new Set(alleUserIds);
 
       if (alleUserIds.length === 0) {
         setEintraege([]);
         setGruppenZähler({});
         setMeineSchichtgruppe(null);
+        setLoading(false);
+        setRendering(false);
+        setLoadingPhase('idle');
         return;
       }
 
@@ -666,119 +982,15 @@ useEffect(() => {
 
       if (userError) {
         console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
+        setLoading(false);
+        setRendering(false);
+        setLoadingPhase('idle');
         return;
       }
 
+      if (loadSeqRef.current !== loadSeq) return;
+
       const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
-
-      const { data: ausRows, error: ausErr } = await supabase
-        .from('DB_Ausgrauen')
-        .select('user_id, von, bis')
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .in('user_id', alleUserIds)
-        .lte('von', monthEnd)
-        .or(`bis.is.null, bis.gte.${monthStart}`);
-
-      if (ausErr) {
-        console.error('❌ Fehler DB_Ausgrauen:', ausErr.message || ausErr);
-      }
-
-      const mapAus = new Map();
-      for (const uid of alleUserIds) mapAus.set(String(uid), []);
-      for (const r of ausRows || []) {
-        const uid = String(r.user_id);
-        const arr = mapAus.get(uid) || [];
-        arr.push({ von: r.von, bis: r.bis || null });
-        mapAus.set(uid, arr);
-      }
-      for (const [uid, arr] of mapAus) {
-        arr.sort((a, b) => dayjs(a.von).diff(dayjs(b.von)));
-      }
-      setAusgrauenByUser(mapAus);
-
-      const cutoffIso = dayjs(monthEnd).endOf('day').toISOString();
-      const qualiMap = await ladeQualiCounts(alleUserIds, firma, unit, cutoffIso);
-      setQualiCountMap(qualiMap);
-
-      const jahrNum = Number(jahr) || new Date().getFullYear();
-
-      const [urlaubRes, stundenRes, abzugRes] = await Promise.all([
-        supabase
-          .from('DB_Urlaub')
-          .select('user_id, jahr, urlaub_gesamt, summe_jahr')
-          .eq('jahr', jahrNum)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', alleUserIds),
-
-        supabase
-          .from('DB_Stunden')
-          .select('user_id, jahr, vorgabe_stunden, summe_jahr, uebernahme_vorjahr')
-          .eq('jahr', jahrNum)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', alleUserIds),
-
-        supabase
-          .from('DB_StundenAbzug')
-          .select('user_id, stunden')
-          .eq('jahr', jahrNum)
-          .eq('firma_id', firma)
-          .eq('unit_id', unit)
-          .in('user_id', alleUserIds),
-      ]);
-
-      if (urlaubRes.error) {
-        console.error('❌ DB_Urlaub Fehler:', urlaubRes.error.message || urlaubRes.error);
-      }
-
-      const urlaubInfo = {};
-      for (const r of urlaubRes.data || []) {
-        const uid = String(r.user_id);
-        if (!idsSet.has(uid)) continue;
-        const gesamt = Number(r.urlaub_gesamt) || 0;
-        const summe = Number(r.summe_jahr) || 0;
-        urlaubInfo[uid] = { summe, gesamt, rest: gesamt - summe };
-      }
-      setUrlaubInfoMap(urlaubInfo);
-
-      if (stundenRes.error) {
-        console.error('❌ DB_Stunden Fehler:', stundenRes.error.message || stundenRes.error);
-      }
-
-      if (abzugRes.error) {
-        console.error('❌ DB_StundenAbzug Fehler:', abzugRes.error.message || abzugRes.error);
-      }
-
-      const abzugSumByUser = {};
-      for (const r of abzugRes.data || []) {
-        const uid = String(r.user_id);
-        abzugSumByUser[uid] = (abzugSumByUser[uid] || 0) + (Number(r.stunden) || 0);
-      }
-
-      const stundenInfo = {};
-      for (const r of stundenRes.data || []) {
-        const uid = String(r.user_id);
-        if (!idsSet.has(uid)) continue;
-
-        const vorgabe = Number(r.vorgabe_stunden) || 0;
-        const summeJahrRaw = Number(r.summe_jahr) || 0;
-        const uebernahme = Number(r.uebernahme_vorjahr) || 0;
-        const abzug = Number(abzugSumByUser[uid]) || 0;
-
-        const summeEffektiv = summeJahrRaw - abzug;
-        const istInklVorjahr = summeEffektiv + uebernahme;
-        const rest = istInklVorjahr - vorgabe;
-
-        stundenInfo[uid] = {
-          summe: istInklVorjahr,
-          gesamt: vorgabe,
-          rest,
-          abzug,
-        };
-      }
-      setStundenInfoMap(stundenInfo);
 
       const { data: zuwRaw, error: zuwErr } = await supabase
         .from('DB_SchichtZuweisung')
@@ -791,6 +1003,10 @@ useEffect(() => {
       if (zuwErr) {
         console.error('❌ Fehler beim Laden der Zuweisungen:', zuwErr.message || zuwErr);
       }
+
+      if (loadSeqRef.current !== loadSeq) return;
+
+      setLoadingPhase('processing');
 
       const zuwMonat = (zuwRaw || []).filter(
         (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(monthStart, 'day')
@@ -840,7 +1056,6 @@ useEffect(() => {
         const rowPosition = assnToday?.position_ingruppe ?? assnAtCell?.position_ingruppe ?? 999;
 
         if (!gruppiert[userIdStr]) {
-          const greyToday = isGrey(userIdStr, heutigesDatum);
           gruppiert[userIdStr] = {
             schichtgruppe: rowSchichtgruppe,
             position: rowPosition,
@@ -848,8 +1063,8 @@ useEffect(() => {
             name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
             vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
             tage: {},
-            qualiCount: qualiMap[userIdStr] || 0,
-            greyToday,
+            qualiCount: 0,
+            greyToday: false,
           };
         }
 
@@ -869,14 +1084,6 @@ useEffect(() => {
           kommentar: k.kommentar || null,
         };
       }
-
-      const zaehler = {};
-      for (const [, e] of Object.entries(gruppiert)) {
-        if (e.greyToday) continue;
-        const gruppe = e.schichtgruppe || 'Unbekannt';
-        zaehler[gruppe] = (zaehler[gruppe] || 0) + 1;
-      }
-      setGruppenZähler(zaehler);
 
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
@@ -912,12 +1119,37 @@ useEffect(() => {
         return schichtSort !== 0 ? schichtSort : (a.position ?? 999) - (b.position ?? 999);
       });
 
+      const zaehler = {};
+      for (const [, e] of sortiert) {
+        const gruppe = e.schichtgruppe || 'Unbekannt';
+        zaehler[gruppe] = (zaehler[gruppe] || 0) + 1;
+      }
+      setGruppenZähler(zaehler);
+
+      if (loadSeqRef.current !== loadSeq) return;
+
+      // Phase 1: Die sichtbare Kampfliste wird jetzt sofort angezeigt.
+      // Zusatzdaten wie Urlaub/Stunden/Qualis/Ausgrauen kommen danach nach.
+      setLoadingPhase('rendering');
+      setRendering(true);
       setEintraege(sortiert);
       lastFullReloadAtRef.current = fullLoadStartedAt;
-    } catch (error) {
-      console.error('❌ Fehler beim Laden der Kampfliste:', error);
-    } finally {
+
+      await waitForNextPaint();
+
+      if (loadSeqRef.current !== loadSeq) return;
       setLoading(false);
+      setRendering(false);
+      setLoadingPhase('idle');
+
+      const visibleUserIds = sortiert.map(([uid]) => String(uid));
+      ladeZusatzdatenNach({ visibleUserIds, monthStart, monthEnd, jahrNum, basisRows: sortiert });
+    } catch (error) {
+      if (loadSeqRef.current !== loadSeq) return;
+      console.error('❌ Fehler beim Laden der Kampfliste:', error);
+      setLoading(false);
+      setRendering(false);
+      setLoadingPhase('idle');
     }
   };
 
@@ -941,19 +1173,46 @@ useEffect(() => {
   if (!dayRefreshKey) return;
   if (!dayRefreshDatum) return;
 
-  ladeNurTage(dayRefreshDatum);
+  let alive = true;
+
+  const refreshBetroffeneTage = async () => {
+    const brauchtVollReload = await gabEsFremdeMonatsAenderungenSeitFullReload();
+
+    if (!alive) return;
+
+    if (brauchtVollReload) {
+      setLokalerReloadKey((x) => x + 1);
+      return;
+    }
+
+    await ladeNurTage(dayRefreshDatum, dayRefreshUserId || null);
+
+    if (!alive) return;
+
+    // Nach einem gezielten Tagesrefresh ändern sich für den Hover nur Stunden/Urlaub.
+    // Deshalb laden wir nur diese Zusatzdaten für den betroffenen User nach.
+    if (dayRefreshUserId) {
+      await ladeStundenUndUrlaubFuerUser(dayRefreshUserId);
+    }
+  };
+
+  refreshBetroffeneTage();
+
+  return () => {
+    alive = false;
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [dayRefreshKey]);
 
 return (
   <div className="relative min-h-[240px] bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
 
-    {loading && (
+    {(loading || rendering) && (
       <div className="absolute inset-0 z-[9998] flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm">
         <div className="flex flex-col items-center gap-3">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600 dark:border-gray-600 dark:border-t-blue-400" />
           <div className="text-sm font-medium text-gray-700 dark:text-gray-200">
-            Dienstplan wird geladen...
+            {loadingText}
           </div>
         </div>
       </div>
@@ -1289,6 +1548,10 @@ setPopupEintrag(eintragObjekt);
           }
 
           await ladeNurTage(affectedDates, changedUserId);
+
+          if (changedUserId) {
+            await ladeStundenUndUrlaubFuerUser(changedUserId);
+          }
         }}
         onRefresh={() => {
           if (onRefreshMitarbeiterBedarf) onRefreshMitarbeiterBedarf();

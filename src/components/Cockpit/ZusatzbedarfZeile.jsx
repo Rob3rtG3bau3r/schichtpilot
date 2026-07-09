@@ -1,8 +1,31 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const ZusatzbedarfZeile = ({ datum, items = [], onItemClick }) => {
   const [hoverItem, setHoverItem] = useState(null);
+  const showTimerRef = useRef(null);
+  const hideTimerRef = useRef(null);
+
+  const clearShowTimer = () => {
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+  };
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearShowTimer();
+      clearHideTimer();
+    };
+  }, []);
 
   if (!items || items.length === 0) {
     return <div className="w-full h-[10px]" />;
@@ -29,7 +52,29 @@ const ZusatzbedarfZeile = ({ datum, items = [], onItemClick }) => {
     });
   };
 
-  const hideNotice = () => {
+  const scheduleShowNotice = (item, el) => {
+    if (!el) return;
+
+    clearShowTimer();
+    clearHideTimer();
+
+    showTimerRef.current = setTimeout(() => {
+      showNotice(item, el);
+    }, 450);
+  };
+
+  const scheduleHideNotice = () => {
+    clearShowTimer();
+    clearHideTimer();
+
+    hideTimerRef.current = setTimeout(() => {
+      setHoverItem(null);
+    }, 120);
+  };
+
+  const hideNoticeNow = () => {
+    clearShowTimer();
+    clearHideTimer();
     setHoverItem(null);
   };
 
@@ -43,10 +88,11 @@ const ZusatzbedarfZeile = ({ datum, items = [], onItemClick }) => {
           >
             <button
               type="button"
-              onMouseEnter={(e) => showNotice(item, e.currentTarget)}
-              onMouseLeave={hideNotice}
+              onMouseEnter={(e) => scheduleShowNotice(item, e.currentTarget)}
+              onMouseLeave={scheduleHideNotice}
               onClick={(e) => {
                 e.stopPropagation();
+                hideNoticeNow();
                 onItemClick?.(item);
               }}
               className={[

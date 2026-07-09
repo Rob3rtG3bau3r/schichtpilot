@@ -476,14 +476,14 @@ const UnitInfos = () => {
                   <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                     Anzeige ab
                   </label>
-                  <input
+                    <input
                     type="datetime-local"
                     value={formInfo.anzeige_ab}
                     onChange={(e) =>
-                      setFormInfo({ ...formInfo, anzeige_ab: e.target.value })
+                        setFormInfo({ ...formInfo, anzeige_ab: e.target.value })
                     }
-                    className="w-full rounded-lg bg-white dark:bg-gray-800 border border-gray-400 dark:border-gray-700 px-3 py-2 text-sm"
-                  />
+                    className="w-full rounded-lg bg-white dark:bg-gray-800 border border-gray-400 dark:border-gray-600 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 [color-scheme:light] dark:[color-scheme:dark]"
+                    />
                 </div>
 
                 <div>
@@ -496,7 +496,7 @@ const UnitInfos = () => {
                     onChange={(e) =>
                       setFormInfo({ ...formInfo, anzeige_bis: e.target.value })
                     }
-                    className="w-full rounded-lg bg-white dark:bg-gray-800 border border-gray-400 dark:border-gray-700 px-3 py-2 text-sm"
+                    className="w-full rounded-lg bg-white dark:bg-gray-800 border border-gray-400 dark:border-gray-600 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 [color-scheme:light] dark:[color-scheme:dark]"
                   />
                 </div>
               </div>
