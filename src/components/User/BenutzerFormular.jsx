@@ -205,20 +205,28 @@ if (firmaId && formData.unit_id && formData.typ !== 'Kunden Anlegen') {
     };
 
     try {
-      const res = await fetch(
-        editingUserId
-          ? 'https://schicht-pilot-backend.vercel.app/api/update-user'
-          : 'https://schicht-pilot-backend.vercel.app/api/create-user',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(
-            editingUserId
-              ? { id: editingUserId, updateData: userPayload, updateAuthEmail: formData.email }
-              : { email: formData.email, password: passwort, userData: userPayload }
-          ),
-        }
-      );
+const res = await fetch(
+  editingUserId
+    ? `${import.meta.env.VITE_API_URL}/api/update-user`
+    : `${import.meta.env.VITE_API_URL}/api/create-user`,
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(
+      editingUserId
+        ? {
+            id: editingUserId,
+            updateData: userPayload,
+            updateAuthEmail: formData.email,
+          }
+        : {
+            email: formData.email,
+            password: passwort,
+            userData: userPayload,
+          }
+    ),
+  }
+);
 
       const result = await res.json();
 

@@ -314,15 +314,18 @@ const BenutzerCSVImport = ({ onImportDone }) => {
           tel_number2: row.tel_number2?.trim() || null,
         };
 
-        const res = await fetch('https://schicht-pilot-backend.vercel.app/api/create-user', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: row.email.trim(),
-            password: passwort,
-            userData: userPayload,
-          }),
-        });
+const res = await fetch(
+  `${import.meta.env.VITE_API_URL}/api/create-user`,
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: row.email.trim(),
+      password: passwort,
+      userData: userPayload,
+    }),
+  }
+);
 
         const result = await res.json();
 
