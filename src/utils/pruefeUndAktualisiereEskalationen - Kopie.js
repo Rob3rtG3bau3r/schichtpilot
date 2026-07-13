@@ -228,33 +228,6 @@ const loeseEskalationenAutomatisch = async ({
   }
 };
 
-const loeseEskalationenAutomatischBulk = async ({
-  firmaId, unitId, userId, daten, typen, createdBy,
-}) => {
-  const eindeutigeDaten = Array.from(new Set(
-    (daten || []).map((d) => String(d).slice(0, 10)).filter(Boolean)
-  ));
-  if (!eindeutigeDaten.length || !typen?.length) return;
-
-  const { error } = await supabase
-    .from('DB_Eskalation')
-    .update({
-      status: 'automatisch_geloest',
-      resolved_at: new Date().toISOString(),
-      resolved_by: createdBy || null,
-      resolved_reason: 'Eskalation nach erneuter Prüfung nicht mehr vorhanden.',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('firma_id', firmaId)
-    .eq('unit_id', unitId)
-    .eq('user_id', userId)
-    .in('datum', eindeutigeDaten)
-    .in('status', ['offen', 'geprueft'])
-    .in('typ', typen);
-
-  if (error) console.error('Fehler loeseEskalationenAutomatischBulk:', error);
-};
-
 const pruefeRuhezeitZwischenTagen = async ({
   vorher,
   nachher,
@@ -457,10 +430,15 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
   kuerzelNeu = null,
   ignoriertArbeitszeit = false,
 }) => {
-  if (!userId || !firmaId || !unitId || !Array.isArray(savedRows) || !savedRows.length) return;
+  if (!userId || !firmaId || !unitId || !Array.isArray(savedRows) || !savedRows.length) {
+    return;
+  }
 
   const rows = savedRows
-    .map((row) => ({ ...row, datum: String(row.datum).slice(0, 10) }))
+    .map((row) => ({
+      ...row,
+      datum: String(row.datum).slice(0, 10),
+    }))
     .filter((row) => row.datum)
     .sort((a, b) => String(a.datum).localeCompare(String(b.datum)));
 
@@ -469,85 +447,156 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
   const dates = rows.map((row) => row.datum);
   const ersterTag = dates[0];
   const letzterTag = dates[dates.length - 1];
+
+  const arbeitszeitTypen = [
+    'ARBEITSZEIT_UEBER_10H',
+    'ARBEITSZEIT_UEBER_12H',
+  ];
+
+  const istArbeitszeitRelevant =
+    !ignoriertArbeitszeit && istArbeitsTag(kuerzelNeu);
+
+  // 1) Arbeitszeit direkt aus den gespeicherten Daten prüfen.
+  // Kein v_tagesplan nötig, weil dauer_ist beim Speichern bereits berechnet wurde.
+  for (const row of rows) {
+    const aktiveTypen = [];
+    const dauer = Number(row.dauer_ist);
+
+    if (istArbeitszeitRelevant && Number.isFinite(dauer)) {
+      if (dauer >= 12) {
+        aktiveTypen.push('ARBEITSZEIT_UEBER_12H');
+
+        await speichereOffeneEskalation({
+          firmaId,
+          unitId,
+          userId,
+          datum: row.datum,
+          typ: 'ARBEITSZEIT_UEBER_12H',
+          hinweis: `Arbeitszeit ab 12 h: ${formatStunden(dauer)} h am ${dayjs(
+            row.datum
+          ).format('DD.MM.YYYY')} (${kuerzelNeu}). Betriebsleitung informieren.`,
+          dauerStunden: dauer,
+          bezugVonDatum: row.datum,
+          bezugBisDatum: row.datum,
+          createdBy,
+        });
+      } else if (dauer > 10) {
+        aktiveTypen.push('ARBEITSZEIT_UEBER_10H');
+
+        await speichereOffeneEskalation({
+          firmaId,
+          unitId,
+          userId,
+          datum: row.datum,
+          typ: 'ARBEITSZEIT_UEBER_10H',
+          hinweis: `Arbeitszeit über 10 h: ${formatStunden(dauer)} h am ${dayjs(
+            row.datum
+          ).format('DD.MM.YYYY')} (${kuerzelNeu}). Bitte prüfen/begründen.`,
+          dauerStunden: dauer,
+          bezugVonDatum: row.datum,
+          bezugBisDatum: row.datum,
+          createdBy,
+        });
+      }
+    }
+
+    const nichtMehrAktiv = arbeitszeitTypen.filter(
+      (typ) => !aktiveTypen.includes(typ)
+    );
+
+    await loeseEskalationenAutomatisch({
+      firmaId,
+      unitId,
+      userId,
+      datum: row.datum,
+      typen: nichtMehrAktiv,
+      createdBy,
+    });
+  }
+
+  // 2) Ruhezeit nur außen prüfen:
+  // - Vortag -> erster gespeicherter Tag
+  // - letzter gespeicherter Tag -> Folgetag
+  //
+  // Innere Übergänge prüfen wir bewusst nicht vollständig,
+  // weil bei Mehrfachspeichern dieselbe Schicht hintereinander gesetzt wird.
+  // Mehrfachauswahl > 12 h sperren wir später im Formular.
   const tagVorErstem = dayjs(ersterTag).subtract(1, 'day').format('YYYY-MM-DD');
   const tagNachLetztem = dayjs(letzterTag).add(1, 'day').format('YYYY-MM-DD');
-  const arbeitszeitTypen = ['ARBEITSZEIT_UEBER_10H', 'ARBEITSZEIT_UEBER_12H'];
-  const istArbeitszeitRelevant = !ignoriertArbeitszeit && istArbeitsTag(kuerzelNeu);
-
-  // U/K/KO/Frei: keine Arbeits- oder Ruhezeitprüfung nötig.
-  // Alte Eskalationen werden mit nur zwei Bulk-Updates bereinigt.
-  if (!istArbeitszeitRelevant) {
-    await Promise.all([
-      loeseEskalationenAutomatischBulk({
-        firmaId, unitId, userId, daten: dates, typen: arbeitszeitTypen, createdBy,
-      }),
-      loeseEskalationenAutomatischBulk({
-        firmaId, unitId, userId, daten: [...dates, tagNachLetztem],
-        typen: ['RUHEZEIT_UNTERSCHRITTEN'], createdBy,
-      }),
-    ]);
-    return;
-  }
-
-  const ueber10Rows = [];
-  const normaleRows = [];
-  for (const row of rows) {
-    const dauer = Number(row.dauer_ist);
-    if (Number.isFinite(dauer) && dauer > 10) ueber10Rows.push(row);
-    else normaleRows.push(row);
-  }
-
-  const jobs = [];
-  if (normaleRows.length) {
-    jobs.push(loeseEskalationenAutomatischBulk({
-      firmaId, unitId, userId, daten: normaleRows.map((r) => r.datum),
-      typen: arbeitszeitTypen, createdBy,
-    }));
-  }
-
-  for (const row of ueber10Rows) {
-    const dauer = Number(row.dauer_ist);
-    const typ = dauer >= 12 ? 'ARBEITSZEIT_UEBER_12H' : 'ARBEITSZEIT_UEBER_10H';
-    const gegenTyp = dauer >= 12 ? 'ARBEITSZEIT_UEBER_10H' : 'ARBEITSZEIT_UEBER_12H';
-    jobs.push(speichereOffeneEskalation({
-      firmaId, unitId, userId, datum: row.datum, typ,
-      hinweis: dauer >= 12
-        ? `Arbeitszeit ab 12 h: ${formatStunden(dauer)} h am ${dayjs(row.datum).format('DD.MM.YYYY')} (${kuerzelNeu}). Betriebsleitung informieren.`
-        : `Arbeitszeit über 10 h: ${formatStunden(dauer)} h am ${dayjs(row.datum).format('DD.MM.YYYY')} (${kuerzelNeu}). Bitte prüfen/begründen.`,
-      dauerStunden: dauer, bezugVonDatum: row.datum, bezugBisDatum: row.datum, createdBy,
-    }));
-    jobs.push(loeseEskalationenAutomatisch({
-      firmaId, unitId, userId, datum: row.datum, typen: [gegenTyp], createdBy,
-    }));
-  }
-  await Promise.all(jobs);
 
   const [plan, schichtMap] = await Promise.all([
-    ladePlanFenster({ userId, firmaId, unitId, von: tagVorErstem, bis: tagNachLetztem }),
-    ladeSchichtartenMap({ firmaId, unitId }),
+    ladePlanFenster({
+      userId,
+      firmaId,
+      unitId,
+      von: tagVorErstem,
+      bis: tagNachLetztem,
+    }),
+    ladeSchichtartenMap({
+      firmaId,
+      unitId,
+    }),
   ]);
+
   const byDate = new Map((plan || []).map((p) => [p.datum, p]));
 
-  const [linksAktiv, rechtsAktiv] = await Promise.all([
-    pruefeRuhezeitZwischenTagen({
-      vorher: byDate.get(tagVorErstem), nachher: byDate.get(ersterTag),
-      schichtMap, firmaId, unitId, userId, createdBy,
-    }),
-    pruefeRuhezeitZwischenTagen({
-      vorher: byDate.get(letzterTag), nachher: byDate.get(tagNachLetztem),
-      schichtMap, firmaId, unitId, userId, createdBy,
-    }),
-  ]);
-
-  await loeseEskalationenAutomatischBulk({
-    firmaId, unitId, userId,
-    daten: [
-      ...rows.slice(1).map((r) => r.datum),
-      ...(!linksAktiv ? [ersterTag] : []),
-      ...(!rechtsAktiv ? [tagNachLetztem] : []),
-    ],
-    typen: ['RUHEZEIT_UNTERSCHRITTEN'],
+  const ruhezeitLinksAktiv = await pruefeRuhezeitZwischenTagen({
+    vorher: byDate.get(tagVorErstem),
+    nachher: byDate.get(ersterTag),
+    schichtMap,
+    firmaId,
+    unitId,
+    userId,
     createdBy,
   });
-};
 
+  if (!ruhezeitLinksAktiv) {
+    await loeseEskalationenAutomatisch({
+      firmaId,
+      unitId,
+      userId,
+      datum: ersterTag,
+      typen: ['RUHEZEIT_UNTERSCHRITTEN'],
+      createdBy,
+    });
+  }
+
+  const ruhezeitRechtsAktiv = await pruefeRuhezeitZwischenTagen({
+    vorher: byDate.get(letzterTag),
+    nachher: byDate.get(tagNachLetztem),
+    schichtMap,
+    firmaId,
+    unitId,
+    userId,
+    createdBy,
+  });
+
+  if (!ruhezeitRechtsAktiv) {
+    await loeseEskalationenAutomatisch({
+      firmaId,
+      unitId,
+      userId,
+      datum: tagNachLetztem,
+      typen: ['RUHEZEIT_UNTERSCHRITTEN'],
+      createdBy,
+    });
+  }
+
+  // 3) Innere alte Ruhezeit-Eskalationen lösen.
+  // Beispiel: vorher gab es innen Verstöße, jetzt wurde eine saubere gleiche Schichtreihe gesetzt.
+  // Die Eskalation sitzt immer auf dem "nachher"-Tag.
+  if (rows.length > 1) {
+    const innereFolgetage = rows.slice(1).map((row) => row.datum);
+
+    for (const datum of innereFolgetage) {
+      await loeseEskalationenAutomatisch({
+        firmaId,
+        unitId,
+        userId,
+        datum,
+        typen: ['RUHEZEIT_UNTERSCHRITTEN'],
+        createdBy,
+      });
+    }
+  }
+};

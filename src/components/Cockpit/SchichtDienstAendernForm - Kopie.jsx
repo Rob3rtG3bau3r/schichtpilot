@@ -690,32 +690,28 @@ const SchichtDienstAendernForm = ({
 
       return { ok: true, message: '' };
     };
-    // Urlaubstage mit EINER Bereichsabfrage ermitteln.
-    // Vorher wurde für jeden Tag einzeln v_tagesplan geladen (14 Tage = 14 serielle Requests).
     const zaehleUrlaubstageDieWirklichGespeichertWerden = async ({ userId, dates, firmaId, unitId }) => {
-      if (!dates?.length) return 0;
+      let count = 0;
 
-      const { data, error } = await supabase
-        .from('v_tagesplan')
-        .select('datum, ist_schichtart_id, soll_schichtart_id')
-        .eq('user_id', userId)
-        .eq('firma_id', firmaId)
-        .eq('unit_id', unitId)
-        .gte('datum', dates[0])
-        .lte('datum', dates[dates.length - 1]);
+      for (const datum of dates) {
+        const { data: tp } = await ladeTagesplan({
+          userId,
+          datum,
+          firmaId,
+          unitId,
+        });
 
-      if (error) {
-        console.error('Fehler beim Laden der Urlaubstage:', error);
-        throw new Error('Die Arbeitstage für den Urlaub konnten nicht geprüft werden.');
+        const schichtId = tp?.ist_schichtart_id || tp?.soll_schichtart_id || null;
+        const schicht = schichtId ? schichtarten.find((s) => s.id === schichtId) : null;
+        const kuerzel = schicht?.kuerzel || '-';
+
+        // Urlaub nur zählen, wenn es vorher ein echter Arbeitstag war
+        if (istArbeitsTag(kuerzel)) {
+          count += 1;
+        }
       }
 
-      const schichtById = new Map((schichtarten || []).map((s) => [s.id, s]));
-
-      return (data || []).reduce((count, tp) => {
-        const schichtId = tp.ist_schichtart_id || tp.soll_schichtart_id || null;
-        const kuerzel = schichtId ? schichtById.get(schichtId)?.kuerzel || '-' : '-';
-        return count + (istArbeitsTag(kuerzel) ? 1 : 0);
-      }, 0);
+      return count;
     };
   /* --------------------------------- Save --------------------------------- */
   const handleSpeichern = async (schliessenDanach = false) => {
@@ -726,12 +722,9 @@ const SchichtDienstAendernForm = ({
     setSaveMessage('');
     setErrorMessage('');
 
-    const perfStart = performance.now();
-
-    // Session kommt normalerweise aus dem lokalen Supabase-Cache und vermeidet
-    // den zusätzlichen Netzwerk-Roundtrip von auth.getUser() bei jedem Speichern.
-    const { data: sessionData } = await supabase.auth.getSession();
-    const createdBy = sessionData?.session?.user?.id;
+    // Auth nur 1x
+    const { data: authUser } = await supabase.auth.getUser();
+    const createdBy = authUser?.user?.id;
     if (!createdBy) {
       console.error('❌ Kein eingeloggter Benutzer gefunden!');
       setLoading(false);
@@ -764,19 +757,12 @@ const SchichtDienstAendernForm = ({
         return;
       }
 
-      let anzahlUrlaubstage;
-      try {
-        anzahlUrlaubstage = await zaehleUrlaubstageDieWirklichGespeichertWerden({
-          userId: eintrag.user,
-          dates,
-          firmaId: f,
-          unitId: u,
-        });
-      } catch (error) {
-        setErrorMessage(error?.message || 'Urlaubstage konnten nicht geprüft werden.');
-        setLoading(false);
-        return;
-      }
+      const anzahlUrlaubstage = await zaehleUrlaubstageDieWirklichGespeichertWerden({
+        userId: eintrag.user,
+        dates,
+        firmaId: f,
+        unitId: u,
+      });
 
       if (anzahlUrlaubstage <= 0) {
         setErrorMessage('In diesem Zeitraum wurde kein Arbeitstag gefunden, auf den Urlaub geschrieben werden kann.');
@@ -797,7 +783,6 @@ const SchichtDienstAendernForm = ({
       }
     }
         // ✅ Zentrales Speichern (Verlauf -> Delete -> Insert + Recalc)
-const saveStart = performance.now();
 const saveResult = await speichernInKampfliste({
   firmaId: f,
   unitId: u,
@@ -814,7 +799,6 @@ const saveResult = await speichernInKampfliste({
   skipUrlaubOnFreeDay: true,
   perfSkipRecalc: PERF_SKIP_RECALC,
 });
-console.info(`[SchichtPilot Performance] speichernInKampfliste: ${((performance.now() - saveStart) / 1000).toFixed(2)} s`);
 
     setSaveMessage(`${startDatum.format('DD.MM.YYYY')} Erfolgreich gespeichert`);
     setTimeout(() => setSaveMessage(''), 1500);
@@ -826,9 +810,7 @@ console.info(`[SchichtPilot Performance] speichernInKampfliste: ${((performance.
 
     // Kampfliste gezielt aktualisieren.
     // Kann später ein einzelnes Datum oder mehrere Tage verarbeiten.
-    const refreshStart = performance.now();
     await aktualisieren?.(affectedDates, eintrag.user);
-    console.info(`[SchichtPilot Performance] gezieltes Aktualisieren: ${((performance.now() - refreshStart) / 1000).toFixed(2)} s`);
 
     // Den großen Reload erstmal nicht mehr direkt auslösen.
     // reloadListe?.();
@@ -838,7 +820,6 @@ console.info(`[SchichtPilot Performance] speichernInKampfliste: ${((performance.
 
     if (schliessenDanach) onClose();
 
-    console.info(`[SchichtPilot Performance] Gesamt: ${((performance.now() - perfStart) / 1000).toFixed(2)} s`);
     setLoading(false);
   };
 

@@ -450,20 +450,15 @@ const getSoll = (dateStr) => {
   }
 
   // 7) Recalc
-  // Unabhängige Monats-/Jahresberechnungen parallel ausführen.
   if (!perfSkipRecalc) {
-    const recalcJobs = [
-      ...Array.from(recalcStundenSet, (k) => {
-        const { jahr, monat } = JSON.parse(k);
-        return berechneUndSpeichereStunden(userId, jahr, monat, firmaId, unitId);
-      }),
-      ...Array.from(recalcUrlaubSet, (k) => {
-        const { jahr } = JSON.parse(k);
-        return berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId);
-      }),
-    ];
-
-    if (recalcJobs.length) await Promise.all(recalcJobs);
+    for (const k of recalcStundenSet) {
+      const { jahr, monat } = JSON.parse(k);
+      await berechneUndSpeichereStunden(userId, jahr, monat, firmaId, unitId);
+    }
+    for (const k of recalcUrlaubSet) {
+      const { jahr } = JSON.parse(k);
+      await berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId);
+    }
   }
 
 // 8) Eskalationen nach erfolgreichem Speichern neu prüfen
