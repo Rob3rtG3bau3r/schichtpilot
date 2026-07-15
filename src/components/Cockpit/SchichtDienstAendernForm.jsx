@@ -141,20 +141,42 @@ const ladeTagesplan = async ({ userId, datum, firmaId, unitId }) => {
   return { data: data || null, error: null };
 };
 
-// Performance: Modal lädt Vortag, Heute und Folgetag mit EINER View-Abfrage.
+// Performance: Modal lädt Vortag, Heute und Folgetag direkt aus den
+// Basistabellen über die schnelle Randtage-RPC. Die große View v_tagesplan
+// wird beim Öffnen des Modals nicht mehr ausgewertet.
 const ladeTagesplanRange = async ({ userId, vonDatum, bisDatum, firmaId, unitId }) => {
-  const { data, error } = await supabase
-    .from('v_tagesplan')
-    .select('datum, ist_schichtart_id, soll_schichtart_id, ist_startzeit, ist_endzeit, soll_startzeit, soll_endzeit, ist_pausen_dauer, soll_pausen_dauer')
-    .eq('user_id', userId)
-    .eq('firma_id', firmaId)
-    .eq('unit_id', unitId)
-    .gte('datum', vonDatum)
-    .lte('datum', bisDatum)
-    .order('datum', { ascending: true });
+  const dates = [];
+  for (
+    let d = dayjs(vonDatum);
+    d.isSameOrBefore(dayjs(bisDatum), 'day');
+    d = d.add(1, 'day')
+  ) {
+    dates.push(d.format('YYYY-MM-DD'));
+  }
+
+  const { data, error } = await supabase.rpc('sp_lade_plan_randtage', {
+    p_firma_id: Number(firmaId),
+    p_unit_id: Number(unitId),
+    p_user_id: userId,
+    p_dates: dates,
+  });
 
   if (error) return { data: [], error };
-  return { data: data || [], error: null };
+
+  return {
+    data: (data || []).map((row) => ({
+      datum: String(row.datum).slice(0, 10),
+      ist_schichtart_id: row.ist_schichtart_id ?? null,
+      soll_schichtart_id: row.soll_schichtart_id ?? null,
+      ist_startzeit: row.ist_startzeit ?? null,
+      ist_endzeit: row.ist_endzeit ?? null,
+      soll_startzeit: row.soll_startzeit ?? null,
+      soll_endzeit: row.soll_endzeit ?? null,
+      ist_pausen_dauer: row.ist_pausen_dauer ?? null,
+      soll_pausen_dauer: row.soll_pausen_dauer ?? null,
+    })),
+    error: null,
+  };
 };
 
 const istArbeitsTag = (kuerzel) => !['-', 'U', 'K', 'KO'].includes(kuerzel);
@@ -373,6 +395,8 @@ const SchichtDienstAendernForm = ({
       const vt = dayjs(eintrag.datum).subtract(1, 'day').format('YYYY-MM-DD');
       const ft = dayjs(eintrag.datum).add(1, 'day').format('YYYY-MM-DD');
 
+      const modalLoadStart = performance.now();
+
       const { data: rangeData, error } = await ladeTagesplanRange({
         userId: eintrag.user,
         vonDatum: vt,
@@ -450,6 +474,11 @@ const SchichtDienstAendernForm = ({
       setVortagKuerzel(vtSchicht?.kuerzel || '-');
       setFolgetagKuerzel(ftSchicht?.kuerzel || '-');
       setEintragLaedt(false);
+
+      console.log('[SP Detail] Modal Initialload', {
+        gesamt_ms: Math.round((performance.now() - modalLoadStart) * 10) / 10,
+        tage: (rangeData || []).length,
+      });
     };
 
     run();
@@ -827,7 +856,20 @@ console.info(`[SchichtPilot Performance] speichernInKampfliste: ${((performance.
     // Kampfliste gezielt aktualisieren.
     // Kann später ein einzelnes Datum oder mehrere Tage verarbeiten.
     const refreshStart = performance.now();
-    await aktualisieren?.(affectedDates, eintrag.user);
+    await aktualisieren?.(affectedDates, eintrag.user, {
+      insertedRows: saveResult?.insertedRows || [],
+      schicht: selectedSchicht
+        ? {
+            id: selectedSchicht.id,
+            kuerzel: selectedSchicht.kuerzel,
+            farbe_bg: selectedSchicht.farbe_bg || '',
+            farbe_text: selectedSchicht.farbe_text || '',
+          }
+        : null,
+      createdBy,
+      createdAt: new Date().toISOString(),
+      kommentar: kommentar || null,
+    });
     console.info(`[SchichtPilot Performance] gezieltes Aktualisieren: ${((performance.now() - refreshStart) / 1000).toFixed(2)} s`);
 
     // Den großen Reload erstmal nicht mehr direkt auslösen.

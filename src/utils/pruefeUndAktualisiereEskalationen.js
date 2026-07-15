@@ -83,6 +83,96 @@ const ladePlanFenster = async ({ userId, firmaId, unitId, von, bis }) => {
   return data || [];
 };
 
+
+// Schneller Randtage-Loader für die Batch-Eskalationsprüfung.
+// Ermittelt nur die konkret benötigten Tage direkt aus den Basistabellen.
+// Die große View v_tagesplan wird dafür bewusst nicht verwendet.
+const ladePlanRandtageDirekt = async ({
+  userId,
+  firmaId,
+  unitId,
+  daten,
+}) => {
+  const eindeutigeDaten = Array.from(
+    new Set(
+      (daten || [])
+        .map((d) => String(d).slice(0, 10))
+        .filter(Boolean)
+    )
+  );
+
+  if (!eindeutigeDaten.length) {
+    return {
+      plan: [],
+      schichtMap: new Map(),
+      server: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc(
+    'sp_lade_plan_randtage',
+    {
+      p_firma_id: Number(firmaId),
+      p_unit_id: Number(unitId),
+      p_user_id: userId,
+      p_dates: eindeutigeDaten,
+    }
+  );
+
+  if (error) {
+    console.error('sp_lade_plan_randtage fehlgeschlagen:', error);
+    throw error;
+  }
+
+  const rows = data || [];
+
+  const plan = rows.map((row) => ({
+    datum: String(row.datum).slice(0, 10),
+    user_id: userId,
+    soll_schichtart_id: row.soll_schichtart_id ?? null,
+    ist_schichtart_id: row.ist_schichtart_id ?? null,
+    soll_startzeit: row.soll_startzeit ?? null,
+    soll_endzeit: row.soll_endzeit ?? null,
+    ist_startzeit: row.ist_startzeit ?? null,
+    ist_endzeit: row.ist_endzeit ?? null,
+    soll_dauer: row.soll_dauer ?? null,
+    ist_dauer: row.ist_dauer ?? null,
+    hat_aenderung: !!row.hat_aenderung,
+  }));
+
+  const schichtMap = new Map();
+
+  for (const row of rows) {
+    if (row.ist_schichtart_id != null) {
+      schichtMap.set(row.ist_schichtart_id, {
+        id: row.ist_schichtart_id,
+        kuerzel: row.ist_kuerzel || '-',
+        ignoriert_arbeitszeit: !!row.ist_ignoriert_arbeitszeit,
+      });
+    }
+
+    if (
+      row.soll_schichtart_id != null &&
+      !schichtMap.has(row.soll_schichtart_id)
+    ) {
+      schichtMap.set(row.soll_schichtart_id, {
+        id: row.soll_schichtart_id,
+        kuerzel: row.soll_kuerzel || '-',
+        ignoriert_arbeitszeit: !!row.soll_ignoriert_arbeitszeit,
+      });
+    }
+  }
+
+  return {
+    plan,
+    schichtMap,
+    server: {
+      angefragt: eindeutigeDaten.length,
+      erhalten: rows.length,
+    },
+  };
+};
+
 const normalisiereTag = (tag, schichtMap) => {
   if (!tag) return null;
 
@@ -459,6 +549,11 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
 }) => {
   if (!userId || !firmaId || !unitId || !Array.isArray(savedRows) || !savedRows.length) return;
 
+  const perfStart =
+    typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const now = () =>
+    typeof performance !== 'undefined' ? performance.now() : Date.now();
+
   const rows = savedRows
     .map((row) => ({ ...row, datum: String(row.datum).slice(0, 10) }))
     .filter((row) => row.datum)
@@ -474,9 +569,12 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
   const arbeitszeitTypen = ['ARBEITSZEIT_UEBER_10H', 'ARBEITSZEIT_UEBER_12H'];
   const istArbeitszeitRelevant = !ignoriertArbeitszeit && istArbeitsTag(kuerzelNeu);
 
+  const tVorbereitung = now();
+
   // U/K/KO/Frei: keine Arbeits- oder Ruhezeitprüfung nötig.
-  // Alte Eskalationen werden mit nur zwei Bulk-Updates bereinigt.
   if (!istArbeitszeitRelevant) {
+    const tBulkStart = now();
+
     await Promise.all([
       loeseEskalationenAutomatischBulk({
         firmaId, unitId, userId, daten: dates, typen: arbeitszeitTypen, createdBy,
@@ -486,6 +584,15 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
         typen: ['RUHEZEIT_UNTERSCHRITTEN'], createdBy,
       }),
     ]);
+
+    const tEnde = now();
+
+    console.log('[SP Detail] Eskalationen ohne Arbeitszeit', {
+      vorbereitung_ms: Math.round((tVorbereitung - perfStart) * 10) / 10,
+      bulkUpdates_ms: Math.round((tEnde - tBulkStart) * 10) / 10,
+      gesamt_ms: Math.round((tEnde - perfStart) * 10) / 10,
+    });
+
     return;
   }
 
@@ -509,6 +616,7 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
     const dauer = Number(row.dauer_ist);
     const typ = dauer >= 12 ? 'ARBEITSZEIT_UEBER_12H' : 'ARBEITSZEIT_UEBER_10H';
     const gegenTyp = dauer >= 12 ? 'ARBEITSZEIT_UEBER_10H' : 'ARBEITSZEIT_UEBER_12H';
+
     jobs.push(speichereOffeneEskalation({
       firmaId, unitId, userId, datum: row.datum, typ,
       hinweis: dauer >= 12
@@ -516,18 +624,37 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
         : `Arbeitszeit über 10 h: ${formatStunden(dauer)} h am ${dayjs(row.datum).format('DD.MM.YYYY')} (${kuerzelNeu}). Bitte prüfen/begründen.`,
       dauerStunden: dauer, bezugVonDatum: row.datum, bezugBisDatum: row.datum, createdBy,
     }));
+
     jobs.push(loeseEskalationenAutomatisch({
       firmaId, unitId, userId, datum: row.datum, typen: [gegenTyp], createdBy,
     }));
   }
-  await Promise.all(jobs);
 
-  const [plan, schichtMap] = await Promise.all([
-    ladePlanFenster({ userId, firmaId, unitId, von: tagVorErstem, bis: tagNachLetztem }),
-    ladeSchichtartenMap({ firmaId, unitId }),
-  ]);
+  const tArbeitszeitStart = now();
+  await Promise.all(jobs);
+  const tArbeitszeitEnde = now();
+
+  const tPlanStart = now();
+  const {
+    plan,
+    schichtMap,
+    server: randtageServer,
+  } = await ladePlanRandtageDirekt({
+    userId,
+    firmaId,
+    unitId,
+    daten: [
+      tagVorErstem,
+      ersterTag,
+      letzterTag,
+      tagNachLetztem,
+    ],
+  });
+  const tPlanEnde = now();
+
   const byDate = new Map((plan || []).map((p) => [p.datum, p]));
 
+  const tGrenzenStart = now();
   const [linksAktiv, rechtsAktiv] = await Promise.all([
     pruefeRuhezeitZwischenTagen({
       vorher: byDate.get(tagVorErstem), nachher: byDate.get(ersterTag),
@@ -538,7 +665,9 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
       schichtMap, firmaId, unitId, userId, createdBy,
     }),
   ]);
+  const tGrenzenEnde = now();
 
+  const tCleanupStart = now();
   await loeseEskalationenAutomatischBulk({
     firmaId, unitId, userId,
     daten: [
@@ -548,6 +677,19 @@ export const pruefeUndAktualisiereEskalationenBatchSave = async ({
     ],
     typen: ['RUHEZEIT_UNTERSCHRITTEN'],
     createdBy,
+  });
+  const tEnde = now();
+
+  console.log('[SP Detail] Eskalationsprüfung intern', {
+    tage: rows.length,
+    langeDienste: ueber10Rows.length,
+    vorbereitung_ms: Math.round((tVorbereitung - perfStart) * 10) / 10,
+    arbeitszeitUpdates_ms: Math.round((tArbeitszeitEnde - tArbeitszeitStart) * 10) / 10,
+    randtageDirekt_ms: Math.round((tPlanEnde - tPlanStart) * 10) / 10,
+    randtageServer,
+    ruhezeitGrenzen_ms: Math.round((tGrenzenEnde - tGrenzenStart) * 10) / 10,
+    cleanup_ms: Math.round((tEnde - tCleanupStart) * 10) / 10,
+    gesamt_ms: Math.round((tEnde - perfStart) * 10) / 10,
   });
 };
 

@@ -524,6 +524,64 @@ const ladeNurTage = async (dates = [], userIdFilter = null) => {
     console.error('❌ ladeNurTage Exception:', e);
   }
 };
+const aktualisiereDirektAusSave = async ({
+  changedUserId,
+  insertedRows = [],
+  schicht = null,
+  createdBy = null,
+  createdAt = null,
+  kommentar = null,
+}) => {
+  const uid = String(changedUserId || '').trim();
+  if (!uid || !Array.isArray(insertedRows) || !insertedRows.length) return false;
+
+  const rowsByDate = new Map(
+    insertedRows
+      .map((row) => [String(row?.datum || '').slice(0, 10), row])
+      .filter(([datum]) => datum)
+  );
+
+  if (!rowsByDate.size) return false;
+
+  setEintraege((prev) => {
+    if (!Array.isArray(prev) || !prev.length) return prev;
+
+    let changed = false;
+
+    const next = prev.map(([rowUserId, row]) => {
+      if (String(rowUserId) !== uid) return [rowUserId, row];
+
+      const nextTage = { ...(row?.tage || {}) };
+
+      for (const [datum, savedRow] of rowsByDate) {
+        nextTage[datum] = {
+          kuerzel: schicht?.kuerzel || '-',
+          bg: schicht?.farbe_bg || '',
+          text: schicht?.farbe_text || '',
+          created_by: createdBy ? String(createdBy) : null,
+          created_by_name: 'Aktuell gespeichert',
+          created_at: savedRow?.created_at || createdAt || null,
+          ist_schicht_id: savedRow?.ist_schicht ?? schicht?.id ?? null,
+          beginn: savedRow?.startzeit_ist || '',
+          ende: savedRow?.endzeit_ist || '',
+          aenderung: !!savedRow?.aenderung,
+          kommentar: savedRow?.kommentar ?? kommentar ?? null,
+        };
+      }
+
+      changed = true;
+      return [rowUserId, { ...row, tage: nextTage }];
+    });
+
+    return changed ? next : prev;
+  });
+
+  // Das Modal soll erst fertig melden, wenn React den aktualisierten Tag
+  // tatsächlich gezeichnet hat.
+  await waitForNextPaint();
+  return true;
+};
+
 const gabEsFremdeMonatsAenderungenSeitFullReload = async () => {
   try {
     if (!firma || !unit || !lastFullReloadAtRef.current) return false;
@@ -1364,22 +1422,14 @@ return (
                           }
                         }}
                         onMouseLeave={scheduleHideCellTip}
-                        onClick={async () => {
+                        onClick={() => {
+
                           if (istNurLesend) return;
 
-                          const { data: assn } = await supabase
-                            .from('DB_SchichtZuweisung')
-                            .select('schichtgruppe')
-                            .eq('firma_id', firma)
-                            .eq('unit_id', unit)
-                            .eq('user_id', userId)
-                            .lte('von_datum', zellenDatum)
-                            .or(`bis_datum.is.null, bis_datum.gte.${zellenDatum}`)
-                            .order('von_datum', { ascending: false })
-                            .limit(1);
 
-                          const schichtgruppeAtDate =
-                            assn && assn.length ? assn[0].schichtgruppe : e.schichtgruppe;
+                          // Modal sofort öffnen. Die korrekte Schichtgruppe wird beim
+
+                          // Speichern aus der gültigen Zuweisung bzw. dem Sollplan ermittelt.
 
                           const eintragObjekt = {
                             user: userId,
@@ -1395,7 +1445,7 @@ return (
                             ist_schicht_id: eintragTag?.ist_schicht_id || null,
                             beginn: eintragTag?.beginn || '',
                             ende: eintragTag?.ende || '',
-                            schichtgruppe: schichtgruppeAtDate,
+                            schichtgruppe: null,
                             created_by: eintragTag?.created_by,
                             created_by_name: eintragTag?.created_by_name,
                             created_at: eintragTag?.created_at,
@@ -1539,7 +1589,7 @@ setPopupEintrag(eintragObjekt);
         onClose={() => {
           setPopupEintrag(null);
         }}
-        aktualisieren={async (affectedDates, changedUserId) => {
+        aktualisieren={async (affectedDates, changedUserId, savePayload = null) => {
           const brauchtVollReload = await gabEsFremdeMonatsAenderungenSeitFullReload();
 
           if (brauchtVollReload) {
@@ -1547,7 +1597,19 @@ setPopupEintrag(eintragObjekt);
             return;
           }
 
-          await ladeNurTage(affectedDates, changedUserId);
+          const direktAktualisiert = await aktualisiereDirektAusSave({
+            changedUserId,
+            insertedRows: savePayload?.insertedRows || [],
+            schicht: savePayload?.schicht || null,
+            createdBy: savePayload?.createdBy || null,
+            createdAt: savePayload?.createdAt || null,
+            kommentar: savePayload?.kommentar || null,
+          });
+
+          // Fallback für andere Aufrufer, die noch keine gespeicherten Zeilen mitgeben.
+          if (!direktAktualisiert) {
+            await ladeNurTage(affectedDates, changedUserId);
+          }
 
           if (changedUserId) {
             await ladeStundenUndUrlaubFuerUser(changedUserId);

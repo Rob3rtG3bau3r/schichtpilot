@@ -110,23 +110,17 @@ const loadKampflisteForUser = async ({ userId, firmaId, unitId, startISO, endISO
 /* ============ Stunden ============ */
 
 export const berechneUndSpeichereStunden = async (userId, jahr, monat, firmaId, unitId) => {
-  const perfStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const mark = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
   try {
     const startISO = `${jahr}-${String(monat).padStart(2, '0')}-01`;
     const endISO   = dayjs(startISO).endOf('month').format('YYYY-MM-DD');
 
     // Zuweisungen → relevante Gruppennamen
-    const t0 = mark();
     const zuweisungen = await loadZuweisungen({ userId, firmaId, unitId });
-    const tZuweisungen = mark();
     const groupNames  = new Set(zuweisungen.map(z => z.groupName).filter(Boolean).map(String));
 
     // Baseline & Overrides
     const sollIdx = await loadSollPlanForGroups({ firmaId, unitId, startISO, endISO, groupNames });
-    const tSollplan = mark();
     const klMap   = await loadKampflisteForUser({ userId, firmaId, unitId, startISO, endISO });
-    const tKampfliste = mark();
 
     // Final je Tag: Kampfliste gewinnt, sonst SollPlan (per schichtgruppe)
     let summe = 0;
@@ -148,7 +142,6 @@ export const berechneUndSpeichereStunden = async (userId, jahr, monat, firmaId, 
       if (base) summe += Number(base.dauer) || 0;
     }
     summe = +(+summe).toFixed(2);
-    const tBerechnung = mark();
 
     // Upsert in DB_Stunden
     const { data: record, error: getError } = await supabase
@@ -160,7 +153,6 @@ export const berechneUndSpeichereStunden = async (userId, jahr, monat, firmaId, 
       .eq('jahr', jahr)
       .maybeSingle();
     if (getError) throw getError;
-    const tStundenLesen = mark();
 
     const monate = {
       m1: record?.m1 || 0, m2: record?.m2 || 0, m3: record?.m3 || 0, m4: record?.m4 || 0,
@@ -185,17 +177,6 @@ export const berechneUndSpeichereStunden = async (userId, jahr, monat, firmaId, 
         { onConflict: 'user_id,firma_id,unit_id,jahr' }
       );
     if (upErr) throw upErr;
-    const tUpsert = mark();
-
-    console.log("[SP Detail] Stundenberechnung", {
-      zuweisungen_ms: Math.round((tZuweisungen - t0) * 10) / 10,
-      sollplan_ms: Math.round((tSollplan - tZuweisungen) * 10) / 10,
-      kampfliste_ms: Math.round((tKampfliste - tSollplan) * 10) / 10,
-      browserBerechnung_ms: Math.round((tBerechnung - tKampfliste) * 10) / 10,
-      dbStundenLesen_ms: Math.round((tStundenLesen - tBerechnung) * 10) / 10,
-      dbStundenUpsert_ms: Math.round((tUpsert - tStundenLesen) * 10) / 10,
-      gesamt_ms: Math.round((tUpsert - perfStart) * 10) / 10,
-    });
 
     //console.log(`✅ Stunden gespeichert: m${monat}=${summe}h, Jahr=${summeJahr}h`);
   } catch (err) {
@@ -206,8 +187,6 @@ export const berechneUndSpeichereStunden = async (userId, jahr, monat, firmaId, 
 /* ============ Urlaub (nur Kampfliste) ============ */
 
 export async function berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId) {
-  const perfStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const mark = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
   try {
     const startISO = `${jahr}-01-01`;
     const endISO   = `${jahr}-12-31`;
@@ -222,11 +201,9 @@ export async function berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId) 
       .maybeSingle();
     if (uErr || !uRow) throw new Error('Schichtart "U" nicht gefunden');
     const urlaubId = Number(uRow.id);
-    const tUrlaubArt = mark();
 
     // Nur Kampfliste zählen (neuester Eintrag pro Tag)
     const klMap = await loadKampflisteForUser({ userId, firmaId, unitId, startISO, endISO });
-    const tKampfliste = mark();
 
     const mon = Array(12).fill(0);
     for (const [dateStr, row] of klMap) {
@@ -241,7 +218,6 @@ export async function berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId) 
       m7: mon[6], m8: mon[7], m9: mon[8], m10: mon[9], m11: mon[10], m12: mon[11],
     };
     const summeJahr = mon.reduce((a, b) => a + b, 0);
-    const tBerechnung = mark();
 
     const { error: upErr } = await supabase
       .from('DB_Urlaub')
@@ -258,15 +234,6 @@ export async function berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId) 
         { onConflict: 'user_id,firma_id,unit_id,jahr' }
       );
     if (upErr) throw upErr;
-    const tUpsert = mark();
-
-    console.log("[SP Detail] Urlaubsberechnung", {
-      urlaubSchichtart_ms: Math.round((tUrlaubArt - perfStart) * 10) / 10,
-      kampflisteJahr_ms: Math.round((tKampfliste - tUrlaubArt) * 10) / 10,
-      browserBerechnung_ms: Math.round((tBerechnung - tKampfliste) * 10) / 10,
-      dbUrlaubUpsert_ms: Math.round((tUpsert - tBerechnung) * 10) / 10,
-      gesamt_ms: Math.round((tUpsert - perfStart) * 10) / 10,
-    });
 
    // console.log(`✅ Urlaub gespeichert: ${summeJahr} Tage`);
   } catch (err) {

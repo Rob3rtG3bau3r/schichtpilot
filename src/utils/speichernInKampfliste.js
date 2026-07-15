@@ -82,6 +82,12 @@ const ladeSollAusSollPlanFuerUser = async ({ userId, datum, firmaId, unitId, sb 
 
 const istArbeitsTag = (kuerzel) => !["-", "U", "K", "KO"].includes(kuerzel);
 
+// PostgreSQL-UUID sicher erkennen. Kürzel wie "-", "F", "S" oder "N"
+// dürfen niemals an UUID-Spalten übergeben werden.
+const istUuid = (value) =>
+  typeof value === "string" &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
 /* --------------------------- Main Save Function --------------------------- */
 
 /**
@@ -129,6 +135,13 @@ export const speichernInKampfliste = async ({
 
   const nowIso = new Date().toISOString();
 
+  const perfStart = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const perfMarks = {};
+  const perfMark = (name) => {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    perfMarks[name] = Math.round((now - perfStart) * 10) / 10;
+  };
+
   // 1) SchichtArt laden (wenn nicht gegeben)
   let schicht = selectedSchicht;
   if (!schicht) {
@@ -144,6 +157,7 @@ export const speichernInKampfliste = async ({
     if (!data?.id) throw new Error(`SchichtArt nicht gefunden für Kürzel "${kuerzelNeu}".`);
     schicht = data;
   }
+  perfMark("schichtartGeladen");
 
   // 2) Alte Kampfliste-Zeilen für Zeitraum in 1 Query
   const { data: oldRows, error: oldErr } = await client
@@ -163,6 +177,7 @@ export const speichernInKampfliste = async ({
     .in("datum", dates);
 
   if (oldErr) throw oldErr;
+  perfMark("alteKampflisteGeladen");
 
   const oldByDate = new Map((oldRows ?? []).map((r) => [String(r.datum).slice(0, 10), r]));
 
@@ -235,6 +250,7 @@ if (gruppenImZeitraum.length && sortedDates.length) {
 
   sollRows = sollData || [];
 }
+perfMark("zuweisungUndSollplanGeladen");
 
 const sollByKey = new Map(
   sollRows.map((r) => [
@@ -411,7 +427,10 @@ const getSoll = (dateStr) => {
       datum: datumStr,
       firma_id: firmaId,
       unit_id: unitId,
-      soll_schicht: sollK ?? null,
+      // DB_Kampfliste.soll_schicht ist eine UUID-FK.
+      // getSoll() liefert dagegen ein Kürzel. Ohne UUID-Auflösung deshalb null;
+      // v_tagesplan kann den Sollwert weiterhin aus DB_SollPlan beziehen.
+      soll_schicht: istUuid(sollK) ? sollK : null,
       ist_schicht: schicht.id,
       startzeit_ist: aktuelleStart ?? null,
       endzeit_ist: aktuelleEnde ?? null,
@@ -426,45 +445,50 @@ const getSoll = (dateStr) => {
     });
   }
 
-  // 6) Writes (Reihenfolge: Verlauf -> Delete -> Insert)
-  if (verlaufBatch.length) {
-    const vr = await client.from("DB_KampflisteVerlauf").insert(verlaufBatch);
-    if (vr.error) throw vr.error;
-  }
+  perfMark("batchesVorbereitet");
 
-  if (deleteDates.length) {
-    const dr = await client
-      .from("DB_Kampfliste")
-      .delete()
-      .eq("user", userId)
-      .eq("firma_id", firmaId)
-      .eq("unit_id", unitId)
-      .in("datum", deleteDates);
+  // 6) Atomarer Server-Write über PostgreSQL-RPC:
+  // Verlauf -> Delete -> Insert laufen in EINER Transaktion und EINEM Request.
 
-    if (dr.error) throw dr.error;
-  }
+  console.log('RPC PAYLOAD:', {
+  p_firma_id: firmaId,
+  p_unit_id: unitId,
+  p_user_id: userId,
+  p_delete_dates: deleteDates,
+  p_verlauf_rows: verlaufBatch,
+  p_insert_rows: insertBatch,
+});
 
-  if (insertBatch.length) {
-    const ir = await client.from("DB_Kampfliste").insert(insertBatch);
-    if (ir.error) throw ir.error;
+  const { data: rpcWriteResult, error: rpcWriteError } = await client.rpc(
+    "sp_kampfliste_write_batch",
+    {
+      p_firma_id: firmaId,
+      p_unit_id: unitId,
+      p_user_id: userId,
+      p_delete_dates: deleteDates,
+      p_verlauf_rows: verlaufBatch,
+      p_insert_rows: insertBatch,
+    }
+  );
+
+  if (rpcWriteError) {
+    console.error("sp_kampfliste_write_batch fehlgeschlagen:", rpcWriteError);
+    throw rpcWriteError;
   }
+  perfMark("rpcWriteFertig");
 
   // 7) Recalc
-  // Unabhängige Monats-/Jahresberechnungen parallel ausführen.
   if (!perfSkipRecalc) {
-    const recalcJobs = [
-      ...Array.from(recalcStundenSet, (k) => {
-        const { jahr, monat } = JSON.parse(k);
-        return berechneUndSpeichereStunden(userId, jahr, monat, firmaId, unitId);
-      }),
-      ...Array.from(recalcUrlaubSet, (k) => {
-        const { jahr } = JSON.parse(k);
-        return berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId);
-      }),
-    ];
-
-    if (recalcJobs.length) await Promise.all(recalcJobs);
+    for (const k of recalcStundenSet) {
+      const { jahr, monat } = JSON.parse(k);
+      await berechneUndSpeichereStunden(userId, jahr, monat, firmaId, unitId);
+    }
+    for (const k of recalcUrlaubSet) {
+      const { jahr } = JSON.parse(k);
+      await berechneUndSpeichereUrlaub(userId, jahr, firmaId, unitId);
+    }
   }
+  perfMark("recalcFertig");
 
 // 8) Eskalationen nach erfolgreichem Speichern neu prüfen
 // Performance:
@@ -479,12 +503,24 @@ await pruefeUndAktualisiereEskalationenBatchSave({
   kuerzelNeu,
   ignoriertArbeitszeit: !!schicht?.ignoriert_arbeitszeit,
 });
+  perfMark("eskalationenFertig");
+
+  console.log("[SP Detail] speichernInKampfliste Phasen", {
+    vorbereitung_ms: perfMarks.batchesVorbereitet ?? null,
+    rpcWrite_ms: (perfMarks.rpcWriteFertig ?? 0) - (perfMarks.batchesVorbereitet ?? 0),
+    recalc_ms: (perfMarks.recalcFertig ?? 0) - (perfMarks.rpcWriteFertig ?? 0),
+    eskalationen_ms: (perfMarks.eskalationenFertig ?? 0) - (perfMarks.recalcFertig ?? 0),
+    gesamt_ms: perfMarks.eskalationenFertig ?? null,
+    marken: perfMarks,
+  });
 
     return {
     ok: true,
     affectedDates: insertBatch.map((x) => x.datum),
     wroteVerlauf: verlaufBatch.length,
     inserted: insertBatch.length,
+    insertedRows: insertBatch,
     deletedDates: deleteDates.length,
+    serverWrite: rpcWriteResult ?? null,
   };
 };
