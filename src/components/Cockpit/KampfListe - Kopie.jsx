@@ -923,50 +923,107 @@ useEffect(() => {
       const monthEnd = dayjs(new Date(jahr, monat + 1, 0)).format('YYYY-MM-DD');
       const jahrNum = Number(jahr) || new Date().getFullYear();
 
-      // Performance: Der Monatsplan wird in EINER parametrisierten RPC geladen.
-      // Dadurch werden Firma, Unit und Zeitraum bereits am Anfang in PostgreSQL
-      // begrenzt. Die vier vollständigen v_tagesplan-Auswertungen sowie die
-      // separaten Abfragen für Schichtarten, User und Zuweisungen entfallen.
-      const rpcStart =
-        typeof performance !== 'undefined' ? performance.now() : Date.now();
+      let viewRows = [];
+      const selectCols =
+        'datum, user_id, ist_schichtart_id, ist_startzeit, ist_endzeit, ' +
+        'hat_aenderung, kommentar, ist_created_at, ist_created_by';
 
-      const nurEigenerUser =
-        rolle === 'Employee' &&
-        sichtbarkeit === 'self' &&
-        currentUserId
-          ? currentUserId
-          : null;
+      const q1 = Math.floor(daysInMonth / 4);
+      const q2 = Math.floor(daysInMonth / 2);
+      const q3 = Math.floor((3 * daysInMonth) / 4);
 
-      const { data: monatsRows, error: monatsError } = await supabase.rpc(
-        'sp_lade_kampfliste_monat',
-        {
-          p_firma_id: Number(firma),
-          p_unit_id: Number(unit),
-          p_von: monthStart,
-          p_bis: monthEnd,
-          p_user_id: nurEigenerUser,
+      const dayToDate = (d) => `${prefix}-${String(d).padStart(2, '0')}`;
+
+      const ranges = [
+        [1, q1],
+        [q1 + 1, q2],
+        [q2 + 1, q3],
+        [q3 + 1, daysInMonth],
+      ].filter(([a, b]) => a <= b);
+
+      const fetchViewRange = async (startDate, endDate) => {
+        let query = supabase
+          .from('v_tagesplan')
+          .select(selectCols)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .gte('datum', startDate)
+          .lte('datum', endDate);
+
+        // Performance: Wenn Employee nur Eigenansicht sehen darf,
+        // laden wir direkt nur den eingeloggten Mitarbeiter.
+        if (rolle === 'Employee' && sichtbarkeit === 'self' && currentUserId) {
+          query = query.eq('user_id', currentUserId);
         }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error('❌ Fehler v_tagesplan (Monat):', error.message || error);
+          return [];
+        }
+
+        return data || [];
+      };
+
+      const viewChunks = await Promise.all(
+        ranges.map(([a, b]) => fetchViewRange(dayToDate(a), dayToDate(b)))
+      );
+      viewRows = viewChunks.flat();
+
+      if (loadSeqRef.current !== loadSeq) return;
+
+      const schichtIds = Array.from(
+        new Set((viewRows || []).map((r) => r.ist_schichtart_id).filter((x) => x != null))
       );
 
-      const rpcEnd =
-        typeof performance !== 'undefined' ? performance.now() : Date.now();
+      let schichtMap = new Map();
+      if (schichtIds.length) {
+        const { data: schichten, error: sErr } = await supabase
+          .from('DB_SchichtArt')
+          .select('id, kuerzel, farbe_bg, farbe_text')
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .in('id', schichtIds);
 
-      if (monatsError) {
-        console.error(
-          '❌ Fehler sp_lade_kampfliste_monat:',
-          monatsError.message || monatsError
-        );
-        setLoading(false);
-        setRendering(false);
-        setLoadingPhase('idle');
-        return;
+        if (sErr) {
+          console.error('❌ Fehler DB_SchichtArt:', sErr.message || sErr);
+        } else {
+          schichtMap = new Map((schichten || []).map((s) => [s.id, s]));
+        }
       }
 
       if (loadSeqRef.current !== loadSeq) return;
 
-      const rows = monatsRows || [];
+      const kampfData = (viewRows || [])
+        .filter((r) => {
+          if (!monthStart || !monthEnd) return true;
+          const d = r.datum;
+          return d >= monthStart && d <= monthEnd;
+        })
+        .map((r) => ({
+          id: null,
+          datum: r.datum,
+          created_by: r.ist_created_by || null,
+          created_at: r.ist_created_at || null,
+          startzeit_ist: r.ist_startzeit || '',
+          endzeit_ist: r.ist_endzeit || '',
+          user: r.user_id,
+          kommentar: r.kommentar || null,
+          aenderung: !!r.hat_aenderung,
+          ist_schicht: (() => {
+            const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
+            return s
+              ? { id: s.id, kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
+              : { id: null, kuerzel: '-', farbe_bg: '', farbe_text: '' };
+          })(),
+        }));
 
-      if (!rows.length) {
+      const userIds = kampfData.map((e) => e.user).filter(Boolean);
+      const createdByIds = kampfData.map((e) => e.created_by).filter(Boolean);
+      const alleUserIds = [...new Set([...userIds, ...createdByIds])].map(String);
+
+      if (alleUserIds.length === 0) {
         setEintraege([]);
         setGruppenZähler({});
         setMeineSchichtgruppe(null);
@@ -976,27 +1033,93 @@ useEffect(() => {
         return;
       }
 
+      const { data: userInfos, error: userError } = await supabase
+        .from('DB_User')
+        .select('user_id, vorname, nachname, rolle')
+        .in('user_id', alleUserIds);
+
+      if (userError) {
+        console.error('❌ Fehler beim Laden der Userdaten:', userError.message || userError);
+        setLoading(false);
+        setRendering(false);
+        setLoadingPhase('idle');
+        return;
+      }
+
+      if (loadSeqRef.current !== loadSeq) return;
+
+      const userById = new Map((userInfos || []).map((u) => [String(u.user_id), u]));
+
+      const { data: zuwRaw, error: zuwErr } = await supabase
+        .from('DB_SchichtZuweisung')
+        .select('user_id, schichtgruppe, position_ingruppe, von_datum, bis_datum')
+        .eq('firma_id', firma)
+        .eq('unit_id', unit)
+        .in('user_id', alleUserIds)
+        .lte('von_datum', monthEnd);
+
+      if (zuwErr) {
+        console.error('❌ Fehler beim Laden der Zuweisungen:', zuwErr.message || zuwErr);
+      }
+
+      if (loadSeqRef.current !== loadSeq) return;
+
       setLoadingPhase('processing');
 
-      const processingStart =
-        typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const zuwMonat = (zuwRaw || []).filter(
+        (z) => !z.bis_datum || dayjs(z.bis_datum).isSameOrAfter(monthStart, 'day')
+      );
+
+      const zuwByUser = new Map();
+      for (const z of zuwMonat) {
+        const uid = String(z.user_id);
+        const arr = zuwByUser.get(uid) || [];
+        arr.push(z);
+        zuwByUser.set(uid, arr);
+      }
+
+      for (const [, arr] of zuwByUser) {
+        arr.sort((a, b) => (a.von_datum < b.von_datum ? -1 : 1));
+      }
+
+      const getAssnForDate = (uid, datum) => {
+        const arr = zuwByUser.get(String(uid)) || [];
+        let best = null;
+        for (const r of arr) {
+          const ok =
+            dayjs(r.von_datum).isSameOrBefore(datum, 'day') &&
+            (!r.bis_datum || dayjs(r.bis_datum).isSameOrAfter(datum, 'day'));
+          if (ok && (!best || r.von_datum > best.von_datum)) best = r;
+        }
+        return best;
+      };
+
+      const myAssnToday = getAssnForDate(currentUserId, heutigesDatum);
+      const myGroupToday = myAssnToday?.schichtgruppe || null;
+      setMeineSchichtgruppe(myGroupToday);
 
       const gruppiert = {};
+      for (const k of kampfData) {
+        const datumIso = k.datum;
+        const userIdStr = String(k.user);
+        const creatorId = k.created_by ? String(k.created_by) : null;
 
-      for (const r of rows) {
-        const userIdStr = String(r.user_id);
-        const datumIso = String(r.datum).slice(0, 10);
-        const creatorId = r.ist_created_by
-          ? String(r.ist_created_by)
-          : null;
+        const userInfo = userById.get(userIdStr);
+        const creatorInfo = creatorId ? userById.get(creatorId) : null;
+        if (!userInfo) continue;
+
+        const assnToday = getAssnForDate(userIdStr, heutigesDatum);
+        const assnAtCell = assnToday || getAssnForDate(userIdStr, datumIso);
+        const rowSchichtgruppe = assnToday?.schichtgruppe || assnAtCell?.schichtgruppe || null;
+        const rowPosition = assnToday?.position_ingruppe ?? assnAtCell?.position_ingruppe ?? 999;
 
         if (!gruppiert[userIdStr]) {
           gruppiert[userIdStr] = {
-            schichtgruppe: r.schichtgruppe || null,
-            position: Number(r.position_ingruppe ?? 999),
-            rolle: r.user_rolle || null,
-            name: `${r.user_vorname?.charAt(0) || '?'}. ${r.user_nachname || ''}`,
-            vollName: `${r.user_vorname || ''} ${r.user_nachname || ''}`.trim(),
+            schichtgruppe: rowSchichtgruppe,
+            position: rowPosition,
+            rolle: userInfo.rolle,
+            name: `${userInfo.vorname?.charAt(0) || '?'}. ${userInfo.nachname || ''}`,
+            vollName: `${userInfo.vorname || ''} ${userInfo.nachname || ''}`,
             tage: {},
             qualiCount: 0,
             greyToday: false,
@@ -1004,33 +1127,21 @@ useEffect(() => {
         }
 
         gruppiert[userIdStr].tage[datumIso] = {
-          kuerzel: r.ist_kuerzel || '-',
-          bg: r.ist_farbe_bg || '',
-          text: r.ist_farbe_text || '',
+          kuerzel: k.ist_schicht?.kuerzel || '-',
+          bg: k.ist_schicht?.farbe_bg || '',
+          text: k.ist_schicht?.farbe_text || '',
           created_by: creatorId,
-          created_by_name: creatorId
-            ? `${r.creator_vorname || ''} ${r.creator_nachname || ''}${
-                r.creator_rolle ? ` (${r.creator_rolle})` : ''
-              }`.trim()
+          created_by_name: creatorInfo
+            ? `${creatorInfo.vorname} ${creatorInfo.nachname} (${creatorInfo.rolle})`
             : 'Unbekannt',
-          created_at: r.ist_created_at || null,
-          ist_schicht_id: r.ist_schichtart_id || null,
-          beginn: r.ist_startzeit || '',
-          ende: r.ist_endzeit || '',
-          pausen_dauer: r.ist_pausen_dauer ?? null,
-          aenderung: !!r.hat_aenderung,
-          kommentar: r.kommentar || null,
+          created_at: k.created_at || null,
+          ist_schicht_id: k.ist_schicht?.id || null,
+          beginn: k.startzeit_ist || '',
+          ende: k.endzeit_ist || '',
+          aenderung: k.aenderung || false,
+          kommentar: k.kommentar || null,
         };
       }
-
-      const meineZeile = currentUserId
-        ? gruppiert[String(currentUserId)]
-        : null;
-      const myGroupToday = meineZeile?.schichtgruppe || null;
-      setMeineSchichtgruppe(myGroupToday);
-
-      const processingEnd =
-        typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       Object.keys(gruppiert).forEach((key) => {
         if (!sichtbareGruppen.includes(gruppiert[key].schichtgruppe)) {
@@ -1082,24 +1193,7 @@ useEffect(() => {
       setEintraege(sortiert);
       lastFullReloadAtRef.current = fullLoadStartedAt;
 
-      const renderStart =
-        typeof performance !== 'undefined' ? performance.now() : Date.now();
-
       await waitForNextPaint();
-
-      const renderEnd =
-        typeof performance !== 'undefined' ? performance.now() : Date.now();
-
-      console.log('[SP Detail] Kampfliste Monats-RPC', {
-        rpc_ms: Math.round((rpcEnd - rpcStart) * 10) / 10,
-        rpc_zeilen: rows.length,
-        browserVerarbeitung_ms:
-          Math.round((processingEnd - processingStart) * 10) / 10,
-        ersterRender_ms: Math.round((renderEnd - renderStart) * 10) / 10,
-        bisSichtbar_ms: Math.round((renderEnd - rpcStart) * 10) / 10,
-        sichtbareMitarbeiter: sortiert.length,
-        tageImMonat: daysInMonth,
-      });
 
       if (loadSeqRef.current !== loadSeq) return;
       setLoading(false);
