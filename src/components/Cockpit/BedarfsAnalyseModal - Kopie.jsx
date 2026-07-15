@@ -612,8 +612,8 @@ const openBewertungInfo = (row) => {
   );
 };
 
-const buildFensterFuerUserUndTag = (uid, zielDatum, byDateOverride = null) => {
-  const byDate = byDateOverride || dienstCodeByUserDate[String(uid)] || {};
+const buildFensterFuerUserUndTag = (uid, zielDatum) => {
+  const byDate = dienstCodeByUserDate[String(uid)] || {};
 
   const minus3 = dayjs(zielDatum).subtract(3, 'day').format('YYYY-MM-DD');
   const minus2 = dayjs(zielDatum).subtract(2, 'day').format('YYYY-MM-DD');
@@ -668,25 +668,22 @@ const buildFensterFuerUserUndTag = (uid, zielDatum, byDateOverride = null) => {
 const pruefeMehrTageUebernahme = (uid, anzahl, mode = 'frei', quelle = null) => {
   const tage = buildPruefTage(modalDatum, anzahl);
   const fehler = [];
-  const userId = String(uid);
-  const originalByDate = dienstCodeByUserDate[userId] || {};
-
-  // Erst den kompletten geplanten Zustand simulieren. Dadurch wird ein
-  // Zwei-Tage-Tausch nicht fälschlich gegen den noch alten Folgedienst geprüft.
-  const simulatedByDate = { ...originalByDate };
 
   for (const d of tage) {
-    const istAusgegraut = !!ausgrauByUserDate?.[userId]?.[d];
+    const istAusgegraut = !!ausgrauByUserDate?.[String(uid)]?.[d];
     if (istAusgegraut) {
       fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: ausgegraut`);
       continue;
     }
 
-    const codeHeute = String(originalByDate[d] || '-').toUpperCase();
+    const fenster = buildFensterFuerUserUndTag(uid, d);
+    const codeHeute = fenster.heute || '-';
 
-    if (mode === 'frei' && codeHeute !== '-') {
-      fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: nicht frei (${codeHeute})`);
-      continue;
+    if (mode === 'frei') {
+      if (codeHeute !== '-') {
+        fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: nicht frei (${codeHeute})`);
+        continue;
+      }
     }
 
     if (mode === 'tausch') {
@@ -703,18 +700,10 @@ const pruefeMehrTageUebernahme = (uid, anzahl, mode = 'frei', quelle = null) => 
       }
     }
 
-    simulatedByDate[d] = sch;
-  }
-
-  // Nur bewerten, wenn die Grundprüfung für alle Tage bestanden wurde.
-  if (fehler.length === 0) {
-    for (const d of tage) {
-      const fenster = buildFensterFuerUserUndTag(uid, d, simulatedByDate);
-      const bewertung = getBewertungsStufeFn(fenster, sch);
-
-      if (bewertung === 'rot') {
-        fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: BAM-Bewertung rot`);
-      }
+    const bewertung = getBewertungsStufeFn(fenster, sch);
+    if (bewertung === 'rot') {
+      fehler.push(`${dayjs(d).format('DD.MM.YYYY')}: BAM-Bewertung rot`);
+      continue;
     }
   }
 
@@ -722,7 +711,6 @@ const pruefeMehrTageUebernahme = (uid, anzahl, mode = 'frei', quelle = null) => 
     ok: fehler.length === 0,
     tage,
     fehler,
-    simulatedByDate,
   };
 };
 
@@ -1500,7 +1488,7 @@ if (allUserIdsAtDay.length) {
     const quelle = tauschQuelle;
 
     if (!uid || !quelle || quelle === ziel) {
-      return { ok: false, status: 'rot', suggestedDays: 0, text: 'Quelle/Ziel ungültig' };
+      return { ok: false, text: 'Quelle/Ziel ungültig' };
     }
 
     const srcIds = (shiftUserIds[quelle] || []).map(String);
@@ -1511,45 +1499,14 @@ if (allUserIdsAtDay.length) {
 
     const srcRes = simulateDeckung(quelle, srcNext);
     const dstRes = simulateDeckung(ziel, dstNext);
-    const deckungOk = srcRes.ok && dstRes.ok;
 
-    if (!deckungOk) {
-      return {
-        ok: false,
-        status: 'rot',
-        suggestedDays: 0,
-        text: `❌ Nicht OK – Quelle fehlt: ${srcRes.ok ? '—' : srcRes.missingText} | Ziel fehlt: ${dstRes.ok ? '—' : dstRes.missingText}`,
-      };
-    }
+    const ok = srcRes.ok && dstRes.ok;
 
-    const einzelPruefung = pruefeMehrTageUebernahme(uid, 1, 'tausch', quelle);
-    if (einzelPruefung.ok) {
-      return {
-        ok: true,
-        status: 'gruen',
-        suggestedDays: 1,
-        text: '✅ Einzeltag-Tausch möglich – Deckung und Ruhezeit passen',
-      };
-    }
+    const text = ok
+      ? `✅ OK – Quelle & Ziel bleiben qualifiziert`
+      : `❌ Nicht OK – Quelle fehlt: ${srcRes.ok ? '—' : srcRes.missingText} | Ziel fehlt: ${dstRes.ok ? '—' : dstRes.missingText}`;
 
-    // Falls der Einzeltag wegen des Folgedienstes kollidiert, prüfen wir,
-    // ob derselbe Mitarbeiter auch am Folgetag aus derselben Quelle wechseln kann.
-    const zweiTagePruefung = pruefeMehrTageUebernahme(uid, 2, 'tausch', quelle);
-    if (zweiTagePruefung.ok) {
-      return {
-        ok: true,
-        status: 'amber',
-        suggestedDays: 2,
-        text: '⚠️ Nur als Zwei-Tage-Tausch möglich – dadurch entsteht keine BAM-Kollision',
-      };
-    }
-
-    return {
-      ok: false,
-      status: 'rot',
-      suggestedDays: 0,
-      text: `❌ Tausch nicht möglich – ${einzelPruefung.fehler.join(' | ')}`,
-    };
+    return { ok, text };
   };
 
   useEffect(() => {
@@ -1637,10 +1594,6 @@ const pickUserById = (uid) => {
 
   const profil = userNameById?.[uid];
   const n = notizByUser.get(String(uid));
-  const tauschCheck = tauschChecks.get(String(uid));
-
-  // Bei einem sicheren Zwei-Tage-Vorschlag die Auswahl direkt vorbelegen.
-  setSucheTage(tauschCheck?.suggestedDays === 2 ? 2 : 1);
 
   setSelected({
     uid,

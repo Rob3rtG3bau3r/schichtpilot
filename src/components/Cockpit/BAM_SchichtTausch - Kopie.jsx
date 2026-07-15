@@ -445,14 +445,7 @@ useEffect(() => {
                               };
 
                               const ok = !!check?.ok;
-                              const status = check?.status || (ok ? 'gruen' : 'rot');
-                              const rowStyle =
-                                status === 'amber'
-                                  ? 'bg-amber-50 dark:bg-amber-900/20'
-                                  : status === 'gruen'
-                                    ? 'bg-green-50 dark:bg-green-900/20'
-                                    : 'bg-red-50 dark:bg-red-900/20';
-                              const statusIcon = status === 'amber' ? '⚠️' : ok ? '✅' : '❌';
+                              const rowStyle = ok ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20';
 
                               return (
                                 <tr key={uid} className={rowStyle}>
@@ -478,7 +471,7 @@ useEffect(() => {
                                           {profil?.voll || String(uid)}
                                         </span>
                                         {hasAny ? <Info size={14} className="opacity-80" /> : null}
-                                        <span className="ml-2 text-[11px] opacity-80">{statusIcon}</span>
+                                        <span className="ml-2 text-[11px] opacity-80">{ok ? '✅' : '❌'}</span>
                                       </button>
                                     </div>
                                   </td>
