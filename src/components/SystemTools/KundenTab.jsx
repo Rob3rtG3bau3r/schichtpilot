@@ -65,9 +65,8 @@ const SubSectionTitle = ({ children }) => (
 // --- BAM Logik Optionen (Code-only, keine extra DB) ---
 const BAM_LOGIK_OPTIONS = [
   { key: 'ROEHM_5SCHICHT', label: 'Röhm – 5-Schicht (Standard)' },
+  { key: 'ROEHM_PP_4SCHICHT', label: 'Röhm PP – 4-Schicht' },
   { key: 'JOKON_3SCHICHT', label: 'Jokon – 3-Schicht' },
-  // später easy erweitern:
-  // { key: 'ALPLA_4SCHICHT', label: 'ALPLA – 4-Schicht' },
 ];
 export default function KundenTab() {
   // Shared refs
