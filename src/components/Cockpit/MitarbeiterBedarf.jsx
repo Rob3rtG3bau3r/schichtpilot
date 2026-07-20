@@ -630,13 +630,25 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
     }
 
     // 5) Bedarf & Matrix
-    const { data: bedarf } = await supabase
-      .from('DB_Bedarf')
-      .select(
-        'quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb, schichtart, start_schicht, end_schicht, betriebsmodus, wochen_tage'
-      )
-      .eq('firma_id', firma)
-      .eq('unit_id', unit);
+    // Die DB liefert nur die für den angefragten Zeitraum relevanten
+    // Normalbedarfs-Versionen sowie die zeitlich begrenzten Bedarfe.
+    const { data: bedarf, error: bedarfError } = await supabase.rpc(
+      'get_bedarf_fuer_zeitraum',
+      {
+        p_firma_id: Number(firma),
+        p_unit_id: Number(unit),
+        p_von: monthStart,
+        p_bis: monthEnd,
+      }
+    );
+
+    if (bedarfError) {
+      console.error(
+        'Fehler beim Laden des versionierten Bedarfs:',
+        bedarfError.message
+      );
+      return;
+    }
 
     const { data: qualiMatrix } = await supabase
       .from('DB_Qualifikationsmatrix')

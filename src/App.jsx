@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import LoginPage from './pages/LoginPage';
@@ -33,7 +33,6 @@ import DesktopOnlyProtectedLayout from './routes/DesktopOnlyProtectedLayout';
 import Aenderungsprotokoll from './pages/Aenderungsprotokoll';
 import Onboarding from "./pages/Onboarding";
 import Eskalationen from './pages/Eskalationen';
-import Zusatzbedarf from './pages/Zusatzbedarf';
 
 const App = () => {
 const isMobileNow =
@@ -113,12 +112,9 @@ if (
             </RollenCheckRoute>
           }
         />
-        <Route 
-        path="/zusatzbedarf" 
-        element={
-            <RollenCheckRoute erlaubteRollen={['SuperAdmin', 'Admin_Dev', 'Planner']}>
-              <Zusatzbedarf />
-            </RollenCheckRoute>} 
+        <Route
+          path="zusatzbedarf"
+          element={<Navigate to="/bedarfsverwaltung" replace />}
         />
         <Route
           path="qualifikationenverwalten"

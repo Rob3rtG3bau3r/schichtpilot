@@ -1246,12 +1246,22 @@ if (allUserIdsAtDay.length) {
 
       // (I) Deckung/Überbesetzung
       try {
-        const { data: bedarfRows, error: bErr } = await supabase
-          .from('DB_Bedarf')
-          .select('quali_id, anzahl, von, bis, normalbetrieb, schichtart, start_schicht, end_schicht, betriebsmodus, wochen_tage')
-          .eq('firma_id', firma)
-          .eq('unit_id', unit);
-        if (bErr) console.error('DB_Bedarf error', bErr);
+        const { data: bedarfRows, error: bErr } = await supabase.rpc(
+          'get_bedarf_fuer_zeitraum',
+          {
+            p_firma_id: Number(firma),
+            p_unit_id: Number(unit),
+            p_von: modalDatum,
+            p_bis: modalDatum,
+          }
+        );
+
+        if (bErr) {
+          console.error(
+            'Versionierten Bedarf für Analyse laden fehlgeschlagen:',
+            bErr.message
+          );
+        }
 
         const { data: matrixRows, error: mErr } = await supabase
           .from('DB_Qualifikationsmatrix')

@@ -427,15 +427,15 @@ export default function TagesUebersicht() {
 
         // --- 8) Bedarf + QualiMatrix (wie MitarbeiterBedarf) ---
         const [{ data: bedarfRows, error: bedErr }, { data: matrixRows, error: matrixErr }] = await Promise.all([
-          supabase
-            .from('DB_Bedarf')
-            .select(`
-              id, quali_id, anzahl, von, bis, namebedarf, farbe,
-              normalbetrieb, schichtart, start_schicht, end_schicht,
-              betriebsmodus, wochen_tage
-            `)
-            .eq('firma_id', Number(firma))
-            .eq('unit_id', Number(unit)),
+          supabase.rpc(
+            'get_bedarf_fuer_zeitraum',
+            {
+              p_firma_id: Number(firma),
+              p_unit_id: Number(unit),
+              p_von: heute,
+              p_bis: heute,
+            }
+          ),
           supabase
             .from('DB_Qualifikationsmatrix')
             .select('id, quali_kuerzel, qualifikation, firma_id, unit_id, aktiv, betriebs_relevant, position')

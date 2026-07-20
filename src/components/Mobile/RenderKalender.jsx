@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import dayjs from 'dayjs';
 
 const WTAG_KURZ = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -40,8 +40,18 @@ export default function RenderKalender({
   const gridEnd = monthEnd.add(trailing, 'day');
   const totalDays = gridEnd.diff(gridStart, 'day') + 1;
 
-  const findEintrag = (iso) =>
-    eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === iso);
+  const eintragByDatum = useMemo(
+    () =>
+      new Map(
+        (eintraege || []).map((e) => [
+          dayjs(e.datum).format('YYYY-MM-DD'),
+          e,
+        ])
+      ),
+    [eintraege]
+  );
+
+  const findEintrag = (iso) => eintragByDatum.get(iso);
 
     function feiertagsBadge(iso) {
     const tags = feierMap?.[iso];
@@ -176,7 +186,7 @@ export default function RenderKalender({
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 w-80 max-w-full relative">
             {(() => {
               const iso = startDatum.date(infoOffenIndex + 1).format('YYYY-MM-DD');
-              const e = eintraege.find((x) => dayjs(x.datum).format('YYYY-MM-DD') === iso);
+              const e = eintragByDatum.get(iso);
               const w = dayjs(iso).day();
               const kuerzel = e?.ist_schicht?.kuerzel || '-';
               const farbeBg = e?.ist_schicht?.farbe_bg || '#999';

@@ -123,71 +123,60 @@ const gridEnd = monthEndObj.add(trailing, 'day');
 const from = gridStart.format('YYYY-MM-DD');
 const to   = gridEnd.format('YYYY-MM-DD');
 
-    // 1) Komponierter Tagesplan aus View (nur der eigene User)
-    const { data: viewRows, error: viewErr } = await supabase
-      .from('v_tagesplan')
-      .select(`
-        datum,
-        user_id,
-        ist_schichtart_id,
-        ist_startzeit,
-        ist_endzeit,
-        hat_aenderung,
-        kommentar,
-        ist_created_at,
-        ist_created_by
-      `)
-      .eq('firma_id', Number(firma))
-      .eq('unit_id', Number(unit))
-      .eq('user_id', String(gespeicherteId))
-      .gte('datum', from) 
-      .lte('datum', to)
-      .order('datum', { ascending: true });
+    const loadStart =
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-    if (viewErr) {
-      console.error('❌ v_tagesplan (mobil):', viewErr.message || viewErr);
+    const { data: monatsRows, error: monatsError } = await supabase.rpc(
+      'sp_lade_kampfliste_monat',
+      {
+        p_firma_id: Number(firma),
+        p_unit_id: Number(unit),
+        p_von: from,
+        p_bis: to,
+        p_user_id: String(gespeicherteId),
+      }
+    );
+
+    if (monatsError) {
+      console.error(
+        '❌ sp_lade_kampfliste_monat (mobil):',
+        monatsError.message || monatsError
+      );
       setEintraege([]);
       return;
     }
 
-    // 2) Schichtarten (Kürzel/Farben) nachladen
-    const schichtIds = Array.from(new Set(
-      (viewRows || []).map(r => r.ist_schichtart_id).filter(Boolean)
-    ));
-    let schichtMap = new Map();
-    if (schichtIds.length) {
-      const { data: schichten, error: sErr } = await supabase
-        .from('DB_SchichtArt')
-        .select('id, kuerzel, farbe_bg, farbe_text')
-        .eq('firma_id', Number(firma))
-        .eq('unit_id', Number(unit))
-        .in('id', schichtIds);
-      if (sErr) {
-        console.error('❌ DB_SchichtArt (mobil):', sErr.message || sErr);
-      } else {
-        schichtMap = new Map((schichten || []).map(s => [s.id, s]));
-      }
-    }
-
-    // 3) Mobile-Mapping (nichts „grau“ darstellen; reine Anzeige)
-    const mapped = (viewRows || []).map(r => {
-      const s = r.ist_schichtart_id ? schichtMap.get(r.ist_schichtart_id) : null;
-      return {
-        datum: r.datum,
-        ist_schicht_id: r.ist_schichtart_id || null,
-        ist_schicht: s
-          ? { kuerzel: s.kuerzel, farbe_bg: s.farbe_bg, farbe_text: s.farbe_text }
-          : null,
-        startzeit_ist: r.ist_startzeit || null,
-        endzeit_ist:   r.ist_endzeit   || null,
-        kommentar:     r.kommentar     || null,
-        aenderung:     !!r.hat_aenderung,
-        created_at:    r.ist_created_at || null,
-        created_by:    r.ist_created_by || null,
-      };
-    });
+    const mapped = (monatsRows || []).map((r) => ({
+      datum: String(r.datum).slice(0, 10),
+      ist_schicht_id: r.ist_schichtart_id || null,
+      ist_schicht: r.ist_schichtart_id
+        ? {
+            id: r.ist_schichtart_id,
+            kuerzel: r.ist_kuerzel || '-',
+            farbe_bg: r.ist_farbe_bg || '',
+            farbe_text: r.ist_farbe_text || '',
+          }
+        : null,
+      startzeit_ist: r.ist_startzeit || null,
+      endzeit_ist: r.ist_endzeit || null,
+      pausen_dauer: r.ist_pausen_dauer ?? null,
+      kommentar: r.kommentar || null,
+      aenderung: !!r.hat_aenderung,
+      created_at: r.ist_created_at || null,
+      created_by: r.ist_created_by || null,
+    }));
 
     setEintraege(mapped);
+
+    const loadEnd =
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+    console.log('[SP Detail] Mobile Meine Dienste', {
+      rpc_und_mapping_ms: Math.round((loadEnd - loadStart) * 10) / 10,
+      zeilen: mapped.length,
+      von: from,
+      bis: to,
+    });
   };
 
   const ladeAusgrauenTage = async () => {

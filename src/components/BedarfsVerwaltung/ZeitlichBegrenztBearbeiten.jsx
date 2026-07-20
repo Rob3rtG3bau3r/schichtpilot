@@ -1,584 +1,661 @@
-// components/BedarfsVerwaltung/ZeitlichBegrenztBearbeiten.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import { RotateCcw, Save, X } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useRollen } from '../../context/RollenContext';
-import { Trash2 } from 'lucide-react';
 
-
-
-// --- Helpers für Datumsliste & Matrixaufbau (Preview-Tabelle) ---
-const daysBetween = (start, end) => {
-  if (!start || !end) return [];
-  let d = dayjs(start);
-  const last = dayjs(end);
-  const out = [];
-  while (d.isSameOrBefore(last, 'day')) {
-    out.push(d.format('YYYY-MM-DD'));
-    d = d.add(1, 'day');
-  }
-  return out;
+const LEER = {
+  Frueh: 0,
+  Spaet: 0,
+  Nacht: 0,
 };
 
-// Position-Sortierung: 1..n aufsteigend, Position 0 immer ganz nach unten
-const sortByPositionWithZeroLast = (a, b) => {
+const zahl = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const sortiereQualifikationen = (a, b) => {
   const pa = Number(a.position ?? 9999);
   const pb = Number(b.position ?? 9999);
-  const aZero = pa === 0;
-  const bZero = pb === 0;
-  if (aZero && !bZero) return 1;
-  if (!aZero && bZero) return -1;
+
+  if (pa === 0 && pb !== 0) return 1;
+  if (pa !== 0 && pb === 0) return -1;
   if (pa !== pb) return pa - pb;
-  // fallback alphabetisch nach Kürzel
-  return (a.kuerzel || '').localeCompare(b.kuerzel || '', 'de');
+
+  return (a.qualifikation || '').localeCompare(
+    b.qualifikation || '',
+    'de'
+  );
 };
 
-const buildMatrixFromRows = (rows) => {
-  const m = new Map();
-  (rows || []).forEach(r => {
-    const kuerzel = r?.DB_Qualifikationsmatrix?.quali_kuerzel || '???';
-    if (!m.has(kuerzel)) {
-      m.set(kuerzel, { kuerzel, frueh: 0, spaet: 0, nacht: 0 });
-    }
-    const add = (slot) => { m.get(kuerzel)[slot] = (m.get(kuerzel)[slot] || 0) + Number(r.anzahl || 0); };
-    const s = r.schichtart;
-    if (!s || s === 'Alle') { add('frueh'); add('spaet'); add('nacht'); }
-    else if (s === 'Früh') add('frueh');
-    else if (s === 'Spät') add('spaet');
-    else if (s === 'Nacht') add('nacht');
-  });
-  return Array.from(m.values()).sort((a, b) => a.kuerzel.localeCompare(b.kuerzel, 'de'));
-};
+const blockMatchAusEintrag = (eintrag, firma, unit) => ({
+  firma_id: Number(firma),
+  unit_id: Number(unit),
+  normalbetrieb: false,
+  von: eintrag.von,
+  bis: eintrag.bis,
+  namebedarf: eintrag.namebedarf,
+  start_schicht: eintrag.start_schicht || 'Früh',
+  end_schicht: eintrag.end_schicht || 'Nacht',
+});
 
-const ZeitlichBegrenztBearbeiten = ({ eintrag, refreshKey, onSaved, onClose }) => {
-  const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+const ZeitlichBegrenztBearbeiten = ({
+  eintrag,
+  refreshKey,
+  onSaved,
+  onClose,
+}) => {
+  const {
+    sichtFirma: firma,
+    sichtUnit: unit,
+    userId,
+  } = useRollen();
 
-  // Editfelder
+  const [qualifikationen, setQualifikationen] = useState([]);
+  const [bestehendeRows, setBestehendeRows] = useState([]);
+  const [matrix, setMatrix] = useState({});
+
   const [namebedarf, setNamebedarf] = useState('');
-  const [farbe, setFarbe] = useState('#888888');
+  const [farbe, setFarbe] = useState('#3b82f6');
   const [von, setVon] = useState('');
   const [bis, setBis] = useState('');
   const [startSchicht, setStartSchicht] = useState('Früh');
   const [endSchicht, setEndSchicht] = useState('Nacht');
 
-  // Übersicht über enthaltene Zeilen (nur Anzeige)
-  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
   const [feedback, setFeedback] = useState('');
 
-  // UI-State: gewählter Tag + Edit-Puffer
-const [selectedDay, setSelectedDay] = useState(null); // default: kein Filter -> zeigt alles
-const [editStarted, setEditStarted] = useState(false);
-const [pending, setPending] = useState({}); 
-// Struktur: { [qualiId]: { Frueh?:number, Spaet?:number, Nacht?:number } }
-
-// leitet ab, welche Schichten an einem Tag gelten
-const activeSlotsForDay = (dayISO, startSchicht, endSchicht, vonISO, bisISO) => {
-  if (!dayISO || !vonISO || !bisISO) return { Frueh:true, Spaet:true, Nacht:true };
-
-  const isVon = dayISO === vonISO;
-  const isBis = dayISO === bisISO;
-
-  // Hilfsfunktionen
-  const only = (s) => ({
-    Frueh: s === 'Früh',
-    Spaet: s === 'Spät',
-    Nacht: s === 'Nacht',
-  });
-
-  const upTo = (s) => ({
-    Frueh: true,
-    Spaet: s === 'Spät' || s === 'Nacht',
-    Nacht: s === 'Nacht',
-  });
-
-  // Sonderfall: Zeitraum ist nur 1 Tag
-  if (isVon && isBis) {
-    // nur die End-Schicht bis zur End-Schicht? — für 1 Tag gilt: nur genau diese Schicht
-    return only(endSchicht);
-  }
-
-  // Start-Tag (nur die Start-Schicht)
-  if (isVon && !isBis) return only(startSchicht);
-
-  // End-Tag (alle Schichten BIS zur End-Schicht)
-  if (isBis && !isVon) return upTo(endSchicht);
-
-  // Dazwischen: alle Schichten
-  return { Frueh:true, Spaet:true, Nacht:true };
-};
-
-
-// Matrix aus rows aufbauen (summe je quali_id & schicht)
-const buildEditableMatrix = (rows) => {
-  const m = new Map();
-  (rows || []).forEach(r => {
-    const qualiId = r.quali_id;
-    const kuerzel = r?.DB_Qualifikationsmatrix?.quali_kuerzel || '???';
-    const position = r?.DB_Qualifikationsmatrix?.position ?? 9999;
-    if (!m.has(qualiId)) {
-      m.set(qualiId, { qualiId, kuerzel, position, Frueh:0, Spaet:0, Nacht:0 });
-    }
-    const slot = (r.schichtart === 'Früh' ? 'Frueh' : r.schichtart === 'Spät' ? 'Spaet' : r.schichtart === 'Nacht' ? 'Nacht' : null);
-    if (!slot) {
-      m.get(qualiId).Frueh += Number(r.anzahl || 0);
-      m.get(qualiId).Spaet += Number(r.anzahl || 0);
-      m.get(qualiId).Nacht += Number(r.anzahl || 0);
-    } else {
-      m.get(qualiId)[slot] += Number(r.anzahl || 0);
-    }
-  });
-  // in sortiertes Array umwandeln
-  return Array.from(m.values()).sort(sortByPositionWithZeroLast);
-};
-
-// initial pending aus rows ableiten, wenn rows neu kommen
-useEffect(() => {
-  const m = buildEditableMatrix(rows);
-  const next = {};
-  m.forEach(row => {
-    next[row.qualiId] = { Frueh: row.Frueh, Spaet: row.Spaet, Nacht: row.Nacht };
-  });
-  setPending(next);
-}, [rows]);
-
-const onEditCell = (qualiId, slot, val) => {
-  setEditStarted(true);
-  setPending(prev => ({
-    ...prev,
-    [qualiId]: {
-      ...(prev[qualiId] || {}),
-      [slot]: Math.max(0, Number(val || 0)),
-    }
-  }));
-};
-
-  // Vorbelegen
   useEffect(() => {
     if (!eintrag) {
-      setRows([]); setFeedback(''); return;
+      setQualifikationen([]);
+      setBestehendeRows([]);
+      setMatrix({});
+      setFeedback('');
+      return;
     }
+
     setNamebedarf(eintrag.namebedarf || '');
-    setFarbe(eintrag.farbe || '#888888');
+    setFarbe(eintrag.farbe || '#3b82f6');
     setVon(eintrag.von || '');
     setBis(eintrag.bis || '');
     setStartSchicht(eintrag.start_schicht || 'Früh');
     setEndSchicht(eintrag.end_schicht || 'Nacht');
+    setFeedback('');
   }, [eintrag]);
 
-  // Zeilen des Blocks laden (für Übersicht)
   useEffect(() => {
+    let aktiv = true;
+
     const lade = async () => {
       if (!eintrag || !firma || !unit) return;
-      const { data, error } = await supabase
-        .from('DB_Bedarf')
-        .select(`
-          id, quali_id, schichtart, anzahl,
-          DB_Qualifikationsmatrix ( id, quali_kuerzel, position )`)
-        .eq('firma_id', firma)
-        .eq('unit_id', unit)
-        .eq('normalbetrieb', false)
-        .eq('von', eintrag.von)
-        .eq('bis', eintrag.bis)
-        .eq('namebedarf', eintrag.namebedarf || null)
-        .eq('start_schicht', eintrag.start_schicht || 'Früh')
-        .eq('end_schicht', eintrag.end_schicht || 'Nacht');
 
-      if (error) {
-        console.error('Zeilen laden (ZB) fehlgeschlagen:', error.message);
-        setRows([]); return;
+      setLoading(true);
+
+      const [qualiResult, bedarfResult] = await Promise.all([
+        supabase
+          .from('DB_Qualifikationsmatrix')
+          .select(`
+            id,
+            qualifikation,
+            quali_kuerzel,
+            position,
+            betriebs_relevant,
+            aktiv
+          `)
+          .eq('firma_id', firma)
+          .eq('unit_id', unit)
+          .eq('aktiv', true),
+
+        supabase
+          .from('DB_Bedarf')
+          .select('id, quali_id, schichtart, anzahl')
+          .match(blockMatchAusEintrag(eintrag, firma, unit)),
+      ]);
+
+      if (!aktiv) return;
+
+      if (qualiResult.error || bedarfResult.error) {
+        console.error(
+          'Zeitlichen Bedarf laden fehlgeschlagen:',
+          qualiResult.error?.message || bedarfResult.error?.message
+        );
+        setQualifikationen([]);
+        setBestehendeRows([]);
+        setMatrix({});
+        setFeedback('Der zeitliche Bedarf konnte nicht geladen werden.');
+        setLoading(false);
+        return;
       }
-      setRows(data || []);
+
+      const qualis = [...(qualiResult.data || [])].sort(
+        sortiereQualifikationen
+      );
+      const rows = bedarfResult.data || [];
+      const nextMatrix = {};
+
+      qualis.forEach((quali) => {
+        nextMatrix[quali.id] = { ...LEER };
+      });
+
+      rows.forEach((row) => {
+        if (!nextMatrix[row.quali_id]) {
+          nextMatrix[row.quali_id] = { ...LEER };
+        }
+
+        const anzahl = zahl(row.anzahl);
+
+        if (row.schichtart === 'Früh') {
+          nextMatrix[row.quali_id].Frueh += anzahl;
+        } else if (row.schichtart === 'Spät') {
+          nextMatrix[row.quali_id].Spaet += anzahl;
+        } else if (row.schichtart === 'Nacht') {
+          nextMatrix[row.quali_id].Nacht += anzahl;
+        } else {
+          nextMatrix[row.quali_id].Frueh += anzahl;
+          nextMatrix[row.quali_id].Spaet += anzahl;
+          nextMatrix[row.quali_id].Nacht += anzahl;
+        }
+      });
+
+      setQualifikationen(qualis);
+      setBestehendeRows(rows);
+      setMatrix(nextMatrix);
+      setLoading(false);
     };
+
     lade();
+
+    return () => {
+      aktiv = false;
+    };
   }, [eintrag, firma, unit, refreshKey]);
 
-  const minBis = useMemo(() => (von ? dayjs(von).add(1,'day').format('YYYY-MM-DD') : ''), [von]);
+  const ausgefuellteQualifikationen = useMemo(() => {
+    return qualifikationen.filter((quali) => {
+      const werte = matrix[quali.id] || LEER;
+
+      return (
+        zahl(werte.Frueh) > 0 ||
+        zahl(werte.Spaet) > 0 ||
+        zahl(werte.Nacht) > 0
+      );
+    });
+  }, [qualifikationen, matrix]);
+
+  const anzahlDbZeilen = useMemo(() => {
+    return ausgefuellteQualifikationen.reduce((summe, quali) => {
+      const werte = matrix[quali.id] || LEER;
+
+      return (
+        summe +
+        (zahl(werte.Frueh) > 0 ? 1 : 0) +
+        (zahl(werte.Spaet) > 0 ? 1 : 0) +
+        (zahl(werte.Nacht) > 0 ? 1 : 0)
+      );
+    }, 0);
+  }, [ausgefuellteQualifikationen, matrix]);
+
+  const handleMatrixChange = (qualiId, feld, value) => {
+    setMatrix((prev) => ({
+      ...prev,
+      [qualiId]: {
+        ...(prev[qualiId] || LEER),
+        [feld]: Math.max(0, Number(value || 0)),
+      },
+    }));
+  };
+
+  const handleAufAlle = (qualiId) => {
+    const werte = matrix[qualiId] || LEER;
+    const basis =
+      zahl(werte.Frueh) ||
+      zahl(werte.Spaet) ||
+      zahl(werte.Nacht) ||
+      0;
+
+    setMatrix((prev) => ({
+      ...prev,
+      [qualiId]: {
+        Frueh: basis,
+        Spaet: basis,
+        Nacht: basis,
+      },
+    }));
+  };
+
+  const handleZeileLeeren = (qualiId) => {
+    setMatrix((prev) => ({
+      ...prev,
+      [qualiId]: { ...LEER },
+    }));
+  };
 
   const validate = () => {
-    if (!eintrag) return 'Kein Eintrag ausgewählt.';
-    if (!namebedarf?.trim()) return 'Bitte eine Bezeichnung angeben.';
-    if (!von || !bis) return 'Bitte Von/Bis angeben.';
-    if (dayjs(bis).isBefore(dayjs(von).add(1,'day'))) return '„Bis“ muss mindestens einen Tag nach „Von“ liegen.';
+    if (!eintrag) return 'Kein zeitlicher Bedarf ausgewählt.';
+    if (!namebedarf.trim()) return 'Bitte eine Bezeichnung eingeben.';
+    if (!von || !bis) return 'Bitte Von und Bis angeben.';
+    if (dayjs(bis).isBefore(dayjs(von), 'day')) {
+      return '„Bis“ darf nicht vor „Von“ liegen.';
+    }
+    if (ausgefuellteQualifikationen.length === 0) {
+      return 'Mindestens eine Qualifikation muss einen Bedarf größer 0 haben.';
+    }
+
     return '';
   };
 
-  const handleSave = async () => {
+  const neuerBlock = () => ({
+    firma_id: Number(firma),
+    unit_id: Number(unit),
+    created_by: userId,
+    normalbetrieb: false,
+    betriebsmodus: null,
+    wochen_tage: null,
+    von,
+    bis,
+    namebedarf: namebedarf.trim(),
+    farbe,
+    start_schicht: startSchicht,
+    end_schicht: endSchicht,
+  });
+
+  const handleSpeichern = async () => {
     setFeedback('');
-    const err = validate();
-    if (err) { setFeedback(err); return; }
+
+    const fehler = validate();
+    if (fehler) {
+      setFeedback(fehler);
+      return;
+    }
+
     setSaving(true);
 
-    const match = {
-      firma_id: Number(firma),
-      unit_id: Number(unit),
-      normalbetrieb: false,
-      von: eintrag.von,
-      bis: eintrag.bis,
-      namebedarf: eintrag.namebedarf,
-      start_schicht: eintrag.start_schicht || 'Früh',
-      end_schicht: eintrag.end_schicht || 'Nacht',
-    };
+    try {
+      const alterBlock = blockMatchAusEintrag(eintrag, firma, unit);
+      const neuerKopf = neuerBlock();
 
-    const patch = {
-      von, bis,
-      namebedarf: namebedarf.trim(),
-      farbe,
-      start_schicht: startSchicht,
-      end_schicht: endSchicht,
-    };
+      /*
+       * Jede vorhandene Zeile wird anhand von Qualifikation und Schicht
+       * aktualisiert, gelöscht oder ergänzt. Dadurch bleibt der Block auch
+       * dann erhalten, wenn sich Name oder Zeitraum ändern.
+       */
+      const existing = new Map();
 
-    const { error } = await supabase.from('DB_Bedarf').update(patch).match(match);
-    setSaving(false);
+      bestehendeRows.forEach((row) => {
+        const slot =
+          row.schichtart === 'Früh'
+            ? 'Frueh'
+            : row.schichtart === 'Spät'
+              ? 'Spaet'
+              : row.schichtart === 'Nacht'
+                ? 'Nacht'
+                : 'Alle';
 
-    if (error) {
-      console.error('Speichern fehlgeschlagen:', error.message);
-      setFeedback('Fehler beim Speichern.'); return;
+        existing.set(`${row.quali_id}|${slot}`, row);
+      });
+
+      const aufgaben = [];
+
+      for (const quali of qualifikationen) {
+        const werte = matrix[quali.id] || LEER;
+        const ziel = {
+          Frueh: zahl(werte.Frueh),
+          Spaet: zahl(werte.Spaet),
+          Nacht: zahl(werte.Nacht),
+        };
+
+        const allRow = existing.get(`${quali.id}|Alle`);
+
+        if (allRow) {
+          aufgaben.push(
+            supabase
+              .from('DB_Bedarf')
+              .delete()
+              .match({ id: allRow.id, ...alterBlock })
+          );
+        }
+
+        for (const [slot, schichtart] of [
+          ['Frueh', 'Früh'],
+          ['Spaet', 'Spät'],
+          ['Nacht', 'Nacht'],
+        ]) {
+          const existingRow = existing.get(`${quali.id}|${slot}`);
+          const zielAnzahl = ziel[slot];
+
+          if (existingRow && zielAnzahl > 0) {
+            aufgaben.push(
+              supabase
+                .from('DB_Bedarf')
+                .update({
+                  ...neuerKopf,
+                  quali_id: quali.id,
+                  schichtart,
+                  anzahl: zielAnzahl,
+                })
+                .match({ id: existingRow.id, ...alterBlock })
+            );
+          } else if (existingRow && zielAnzahl === 0) {
+            aufgaben.push(
+              supabase
+                .from('DB_Bedarf')
+                .delete()
+                .match({ id: existingRow.id, ...alterBlock })
+            );
+          } else if (!existingRow && zielAnzahl > 0) {
+            aufgaben.push(
+              supabase.from('DB_Bedarf').insert({
+                ...neuerKopf,
+                quali_id: quali.id,
+                schichtart,
+                anzahl: zielAnzahl,
+              })
+            );
+          }
+        }
+      }
+
+      const ergebnisse = await Promise.all(aufgaben);
+      const erstesProblem = ergebnisse.find((result) => result?.error);
+
+      if (erstesProblem?.error) {
+        throw erstesProblem.error;
+      }
+
+      setFeedback(
+        `Gespeichert: ${ausgefuellteQualifikationen.length} Qualifikation(en), ${anzahlDbZeilen} Bedarfszeilen.`
+      );
+
+      onSaved?.({
+        ...neuerKopf,
+        anzahlQualifikationen: ausgefuellteQualifikationen.length,
+        anzahlDbZeilen,
+      });
+    } catch (error) {
+      console.error(
+        'Zeitlichen Bedarf vollständig speichern fehlgeschlagen:',
+        error
+      );
+      setFeedback(
+        `Fehler beim Speichern: ${error?.message || 'Unbekannter Fehler'}`
+      );
+    } finally {
+      setSaving(false);
     }
-    setFeedback('Gespeichert.');
-    onSaved?.();
   };
-
-
 
   if (!eintrag) {
     return (
-      <div className="p-4 border border-gray-300 dark:border-gray-700 rounded-xl">
-        <div className="text-sm text-gray-500">
-          Wähle oben einen zeitlich begrenzten Eintrag aus, um ihn hier zu bearbeiten.
+      <div className="rounded-xl border border-gray-300 p-4 dark:border-gray-700">
+        <div className="text-sm text-gray-500 dark:text-gray-400">
+          Wähle oben einen zeitlich begrenzten Bedarf aus, um ihn vollständig
+          zu bearbeiten.
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 border border-gray-300 dark:border-gray-700 rounded-xl">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-md font-semibold">Zeitlich begrenzt – Bearbeiten</h3>
+    <div className="rounded-xl border border-gray-300 bg-white/60 p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900/40">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-md font-semibold">
+            Zeitlichen Bedarf bearbeiten
+          </h3>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Grunddaten und vollständige Bedarfsmatrix gemeinsam speichern
+          </p>
+        </div>
+
         <button
-          className="text-xs px-3 py-1 rounded bg-gray-200 dark:bg-gray-700"
+          type="button"
           onClick={() => onClose?.()}
+          className="rounded-lg bg-gray-200 p-2 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
+          title="Bearbeitung schließen"
         >
-          Schließen
+          <X size={17} />
         </button>
       </div>
 
-      {/* Formular */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Bezeichnung</label>
+      <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="xl:col-span-2">
+          <label className="mb-1 block text-sm font-medium">
+            Bezeichnung
+          </label>
           <input
             type="text"
-            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={namebedarf}
-            onChange={(e) => setNamebedarf(e.target.value)}
+            onChange={(event) => setNamebedarf(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
           />
         </div>
+
         <div>
-          <label className="block text-sm font-medium mb-1">Farbe</label>
-          <input
-            type="color"
-            className="w-full h-9 rounded-full bg-gray-200 dark:bg-gray-800"
-            value={farbe}
-            onChange={(e) => setFarbe(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Von</label>
+          <label className="mb-1 block text-sm font-medium">Von</label>
           <input
             type="date"
-            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={von}
-            onChange={(e) => setVon(e.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setVon(value);
+
+              if (value && (!bis || dayjs(bis).isBefore(value, 'day'))) {
+                setBis(value);
+              }
+            }}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
           />
         </div>
+
         <div>
-          <label className="block text-sm font-medium mb-1">Bis</label>
+          <label className="mb-1 block text-sm font-medium">Bis</label>
           <input
             type="date"
-            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={bis}
-            min={minBis}
-            onChange={(e) => setBis(e.target.value)}
+            min={von || undefined}
+            onChange={(event) => setBis(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
           />
         </div>
+
         <div>
-          <label className="block text-sm font-medium mb-1">Start-Schicht</label>
+          <label className="mb-1 block text-sm font-medium">
+            Startschicht
+          </label>
           <select
-            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={startSchicht}
-            onChange={(e) => setStartSchicht(e.target.value)}
+            onChange={(event) => setStartSchicht(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
           >
             <option value="Früh">Früh</option>
             <option value="Spät">Spät</option>
             <option value="Nacht">Nacht</option>
           </select>
         </div>
+
         <div>
-          <label className="block text-sm font-medium mb-1">End-Schicht</label>
+          <label className="mb-1 block text-sm font-medium">
+            Endschicht
+          </label>
           <select
-            className="w-full px-3 py-1 bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-300/20 dark:hover:bg-gray-700/20"
             value={endSchicht}
-            onChange={(e) => setEndSchicht(e.target.value)}
+            onChange={(event) => setEndSchicht(event.target.value)}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
           >
             <option value="Früh">Früh</option>
             <option value="Spät">Spät</option>
             <option value="Nacht">Nacht</option>
           </select>
+        </div>
+
+        <div className="xl:col-span-2">
+          <label className="mb-1 block text-sm font-medium">Farbe</label>
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={farbe}
+              onChange={(event) => setFarbe(event.target.value)}
+              className="h-10 w-14 rounded border border-gray-300 bg-transparent dark:border-gray-600"
+            />
+            <div
+              className="h-10 flex-1 rounded-lg border border-gray-300 dark:border-gray-600"
+              style={{ backgroundColor: farbe }}
+            />
+          </div>
         </div>
       </div>
 
-{/* Vorschau (Tages-Optik) + Enthaltene Zeilen (aufgeräumt) */}
-<div className="mt-4 space-y-4">
-  {/* Kopfzeile + Datum-Chips */}
-  <div className="rounded-2xl bg-gray-200 dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-700  p-3">
-    <div className="flex items-center flex-wrap gap-2 mb-3">
-      {farbe && (
-        <span
-          className="inline-block w-3 h-3 rounded-full border border-black/10"
-          style={{ backgroundColor: farbe }}
-          title={farbe}
-        />
-      )}
-      <span className="text-sm font-medium">{namebedarf || '(ohne Titel)'}</span>
-      {von && bis && (
-        <span className="text-xs opacity-70">
-          {dayjs(von).format('DD.MM.YYYY')} – {dayjs(bis).format('DD.MM.YYYY')}
-        </span>
-      )}
-      <span className="text-xs opacity-70">• {startSchicht} → {endSchicht}</span>
-    </div>
+      <div className="overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-100 px-3 py-2 dark:bg-gray-800">
+          <div>
+            <h4 className="text-sm font-semibold">Bedarfsmatrix</h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Auch bisher nicht verwendete Qualifikationen können ergänzt
+              werden
+            </p>
+          </div>
 
-    {/* Datum-Chips (klickbar) */}
-    <div className="flex gap-1 overflow-x-auto pb-1">
-      {daysBetween(von, bis).map(d => {
-        const active = selectedDay ? (selectedDay === d) : false;
-        return (
-          <button
-            type="button"
-            key={d}
-            className={`text-[11px] px-2 py-1 rounded-full border whitespace-nowrap ${
-              active
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-200'
-            }`}
-            title={dayjs(d).format('dddd, DD.MM.YYYY')}
-            onClick={() => setSelectedDay(prev => (prev === d ? null : d))}
-          >
-            {dayjs(d).format('dd')} {dayjs(d).format('DD.MM.')}
-          </button>
-        );
-      })}
-    </div>
+          <span className="text-xs text-gray-600 dark:text-gray-300">
+            {ausgefuellteQualifikationen.length} Qualifikation(en) ·{' '}
+            {anzahlDbZeilen} Einträge
+          </span>
+        </div>
 
-    {/* Tabelle: Quali | Früh | Spät | Nacht (editierbar) */}
-    <div className="mt-3 overflow-x-auto">
-      {rows.length === 0 ? (
-        <div className="text-sm opacity-70">Keine Bedarfszeilen vorhanden.</div>
-      ) : (
-        <table className="min-w-full text-sm border-separate border-spacing-y-1">
-          <thead>
-            <tr className="text-left text-xs uppercase opacity-70">
-              <th className="py-1 pr-4">Quali (Position)</th>
-              <th className="py-1 pr-4">Früh</th>
-              <th className="py-1 pr-4">Spät</th>
-              <th className="py-1 pr-0">Nacht</th>
-            </tr>
-          </thead>
-          <tbody>
-            {buildEditableMatrix(rows).map((r, i) => {
-              const slotsActive = activeSlotsForDay(
-                selectedDay,
-                startSchicht, endSchicht,
-                von || null, bis || null
-              );
-              const val = pending[r.qualiId] || { Frueh:0, Spaet:0, Nacht:0 };
-              const cell = (slotKey, disabled) => (
-                <input
-                  type="number"
-                  min={0}
-                  className={`w-20 text-center text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-gray-300/50 dark:bg-gray-700/50 ${
-                    disabled ? 'opacity-40 cursor-not-allowed' : ''
-                  }`}
-                  value={disabled ? '' : (val[slotKey] ?? 0)}
-                  onChange={(e) => !disabled && onEditCell(r.qualiId, slotKey, e.target.value)}
-                  placeholder={disabled ? '—' : '0'}
-                  disabled={disabled}
-                />
-              );
-              return (
-                <tr key={i} className="rounded-xl bg-gray-300/50 dark:bg-gray-900/30">
-                  <td className="py-1 pr-4">
-                    <span className="font-mono mr-2">{r.kuerzel}</span>
-                    <span className="opacity-60 text-[11px]">Pos {Number(r.position ?? 0)}</span>
-                  </td>
-                  <td className="py-1 pr-4">{cell('Frueh', selectedDay && !slotsActive.Frueh)}</td>
-                  <td className="py-1 pr-4">{cell('Spaet', selectedDay && !slotsActive.Spaet)}</td>
-                  <td className="py-1 pr-0">{cell('Nacht', selectedDay && !slotsActive.Nacht)}</td>
+        {loading ? (
+          <div className="p-4 text-sm text-gray-500">
+            Bedarf wird geladen…
+          </div>
+        ) : (
+          <div className="max-h-[520px] overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-gray-100 dark:bg-gray-800">
+                <tr>
+                  <th className="min-w-[210px] px-3 py-2 text-left">
+                    Qualifikation
+                  </th>
+                  <th className="w-24 px-2 py-2 text-center">Früh</th>
+                  <th className="w-24 px-2 py-2 text-center">Spät</th>
+                  <th className="w-24 px-2 py-2 text-center">Nacht</th>
+                  <th className="min-w-[145px] px-2 py-2 text-center">
+                    Aktionen
+                  </th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </div>
-  {editStarted && (
-    <div className="mt-3 text-xs px-3 py-2 rounded-lg bg-yellow-50 text-yellow-800 border border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-100 dark:border-yellow-800">
-      Änderungen wirken auf <strong>alle Tage</strong> im gewählten Zeitraum.
-    </div>
-  )}
-    {/* Speichern der Mengen */}
-    <div className="mt-3 flex items-center justify-end gap-2">
-      <button
-        type="button"
-        className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        disabled={!editStarted}
-onClick={async () => {
-  try {
-    const blockMatch = {
-      firma_id: Number(firma),
-      unit_id: Number(unit),
-      normalbetrieb: false,
-      von: eintrag.von,
-      bis: eintrag.bis,
-      namebedarf: eintrag.namebedarf,
-      start_schicht: eintrag.start_schicht || 'Früh',
-      end_schicht: eintrag.end_schicht || 'Nacht',
-    };
+              </thead>
 
-    // 1) Existierende Zeilen indexieren: pro qualiId sowohl Slot-Keys als auch 'Alle'
-    //    key = `${qualiId}|Frueh|Spaet|Nacht|Alle`
-    const existing = new Map();
-    (rows || []).forEach(r => {
-      const slotKey =
-        r.schichtart === 'Früh' ? 'Frueh' :
-        r.schichtart === 'Spät' ? 'Spaet' :
-        r.schichtart === 'Nacht' ? 'Nacht' : 'Alle';
-      existing.set(`${r.quali_id}|${slotKey}`, r);
-    });
+              <tbody>
+                {qualifikationen.map((quali) => {
+                  const werte = matrix[quali.id] || LEER;
+                  const hatWert =
+                    zahl(werte.Frueh) > 0 ||
+                    zahl(werte.Spaet) > 0 ||
+                    zahl(werte.Nacht) > 0;
 
-    const tasks = [];
+                  return (
+                    <tr
+                      key={quali.id}
+                      className={`border-t border-gray-200 dark:border-gray-700 ${
+                        hatWert
+                          ? 'bg-blue-50/70 dark:bg-blue-950/20'
+                          : 'bg-white/40 dark:bg-gray-900/20'
+                      }`}
+                    >
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex min-w-12 justify-center rounded-md bg-gray-200 px-2 py-1 text-xs font-bold dark:bg-gray-700">
+                            {quali.quali_kuerzel || '—'}
+                          </span>
 
-    // kleine Helper für CRUD
-    const upd = (id, anzahl) =>
-      supabase.from('DB_Bedarf').update({ anzahl: Number(anzahl || 0) }).match({ id, ...blockMatch });
+                          <div>
+                            <div className="font-medium">
+                              {quali.qualifikation}
+                            </div>
+                            {quali.betriebs_relevant && (
+                              <div className="text-xs text-green-600 dark:text-green-400">
+                                Betriebsrelevant
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
 
-    const ins = (qualiId, schichtart, anzahl) =>
-      supabase.from('DB_Bedarf').insert([{
-        ...blockMatch,
-        quali_id: Number(qualiId),
-        schichtart,
-        anzahl: Number(anzahl || 0),
-      }]);
+                      {[
+                        ['Frueh', 'Früh'],
+                        ['Spaet', 'Spät'],
+                        ['Nacht', 'Nacht'],
+                      ].map(([feld, label]) => (
+                        <td key={feld} className="px-2 py-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={werte[feld] ?? 0}
+                            aria-label={`${quali.qualifikation} ${label}`}
+                            onChange={(event) =>
+                              handleMatrixChange(
+                                quali.id,
+                                feld,
+                                event.target.value
+                              )
+                            }
+                            className="w-20 rounded-lg border border-gray-300 bg-white px-2 py-1 text-center dark:border-gray-600 dark:bg-gray-800"
+                          />
+                        </td>
+                      ))}
 
-    const del = (id) =>
-      supabase.from('DB_Bedarf').delete().match({ id, ...blockMatch });
+                      <td className="px-2 py-2">
+                        <div className="flex justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAufAlle(quali.id)}
+                            className="rounded-lg bg-gray-200 px-2 py-1 text-xs hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
+                          >
+                            Auf alle
+                          </button>
 
-    // 2) Für jede Quali pending-Werte holen und „Alle“-Sonderfälle korrekt auflösen
-    for (const [qualiId, obj] of Object.entries(pending)) {
-      const tF = Number(obj?.Frueh ?? 0);
-      const tS = Number(obj?.Spaet ?? 0);
-      const tN = Number(obj?.Nacht ?? 0);
+                          <button
+                            type="button"
+                            onClick={() => handleZeileLeeren(quali.id)}
+                            className="rounded-lg p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                            title="Zeile leeren"
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      const exAll   = existing.get(`${qualiId}|Alle`);
-      const exF     = existing.get(`${qualiId}|Frueh`);
-      const exS     = existing.get(`${qualiId}|Spaet`);
-      const exN     = existing.get(`${qualiId}|Nacht`);
-
-      // FALL A: Es gibt eine „Alle“-Zeile
-      if (exAll) {
-        if (tF === tS && tS === tN) {
-          // Werte identisch -> „Alle“ behalten/setzen und ggf. per-Slot-Zeilen löschen
-          if (exF) tasks.push(del(exF.id));
-          if (exS) tasks.push(del(exS.id));
-          if (exN) tasks.push(del(exN.id));
-
-          if (tF > 0) {
-            tasks.push(upd(exAll.id, tF));
-          } else {
-            // Ziel 0 -> „Alle“-Zeile löschen
-            tasks.push(del(exAll.id));
-          }
-        } else {
-          // Werte ungleich -> „Alle“ auflösen -> löschen und per-Slot sauber anlegen/aktualisieren
-          tasks.push(del(exAll.id));
-
-          // FRÜH
-          if (exF) {
-            tF > 0 ? tasks.push(upd(exF.id, tF)) : tasks.push(del(exF.id));
-          } else if (tF > 0) {
-            tasks.push(ins(qualiId, 'Früh', tF));
-          }
-          // SPÄT
-          if (exS) {
-            tS > 0 ? tasks.push(upd(exS.id, tS)) : tasks.push(del(exS.id));
-          } else if (tS > 0) {
-            tasks.push(ins(qualiId, 'Spät', tS));
-          }
-          // NACHT
-          if (exN) {
-            tN > 0 ? tasks.push(upd(exN.id, tN)) : tasks.push(del(exN.id));
-          } else if (tN > 0) {
-            tasks.push(ins(qualiId, 'Nacht', tN));
-          }
-        }
-        continue; // nächster qualiId
-      }
-
-      // FALL B: Keine „Alle“-Zeile -> normaler per-Slot Upsert + Löschen bei 0
-      // FRÜH
-      if (exF) {
-        tF > 0 ? tasks.push(upd(exF.id, tF)) : tasks.push(del(exF.id));
-      } else if (tF > 0) {
-        tasks.push(ins(qualiId, 'Früh', tF));
-      }
-
-      // SPÄT
-      if (exS) {
-        tS > 0 ? tasks.push(upd(exS.id, tS)) : tasks.push(del(exS.id));
-      } else if (tS > 0) {
-        tasks.push(ins(qualiId, 'Spät', tS));
-      }
-
-      // NACHT
-      if (exN) {
-        tN > 0 ? tasks.push(upd(exN.id, tN)) : tasks.push(del(exN.id));
-      } else if (tN > 0) {
-        tasks.push(ins(qualiId, 'Nacht', tN));
-      }
-    }
-
-    const results = await Promise.all(tasks);
-    const err = results.find(r => r?.error);
-    if (err?.error) throw new Error(err.error.message || 'Fehler beim Speichern');
-
-    setEditStarted(false);
-    setFeedback('Mengen gespeichert.');
-    onSaved?.();
-  } catch (e) {
-    console.error(e);
-    setFeedback('Fehler beim Speichern der Mengen.');
-  }
-}}
-      >
-        Mengen speichern
-      </button>
-    </div>
-  </div>
-</div>
-
-      {/* Feedback + Aktionen */}
-      <div className="mt-4 flex items-center justify-between">
-        <span className={`text-sm ${feedback?.startsWith('Fehler') || feedback?.includes('Bitte') ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-          {feedback}
-        </span>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className={`px-4 py-1 rounded text-white ${saving ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+      {feedback && (
+        <div
+          className={`mt-4 rounded-lg px-3 py-2 text-sm ${
+            feedback.startsWith('Gespeichert')
+              ? 'bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300'
+              : 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300'
+          }`}
         >
-          {saving ? 'Speichern…' : 'Speichern'}
+          {feedback}
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={handleSpeichern}
+          disabled={saving || loading}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Save size={17} />
+          {saving
+            ? 'Wird gespeichert…'
+            : `Alles speichern (${anzahlDbZeilen})`}
         </button>
       </div>
     </div>

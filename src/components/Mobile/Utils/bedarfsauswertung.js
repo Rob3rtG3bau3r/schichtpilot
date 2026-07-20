@@ -28,10 +28,48 @@ function schichtInnerhalbGrenzen(b, datumISO, schLabel /* 'Früh'|'Spät'|'Nacht
 
 function bedarfGiltFuerSchicht(b, datumISO, schKey /* 'F'|'S'|'N' */) {
   // Zeitfenster-Check
-  if (b.von && datumISO <  b.von) return false;
-  if (b.bis && datumISO >  b.bis) return false;
+  if (b.von && datumISO < b.von) return false;
+  if (b.bis && datumISO > b.bis) return false;
 
   const schLabel = SCH_LABEL[schKey]; // 'Früh'|'Spät'|'Nacht'
+
+  // Wochenbetrieb wie im Desktop-Cockpit
+  if (b.normalbetrieb && b.betriebsmodus === 'wochenbetrieb') {
+    const weekday = dayjs(datumISO).day(); // 0=So ... 6=Sa
+
+    switch (b.wochen_tage) {
+      case 'MO_FR':
+        if (weekday < 1 || weekday > 5) return false;
+        break;
+      case 'MO_SA_ALL':
+        if (weekday < 1 || weekday > 6) return false;
+        break;
+      case 'MO_FR_SA_F':
+        if (weekday === 0) return false;
+        if (weekday === 6 && schLabel !== 'Früh') return false;
+        if (weekday < 1 || weekday > 6) return false;
+        break;
+      case 'MO_FR_SA_FS':
+        if (weekday === 0) return false;
+        if (weekday === 6 && schLabel === 'Nacht') return false;
+        if (weekday < 1 || weekday > 6) return false;
+        break;
+      case 'SO_FR_ALL':
+        if (weekday === 0) {
+          if (schLabel !== 'Nacht') return false;
+        } else if (weekday >= 1 && weekday <= 4) {
+          // Mo–Do: alle Schichten
+        } else if (weekday === 5) {
+          if (schLabel === 'Nacht') return false;
+        } else {
+          return false;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
   if (!schichtInnerhalbGrenzen(b, datumISO, schLabel)) return false;
 
   // schichtart=null => ganztägig (gilt für alle Schichten)
@@ -73,34 +111,47 @@ export const ermittleBedarfUndStatus = async (userId, firma, unit, monat) => {
   const statusMap   = {}; // Rückgabe
 
   // -----------------------------
-  // 1) Bedarf laden (mit Feldern + betriebsrelevant via Rel)
+  // 1) Versionierten Bedarf + Qualifikationsmatrix laden
   // -----------------------------
-  // HINWEIS: Falls eure Relation anders heißt, den Select anpassen.
-  // Ziel: Zugriff auf ein Flag "betriebs_relevant" je Bedarfseintrag.
-  const { data: bedarfRaw, error: bedarfError } = await supabase
-    .from('DB_Bedarf')
-    .select(`
-      id,
-      quali_id,
-      anzahl,
-      von,
-      bis,
-      normalbetrieb,
-      schichtart,
-      start_schicht,
-      end_schicht,
-      quali:DB_Qualifikationsmatrix!inner(
-        id,
-        betriebs_relevant
-      )
-    `)
-    .eq('firma_id', firma)
-    .eq('unit_id', unit);
+  const [
+    { data: bedarfRaw, error: bedarfError },
+    { data: matrixRows, error: matrixError },
+  ] = await Promise.all([
+    supabase.rpc('get_bedarf_fuer_zeitraum', {
+      p_firma_id: Number(firma),
+      p_unit_id: Number(unit),
+      p_von: start,
+      p_bis: end,
+    }),
+    supabase
+      .from('DB_Qualifikationsmatrix')
+      .select('id, betriebs_relevant')
+      .eq('firma_id', Number(firma))
+      .eq('unit_id', Number(unit)),
+  ]);
 
   if (bedarfError) {
-    console.error('❌ Fehler beim Laden des Bedarfs:', bedarfError.message || bedarfError);
+    console.error(
+      '❌ Fehler beim Laden des versionierten Bedarfs:',
+      bedarfError.message || bedarfError
+    );
     return {};
   }
+
+  if (matrixError) {
+    console.error(
+      '❌ Fehler beim Laden der Qualifikationsmatrix:',
+      matrixError.message || matrixError
+    );
+    return {};
+  }
+
+  const matrixRelevantById = new Map(
+    (matrixRows || []).map((row) => [
+      String(row.id),
+      row.betriebs_relevant === true,
+    ])
+  );
 
   // -----------------------------
   // 2) Bedarf pro Tag + Schicht bilden (neue Regeln)
@@ -111,11 +162,7 @@ export const ermittleBedarfUndStatus = async (userId, firma, unit, monat) => {
 
     // Kandidaten im Zeitfenster und betriebsrelevant filtern (Tag-agnostisch)
     const imFenster = (bedarfRaw || []).filter((b) => {
-      if (!b?.quali?.betriebs_relevant) return false;
-      // Zeitfenster wird schichtgenau später geprüft (bedarfGiltFuerSchicht),
-      // hier nur grob: mind. irgendeine Relevanz am Tag (lassen wir offen).
-      // Wir filtern erst unten pro Schicht exakt.
-      return true;
+      return matrixRelevantById.get(String(b.quali_id)) === true;
     });
 
     // pro Schicht anwenden

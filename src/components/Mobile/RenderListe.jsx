@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import dayjs from 'dayjs';
 import { Plus, Minus } from 'lucide-react';
 
@@ -27,8 +27,19 @@ export default function RenderListe({
   }
 
   const daysInMonth = startDatum.daysInMonth();
-  const findEintrag = (iso) =>
-    eintraege.find((e) => dayjs(e.datum).format('YYYY-MM-DD') === iso);
+
+  const eintragByDatum = useMemo(
+    () =>
+      new Map(
+        (eintraege || []).map((e) => [
+          dayjs(e.datum).format('YYYY-MM-DD'),
+          e,
+        ])
+      ),
+    [eintraege]
+  );
+
+  const findEintrag = (iso) => eintragByDatum.get(iso);
 
     const getDateHighlight = (iso) => {
     const tags = feierMap?.[iso] || [];

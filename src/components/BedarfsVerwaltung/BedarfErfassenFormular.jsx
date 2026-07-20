@@ -14,6 +14,7 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
   // --- Gemeinsame States ---
   const [feedback, setFeedback] = useState('');
   const [infoOffen, setInfoOffen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // --- Normalbetrieb / Zeitlich begrenzt Umschalter ---
   const [normalbetrieb, setNormalbetrieb] = useState(false);
@@ -50,6 +51,10 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
   const [zbSpaet, setZbSpaet] = useState(0);
   const [zbNacht, setZbNacht] = useState(0);
 
+  // --- Vorlage für zeitlich begrenzten Bedarf ---
+  const [alsVorlageSpeichern, setAlsVorlageSpeichern] = useState(false);
+  const [vorlageName, setVorlageName] = useState('');
+
   // Zeitlich begrenzt als Default sinnvoll vorbelegen
   useEffect(() => {
     if (!vorbelegt) {
@@ -61,14 +66,35 @@ const BedarfErfassenFormular = ({ ausgewaehlteQualiId, ausgewaehlteQualiName, on
   }, []);
 
   useEffect(() => {
-    if (vorbelegt) {
-      setNormalbetrieb(false);
-      setVon(vorbelegt.von || '');
-      setBis(vorbelegt.bis || '');
-      setFarbe(vorbelegt.farbe || '#3b82f6');
-      setNamebedarf(vorbelegt.namebedarf || '');
+    if (!vorbelegt) return;
+
+    setNormalbetrieb(false);
+    setFarbe(vorbelegt.farbe || '#3b82f6');
+    setNamebedarf(vorbelegt.namebedarf || '');
+    setStartSchicht(vorbelegt.start_schicht || 'Früh');
+    setEndSchicht(vorbelegt.end_schicht || 'Nacht');
+
+    // Eine Vorlage übernimmt den fachlichen Bauplan, aber nie alte Datumswerte.
+    if (vorbelegt._quelle === 'vorlage') {
+      setVon(heute);
+      setBis(dayjs(heute).add(1, 'day').format('YYYY-MM-DD'));
+      setZbModus(vorbelegt.modus === 'je' ? 'je' : 'alle');
+      setZbAlle(Number(vorbelegt.anzahl_alle || 1));
+      setZbFrueh(Number(vorbelegt.anzahl_frueh || 0));
+      setZbSpaet(Number(vorbelegt.anzahl_spaet || 0));
+      setZbNacht(Number(vorbelegt.anzahl_nacht || 0));
+      setAlsVorlageSpeichern(false);
+      setVorlageName('');
+      setFeedback(`Vorlage „${vorbelegt.vorlage_name || vorbelegt.namebedarf || ''}“ geladen.`);
+      return;
     }
-  }, [vorbelegt]);
+
+    // Vorbelegung aus einem bestehenden zeitlichen Bedarf.
+    setVon(vorbelegt.von || heute);
+    setBis(vorbelegt.bis || vorbelegt.von || heute);
+    setAlsVorlageSpeichern(false);
+    setVorlageName('');
+  }, [vorbelegt, heute]);
 
 const handleChangeVon = (value) => {
   setVon(value);
@@ -98,6 +124,9 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
   return '„Bis“ darf nicht vor „Von“ liegen.';
 }
       if (!namebedarf?.trim()) return 'Bitte eine Bezeichnung für den Zeitraum eingeben.';
+      if (alsVorlageSpeichern && !vorlageName.trim()) {
+        return 'Bitte einen Namen für die Vorlage eingeben.';
+      }
       if (zbModus === 'alle') {
         if (!zbAlle || zbAlle < 1) return 'Bitte eine Anzahl ≥ 1 eingeben.';
       } else {
@@ -114,9 +143,16 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
   };
 
   const handleSpeichern = async () => {
+    if (saving) return;
+
     setFeedback('');
     const err = validate();
-    if (err) { setFeedback(err); return; }
+    if (err) {
+      setFeedback(err);
+      return;
+    }
+
+    setSaving(true);
 
     const baseCommon = {
       quali_id: ausgewaehlteQualiId,
@@ -187,10 +223,48 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
     if (error) {
       console.error('Fehler beim Speichern:', error.message);
       setFeedback('Fehler beim Speichern.');
+      setSaving(false);
       return;
     }
 
-    setFeedback('Bedarf erfolgreich gespeichert!');
+    let vorlageFehler = null;
+
+    if (!normalbetrieb && alsVorlageSpeichern) {
+      const vorlagePayload = {
+        created_by: userId,
+        firma_id: firma,
+        unit_id: unit,
+        vorlage_name: vorlageName.trim(),
+        namebedarf: namebedarf.trim(),
+        farbe,
+        quali_id: ausgewaehlteQualiId,
+        modus: zbModus,
+        anzahl_alle: zbModus === 'alle' ? Number(zbAlle) : null,
+        anzahl_frueh: zbModus === 'je' ? Number(zbFrueh || 0) : null,
+        anzahl_spaet: zbModus === 'je' ? Number(zbSpaet || 0) : null,
+        anzahl_nacht: zbModus === 'je' ? Number(zbNacht || 0) : null,
+        start_schicht: startSchicht,
+        end_schicht: endSchicht,
+        aktiv: true,
+      };
+
+      const { error: templateError } = await supabase
+        .from('DB_BedarfVorlage')
+        .insert(vorlagePayload);
+
+      if (templateError) {
+        console.error('Fehler beim Speichern der Bedarfsvorlage:', templateError.message);
+        vorlageFehler = templateError;
+      }
+    }
+
+    setFeedback(
+      vorlageFehler
+        ? 'Bedarf gespeichert, aber die Vorlage konnte nicht gespeichert werden.'
+        : alsVorlageSpeichern && !normalbetrieb
+          ? 'Bedarf und Vorlage erfolgreich gespeichert!'
+          : 'Bedarf erfolgreich gespeichert!'
+    );
     if (normalbetrieb) {
       setNbModus('alle');
       setAnzahlAlle(1);
@@ -199,8 +273,11 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
       setZbModus('alle');
       setZbAlle(1);
       setZbFrueh(0); setZbSpaet(0); setZbNacht(0);
+      setAlsVorlageSpeichern(false);
+      setVorlageName('');
     }
 
+    setSaving(false);
     setTimeout(() => onRefresh?.(), 50);
   };
 
@@ -495,6 +572,42 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
               </div>
             </div>
           )}
+
+          {/* Optional zusätzlich als Vorlage speichern */}
+          <div className="mt-4 p-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100/70 dark:bg-gray-800/70">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={alsVorlageSpeichern}
+                onChange={(e) => {
+                  setAlsVorlageSpeichern(e.target.checked);
+                  if (!e.target.checked) setVorlageName('');
+                }}
+              />
+              <span className="text-sm font-medium">
+                Zusätzlich als Vorlage speichern
+              </span>
+            </label>
+
+            {alsVorlageSpeichern && (
+              <div className="mt-3">
+                <label className="block text-sm font-medium mb-1">
+                  Vorlagenname
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-1 rounded border border-gray-300 dark:border-gray-700 bg-gray-200 dark:bg-gray-900"
+                  value={vorlageName}
+                  onChange={(e) => setVorlageName(e.target.value)}
+                  placeholder="z. B. Revision Vollbetrieb"
+                  maxLength={80}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Datum und Zeitraum werden nicht in der Vorlage gespeichert.
+                </p>
+              </div>
+            )}
+          </div>
         </>
       )}
 
@@ -510,10 +623,12 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
           {feedback}
         </span>
         <button
-          className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700"
+          type="button"
+          className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
           onClick={handleSpeichern}
+          disabled={saving}
         >
-          Speichern
+          {saving ? 'Speichert…' : 'Speichern'}
         </button>
       </div>
 
@@ -541,6 +656,7 @@ if (dayjs(bis).isBefore(dayjs(von), 'day')) {
                 <b>Zeitlich begrenzt</b>: Zeitraum + Start-/End-Schicht; Bezeichnung &amp; Farbe dienen der Orientierung.
               </li>
               <li>Zeitlich begrenzt <b>überschreibt</b> Normalbetrieb im Zeitraum für betroffene Schichten.</li>
+              <li>Optional kannst du die fachlichen Einstellungen zusätzlich als Vorlage speichern. Datumswerte werden dabei bewusst nicht übernommen.</li>
             </ul>
             <div className="text-right mt-4">
               <button

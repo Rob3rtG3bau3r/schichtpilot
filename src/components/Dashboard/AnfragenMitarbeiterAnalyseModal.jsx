@@ -809,11 +809,15 @@ let usersById = new Map();
 
         /* E) Bedarf + Matrix + Qualis für Ampel (alle Day-User) */
         const [{ data: bedarf, error: bErr }, { data: qm, error: qmErr }] = await Promise.all([
-          supabase
-            .from('DB_Bedarf')
-            .select('quali_id, anzahl, von, bis, namebedarf, farbe, normalbetrieb, schichtart, start_schicht, end_schicht, betriebsmodus, wochen_tage')
-            .eq('firma_id', firmaId)
-            .eq('unit_id', unitId),
+          supabase.rpc(
+            'get_bedarf_fuer_zeitraum',
+            {
+              p_firma_id: Number(firmaId),
+              p_unit_id: Number(unitId),
+              p_von: datum,
+              p_bis: datum,
+            }
+          ),
           supabase
             .from('DB_Qualifikationsmatrix')
             .select('id, quali_kuerzel, betriebs_relevant, position, aktiv')
