@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRollen } from '../../context/RollenContext';
 import { supabase } from '../../supabaseClient';
-import { Check, ChevronDown, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 const CockpitMenue = ({
   sollPlanAktiv,
@@ -14,17 +14,11 @@ const CockpitMenue = ({
   setAnsichtModus,
   wochenAnzahl,     
   setWochenAnzahl,
-  selfAnsichtAktiv = false,
-  selfSettings,
-  onSelfSettingsChange,
 }) => {
   // 🔹 userId zusätzlich holen
   const { sichtUnit: unit, userId } = useRollen();
   const [schichtgruppen, setSchichtgruppen] = useState([]);
   const [settingsGeladen, setSettingsGeladen] = useState(false);
-  const [selfMenueOffen, setSelfMenueOffen] = useState(false);
-  const [selfSchichtarten, setSelfSchichtarten] = useState([]);
-  const [selfSchichtartenLoading, setSelfSchichtartenLoading] = useState(false);
 
 
   // =========================
@@ -136,57 +130,6 @@ useEffect(() => {
 
   speichereUserSettings();
 }, [userId, ansichtModus, wochenAnzahl, settingsGeladen]);
-
-
-  useEffect(() => {
-    if (!selfAnsichtAktiv || !selfMenueOffen || !unit) return;
-
-    let alive = true;
-
-    const ladeSelfSchichtarten = async () => {
-      setSelfSchichtartenLoading(true);
-
-      const { data, error } = await supabase
-        .from('DB_SchichtArt')
-        .select('id, kuerzel, beschreibung, position')
-        .eq('unit_id', unit)
-        .order('position', { ascending: true, nullsFirst: false })
-        .order('kuerzel', { ascending: true });
-
-      if (!alive) return;
-
-      if (error) {
-        console.error(
-          '❌ Fehler beim Laden der Kürzel für den persönlichen Bereich:',
-          error.message || error
-        );
-        setSelfSchichtarten([]);
-      } else {
-        setSelfSchichtarten(data || []);
-      }
-
-      setSelfSchichtartenLoading(false);
-    };
-
-    ladeSelfSchichtarten();
-
-    return () => {
-      alive = false;
-    };
-  }, [selfAnsichtAktiv, selfMenueOffen, unit]);
-
-  const toggleSelfAbwesenheitId = (id) => {
-    const numericId = Number(id);
-    const current = Array.isArray(selfSettings?.abwesenheitIds)
-      ? selfSettings.abwesenheitIds.map(Number)
-      : [];
-
-    const next = current.includes(numericId)
-      ? current.filter((item) => item !== numericId)
-      : [...current, numericId];
-
-    onSelfSettingsChange?.({ abwesenheitIds: next });
-  };
 
   const totalUserCount = Object.values(gruppenZähler || {}).reduce(
     (sum, val) => sum + val,
@@ -351,120 +294,6 @@ useEffect(() => {
                   </label>
                 );
               })}
-          </div>
-        )}
-
-        {selfAnsichtAktiv && (
-          <div className="relative ml-auto">
-            <button
-              type="button"
-              onClick={() => setSelfMenueOffen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-md border border-gray-400 bg-gray-100 px-3 py-1 text-xs text-gray-800 hover:bg-white dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
-            >
-              Persönlicher Bereich
-              <ChevronDown
-                size={14}
-                className={`transition-transform ${
-                  selfMenueOffen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            {selfMenueOffen && (
-              <div className="absolute right-0 top-full z-[10000] mt-2 w-[320px] rounded-xl border border-gray-300 bg-white p-3 text-gray-900 shadow-2xl dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
-                <div className="mb-3 text-sm font-semibold">
-                  Persönlicher Bereich
-                </div>
-
-                <div className="space-y-2">
-                  {[
-                    ['notizenVisible', 'Private Notizen'],
-                    ['zeitVisible', 'Zeit & Urlaub'],
-                    ['abwesenheitenVisible', 'Kommende Abwesenheiten'],
-                  ].map(([key, label]) => {
-                    const aktiv = !!selfSettings?.[key];
-
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() =>
-                          onSelfSettingsChange?.({
-                            [key]: !aktiv,
-                          })
-                        }
-                        className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-800"
-                      >
-                        <span>{label}</span>
-                        <span
-                          className={`flex h-5 w-5 items-center justify-center rounded border ${
-                            aktiv
-                              ? 'border-blue-600 bg-blue-600 text-white'
-                              : 'border-gray-400'
-                          }`}
-                        >
-                          {aktiv && <Check size={13} />}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="my-3 border-t border-gray-200 dark:border-gray-700" />
-
-                <div className="mb-2 text-xs font-semibold">
-                  Kürzel für Abwesenheiten
-                </div>
-
-                {selfSchichtartenLoading ? (
-                  <div className="py-3 text-xs text-gray-500">
-                    Kürzel werden geladen...
-                  </div>
-                ) : (
-                  <div className="max-h-[220px] space-y-1 overflow-y-auto pr-1">
-                    {selfSchichtarten.map((schichtart) => {
-                      const aktiv = (
-                        selfSettings?.abwesenheitIds || []
-                      )
-                        .map(Number)
-                        .includes(Number(schichtart.id));
-
-                      return (
-                        <button
-                          key={schichtart.id}
-                          type="button"
-                          onClick={() =>
-                            toggleSelfAbwesenheitId(schichtart.id)
-                          }
-                          className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                          <span className="min-w-0">
-                            <span className="font-semibold">
-                              {schichtart.kuerzel}
-                            </span>
-                            {schichtart.beschreibung && (
-                              <span className="ml-2 text-gray-500 dark:text-gray-400">
-                                {schichtart.beschreibung}
-                              </span>
-                            )}
-                          </span>
-
-                          <span
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-                              aktiv
-                                ? 'border-blue-600 bg-blue-600 text-white'
-                                : 'border-gray-400'
-                            }`}
-                          >
-                            {aktiv && <Check size={13} />}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
       </div>

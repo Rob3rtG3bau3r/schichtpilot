@@ -13,8 +13,6 @@ import { Link } from 'react-router-dom';
 import Wochen_KalenderStruktur from '../components/Cockpit/Wochen_KalenderStruktur';
 import Wochen_Kampfliste from '../components/Cockpit/Wochen_KampfListe';
 import Wochen_MitarbeiterBedarf from '../components/Cockpit/Wochen_MitarbeiterBedarf';
-import SelfCockpitBereich from '../components/Cockpit/SelfCockpitBereich';
-import useSelfCockpitSettings from '../hooks/useSelfCockpitSettings';
 
 const MobileBlocker = () => (
   <div className="fixed inset-0 z-[9999] lg:hidden bg-gray-900 text-white flex items-center justify-center p-6">
@@ -37,11 +35,6 @@ const MobileBlocker = () => (
 const SchichtCockpit = () => {
   const [gruppenZähler, setGruppenZähler] = useState({});
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
-  const {
-    selfAnsichtAktiv,
-    settings: selfSettings,
-    updateSettings: updateSelfSettings,
-  } = useSelfCockpitSettings();
 
   const [jahr, setJahr] = useState(new Date().getFullYear());
   const [monat, setMonat] = useState(new Date().getMonth());
@@ -206,9 +199,6 @@ const SchichtCockpit = () => {
           setAnsichtModus={setAnsichtModus}
           wochenAnzahl={wochenAnzahl}
           setWochenAnzahl={setWochenAnzahl}
-          selfAnsichtAktiv={selfAnsichtAktiv}
-          selfSettings={selfSettings}
-          onSelfSettingsChange={updateSelfSettings}
         />
 
         <div
@@ -259,18 +249,13 @@ const SchichtCockpit = () => {
               setAusgewählterDienst={setAusgewählterDienst}
               sichtbareGruppen={sichtbareGruppen}
               setGruppenZähler={setGruppenZähler}
+
               dayRefreshDatum={dayRefreshDatum}
               dayRefreshKey={dayRefreshKey}
               dayRefreshUserId={dayRefreshUserId}
-              selfBereichAktiv={
-                selfAnsichtAktiv &&
-                (
-                  selfSettings?.notizenVisible ||
-                  selfSettings?.zeitVisible ||
-                  selfSettings?.abwesenheitenVisible
-                )
-              }
+
               onSavedForDay={handleSavedForDay}
+
               onRefreshMitarbeiterBedarf={() => {
                 setRefreshMitarbeiterKey((prev) => prev + 1);
               }}
@@ -327,14 +312,6 @@ const SchichtCockpit = () => {
             </>
           )}
         </div>
-
-        {selfAnsichtAktiv && (
-          <SelfCockpitBereich
-            settings={selfSettings}
-            jahr={jahr}
-            refreshKey={dayRefreshKey}
-          />
-        )}
 
         {/* Popup zum Ändern eines Dienstes */}
         <SchichtDienstAendernForm
