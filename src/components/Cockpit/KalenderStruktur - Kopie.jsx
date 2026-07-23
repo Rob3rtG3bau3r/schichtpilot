@@ -246,49 +246,49 @@ const KalenderStruktur = ({ jahr, setJahr, monat, setMonat }) => {
 
   return (
     <div className="bg-gray-200 dark:bg-gray-800 pt-2 px-4 pb-1 rounded-xl shadow-xl w-full border border-gray-300 dark:border-gray-700">
-      {/* Kopfzeile: Jahr links, Januar bündig mit dem 1. Kalendertag */}
-      <div className="flex items-start mb-2">
-        {/* gleiche Breite wie die linke Namensspalte im Kalender */}
-        <div className="w-[160px] min-w-[160px] flex-shrink-0 pr-2">
-          {(() => {
-            const aktJahr = new Date().getFullYear();
-            return (
-              <select
-                value={jahr}
-                onChange={(e) => setJahr(parseInt(e.target.value, 10))}
-                className="bg-gray-200 dark:bg-gray-700 text-black dark:text-white px-3 py-1 rounded-xl"
-              >
-                {[aktJahr - 1, aktJahr, aktJahr + 1].map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            );
-          })()}
-        </div>
+      {/* Kopfzeile */}
+      <div className="flex items-center justify-left mb-2 flex-wrap gap-2">
+        {/* Jahr */}
+        {(() => {
+          const aktJahr = new Date().getFullYear();
+          return (
+            <select
+              value={jahr}
+              onChange={(e) => setJahr(parseInt(e.target.value, 10))}
+              className="bg-gray-200 dark:bg-gray-700 text-black dark:text-white px-3 py-1 rounded-xl"
+            >
+              {[aktJahr - 1, aktJahr, aktJahr + 1].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          );
+        })()}
 
-        {/* Monate + Stats: beginnt exakt über Tag 1 */}
-        <div className="flex items-start gap-6 flex-wrap min-w-0">
-          <div className="flex gap-2 flex-wrap">
-            {monate.map((name, index) => (
-              <button
-                key={index}
-                onClick={() => setMonat(index)}
-                className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 flex items-center gap-1.5 ${
-                  index === monat
-                    ? 'bg-blue-600 text-white dark:bg-blue-500'
-                    : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                }`}
-              >
-                <span>{name}</span>
-                {renderMonatsStatus(index)}
-              </button>
-            ))}
-          </div>
+        {/* Monate */}
+        {/* Monate + Stats rechts daneben */}
+<div className="flex items-start gap-6 flex-wrap">
+  <div className="flex gap-2 flex-wrap">
+    {monate.map((name, index) => (
+        <button
+          key={index}
+          onClick={() => setMonat(index)}
+          className={`px-3 py-1 rounded-xl text-sm transition-all duration-150 flex items-center gap-1.5 ${
+              index === monat
+                ? 'bg-blue-600 text-white dark:bg-blue-500'
+                : 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+            }`}
+        >
+          <span>{name}</span>
+          {renderMonatsStatus(index)}
+        </button>
+      ))}
+  </div>
 
-          <div className="mt-[2px]">
-            <KS_Stat jahr={jahr} monat={monat} />
-          </div>
-        </div>
+  {/* Rechts neben Dezember – gleicher “Zeilenhöhe”-Block */}
+  <div className="mt-[2px]">
+    <KS_Stat jahr={jahr} monat={monat} />
+  </div>
+</div>
       </div>
 
       {/* Kalenderspalten */}
