@@ -49,6 +49,7 @@ const KampfListe = ({
   dayRefreshDatum,
   dayRefreshKey,
   dayRefreshUserId,
+  selfBereichAktiv = false,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
@@ -1169,7 +1170,11 @@ useEffect(() => {
 }, [dayRefreshKey]);
 
 return (
-  <div className="relative min-h-[240px] bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 pb-6">
+  <div
+    className={`relative bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${
+      selfBereichAktiv ? 'min-h-0 pb-2' : 'min-h-[240px] pb-6'
+    }`}
+  >
 
     {(loading || rendering) && (
       <div className="absolute inset-0 z-[9998] flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm">
@@ -1464,7 +1469,10 @@ setPopupEintrag(eintragObjekt);
           </div>
         </div>
       </div>
-      {rolle === 'Employee' && employeeSichtbarkeit === 'self' && eintraege.length === 1 && (
+      {!selfBereichAktiv &&
+        rolle === 'Employee' &&
+        employeeSichtbarkeit === 'self' &&
+        eintraege.length === 1 && (
         <div className="pointer-events-none absolute inset-x-0 top-[100px] flex justify-center">
           <div className="flex flex-col items-center opacity-50 dark:opacity-15">
             <div className="rounded-xl bg-gray-900/10 dark:bg-white/0 px-4 py-2">

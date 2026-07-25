@@ -124,8 +124,8 @@ const SelfZeitkonto = ({ jahr, refreshKey }) => {
   }, [firma, unit, userId, jahr, refreshKey]);
 
   return (
-    <section className="h-full rounded-xl border border-gray-300 bg-gray-100/80 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/35">
-      <div className="mb-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-gray-300 bg-gray-100/80 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/35">
+      <div className="mb-3 shrink-0">
         <h2 className="text-sm font-semibold">Zeit & Urlaub</h2>
         <p className="text-[11px] text-gray-500 dark:text-gray-400">
           Stand {jahr}
@@ -137,7 +137,7 @@ const SelfZeitkonto = ({ jahr, refreshKey }) => {
           Daten werden geladen...
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-2 pb-3" style={{ scrollbarGutter: 'stable' }}>
           <div className="rounded-lg border border-gray-300 bg-white/70 p-3 dark:border-gray-700 dark:bg-gray-900/45">
             <div className="mb-2 flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
               <Clock3 size={15} />

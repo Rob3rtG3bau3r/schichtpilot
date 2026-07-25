@@ -49,7 +49,8 @@ const KampfListe = ({
   dayRefreshDatum,
   dayRefreshKey,
   dayRefreshUserId,
-  selfBereichAktiv = false,
+  persoenlicherBereichOffen = false,
+  persoenlicherBereichGeladen = false,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   const istNurLesend = rolle === 'Employee';
@@ -1169,10 +1170,16 @@ useEffect(() => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [dayRefreshKey]);
 
+const istKompakteSelfAnsicht =
+  rolle === 'Employee' &&
+  employeeSichtbarkeit === 'self';
+
 return (
   <div
     className={`relative bg-gray-200 text-black dark:bg-gray-800 dark:text-white rounded-xl shadow-xl border border-gray-300 dark:border-gray-700 ${
-      selfBereichAktiv ? 'min-h-0 pb-2' : 'min-h-[240px] pb-6'
+      istKompakteSelfAnsicht && persoenlicherBereichOffen
+        ? 'min-h-0 pb-2'
+        : 'min-h-[240px] pb-6'
     }`}
   >
 
@@ -1469,25 +1476,25 @@ setPopupEintrag(eintragObjekt);
           </div>
         </div>
       </div>
-      {!selfBereichAktiv &&
-        rolle === 'Employee' &&
-        employeeSichtbarkeit === 'self' &&
-        eintraege.length === 1 && (
-        <div className="pointer-events-none absolute inset-x-0 top-[100px] flex justify-center">
-          <div className="flex flex-col items-center opacity-50 dark:opacity-15">
-            <div className="rounded-xl bg-gray-900/10 dark:bg-white/0 px-4 py-2">
-              <img
-                src={logo}
-                alt="SchichtPilot"
-                className="h-16 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
-              />
-            </div>
-            <div className="mt-2 text-sm font-semibold tracking-wide text-gray-700/40 dark:text-gray-200">
-              Deine persönliche Dienstansicht
+      {istKompakteSelfAnsicht &&
+        persoenlicherBereichGeladen &&
+        !persoenlicherBereichOffen && (
+          <div className="pointer-events-none absolute inset-x-0 top-[100px] flex justify-center">
+            <div className="flex flex-col items-center opacity-50 dark:opacity-15">
+              <div className="rounded-xl bg-gray-900/10 px-4 py-2 dark:bg-white/0">
+                <img
+                  src={logo}
+                  alt="SchichtPilot"
+                  className="h-16 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+                />
+              </div>
+
+              <div className="mt-2 text-sm font-semibold tracking-wide text-gray-700/40 dark:text-gray-200">
+                Deine persönliche Dienstansicht
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
       <QualiModal
         offen={qualiModalOffen}

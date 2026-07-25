@@ -148,8 +148,8 @@ const SelfAbwesenheiten = ({
   );
 
   return (
-    <section className="h-full rounded-xl border border-gray-300 bg-gray-100/80 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/35">
-      <div className="mb-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-gray-300 bg-gray-100/80 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/35">
+      <div className="mb-3 shrink-0">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           Kommende Abwesenheiten
         </h2>
@@ -175,12 +175,8 @@ const SelfAbwesenheiten = ({
 
       {!!ids.length && !loading && !!zeitraeume.length && (
         <div
-          className="space-y-2 pr-1"
-          style={{
-            maxHeight: 420,
-            overflowY: 'auto',
-            scrollbarGutter: 'stable',
-          }}
+          className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-2 pb-3"
+          style={{ scrollbarGutter: 'stable' }}
         >
           {zeitraeume.map((zeitraum) => {
             const schicht = zeitraum.schicht;

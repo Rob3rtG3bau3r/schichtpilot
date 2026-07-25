@@ -7,7 +7,15 @@ const DEFAULT_SETTINGS = {
   zeitVisible: true,
   abwesenheitenVisible: true,
   abwesenheitIds: [],
+  floatingOpen: false,
 };
+
+const ERLAUBTE_ROLLEN = [
+  'Employee',
+  'Team_Leader',
+  'Planner',
+  'Admin_Dev',
+];
 
 const normalizeIds = (value) =>
   Array.isArray(value)
@@ -24,75 +32,58 @@ const useSelfCockpitSettings = () => {
     rolle,
   } = useRollen();
 
-  const [employeeSichtbarkeit, setEmployeeSichtbarkeit] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+
+  const persoenlicherBereichVerfuegbar =
+    ERLAUBTE_ROLLEN.includes(rolle);
 
   useEffect(() => {
     let alive = true;
 
     const laden = async () => {
-      setLoading(true);
-
-      if (!userId || !unit) {
+      if (!userId || !persoenlicherBereichVerfuegbar) {
         if (alive) {
-          setEmployeeSichtbarkeit(null);
           setSettings(DEFAULT_SETTINGS);
           setLoading(false);
         }
         return;
       }
 
-      const [unitRes, settingsRes] = await Promise.all([
-        supabase
-          .from('DB_Unit')
-          .select('employee_sichtbarkeit')
-          .eq('id', unit)
-          .maybeSingle(),
+      setLoading(true);
 
-        supabase
-          .from('DB_UserSettings')
-          .select(`
-            cockpit_self_notizen_visible,
-            cockpit_self_zeit_visible,
-            cockpit_self_abwesenheiten_visible,
-            cockpit_self_abwesenheit_ids
-          `)
-          .eq('user_id', userId)
-          .maybeSingle(),
-      ]);
+      const { data, error } = await supabase
+        .from('DB_UserSettings')
+        .select(`
+          cockpit_self_notizen_visible,
+          cockpit_self_zeit_visible,
+          cockpit_self_abwesenheiten_visible,
+          cockpit_self_abwesenheit_ids,
+          cockpit_self_floating_open
+        `)
+        .eq('user_id', userId)
+        .maybeSingle();
 
       if (!alive) return;
 
-      if (unitRes.error) {
+      if (error) {
         console.error(
-          '❌ Fehler beim Laden der Employee-Sichtbarkeit:',
-          unitRes.error.message || unitRes.error
+          '❌ Fehler beim Laden der persönlichen Cockpit-Einstellungen:',
+          error.message || error
         );
       }
-
-      if (settingsRes.error) {
-        console.error(
-          '❌ Fehler beim Laden der Self-Cockpit-Einstellungen:',
-          settingsRes.error.message || settingsRes.error
-        );
-      }
-
-      setEmployeeSichtbarkeit(
-        unitRes.data?.employee_sichtbarkeit || 'unit'
-      );
-
-      const row = settingsRes.data;
 
       setSettings({
         notizenVisible:
-          row?.cockpit_self_notizen_visible ?? true,
+          data?.cockpit_self_notizen_visible ?? true,
         zeitVisible:
-          row?.cockpit_self_zeit_visible ?? true,
+          data?.cockpit_self_zeit_visible ?? true,
         abwesenheitenVisible:
-          row?.cockpit_self_abwesenheiten_visible ?? true,
+          data?.cockpit_self_abwesenheiten_visible ?? true,
         abwesenheitIds:
-          normalizeIds(row?.cockpit_self_abwesenheit_ids),
+          normalizeIds(data?.cockpit_self_abwesenheit_ids),
+        floatingOpen:
+          data?.cockpit_self_floating_open ?? false,
       });
 
       setLoading(false);
@@ -103,11 +94,19 @@ const useSelfCockpitSettings = () => {
     return () => {
       alive = false;
     };
-  }, [userId, unit, firma]);
+  }, [
+    userId,
+    rolle,
+    firma,
+    unit,
+    persoenlicherBereichVerfuegbar,
+  ]);
 
   const updateSettings = useCallback(
     async (patch) => {
-      if (!userId) return false;
+      if (!userId || !persoenlicherBereichVerfuegbar) {
+        return false;
+      }
 
       const next = {
         ...settings,
@@ -117,22 +116,26 @@ const useSelfCockpitSettings = () => {
       next.abwesenheitIds = normalizeIds(next.abwesenheitIds);
       setSettings(next);
 
-      const payload = {
-        user_id: userId,
-        cockpit_self_notizen_visible: next.notizenVisible,
-        cockpit_self_zeit_visible: next.zeitVisible,
-        cockpit_self_abwesenheiten_visible:
-          next.abwesenheitenVisible,
-        cockpit_self_abwesenheit_ids: next.abwesenheitIds,
-      };
-
       const { error } = await supabase
         .from('DB_UserSettings')
-        .upsert(payload, { onConflict: 'user_id' });
+        .upsert(
+          {
+            user_id: userId,
+            cockpit_self_notizen_visible: next.notizenVisible,
+            cockpit_self_zeit_visible: next.zeitVisible,
+            cockpit_self_abwesenheiten_visible:
+              next.abwesenheitenVisible,
+            cockpit_self_abwesenheit_ids:
+              next.abwesenheitIds,
+            cockpit_self_floating_open:
+              !!next.floatingOpen,
+          },
+          { onConflict: 'user_id' }
+        );
 
       if (error) {
         console.error(
-          '❌ Fehler beim Speichern der Self-Cockpit-Einstellungen:',
+          '❌ Fehler beim Speichern der persönlichen Cockpit-Einstellungen:',
           error.message || error
         );
         return false;
@@ -140,13 +143,15 @@ const useSelfCockpitSettings = () => {
 
       return true;
     },
-    [settings, userId]
+    [
+      settings,
+      userId,
+      persoenlicherBereichVerfuegbar,
+    ]
   );
 
   return {
-    selfAnsichtAktiv:
-      rolle === 'Employee' &&
-      employeeSichtbarkeit === 'self',
+    persoenlicherBereichVerfuegbar,
     settings,
     updateSettings,
     loading,

@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import Wochen_KalenderStruktur from '../components/Cockpit/Wochen_KalenderStruktur';
 import Wochen_Kampfliste from '../components/Cockpit/Wochen_KampfListe';
 import Wochen_MitarbeiterBedarf from '../components/Cockpit/Wochen_MitarbeiterBedarf';
-import SelfCockpitBereich from '../components/Cockpit/SelfCockpitBereich';
+import PersoenlicherBereichFloating from '../components/Cockpit/PersoenlicherBereichFloating';
 import useSelfCockpitSettings from '../hooks/useSelfCockpitSettings';
 
 const MobileBlocker = () => (
@@ -38,9 +38,10 @@ const SchichtCockpit = () => {
   const [gruppenZähler, setGruppenZähler] = useState({});
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
   const {
-    selfAnsichtAktiv,
+    persoenlicherBereichVerfuegbar,
     settings: selfSettings,
     updateSettings: updateSelfSettings,
+    loading: selfSettingsLoading,
   } = useSelfCockpitSettings();
 
   const [jahr, setJahr] = useState(new Date().getFullYear());
@@ -206,9 +207,6 @@ const SchichtCockpit = () => {
           setAnsichtModus={setAnsichtModus}
           wochenAnzahl={wochenAnzahl}
           setWochenAnzahl={setWochenAnzahl}
-          selfAnsichtAktiv={selfAnsichtAktiv}
-          selfSettings={selfSettings}
-          onSelfSettingsChange={updateSelfSettings}
         />
 
         <div
@@ -259,18 +257,20 @@ const SchichtCockpit = () => {
               setAusgewählterDienst={setAusgewählterDienst}
               sichtbareGruppen={sichtbareGruppen}
               setGruppenZähler={setGruppenZähler}
+
               dayRefreshDatum={dayRefreshDatum}
               dayRefreshKey={dayRefreshKey}
               dayRefreshUserId={dayRefreshUserId}
-              selfBereichAktiv={
-                selfAnsichtAktiv &&
-                (
-                  selfSettings?.notizenVisible ||
-                  selfSettings?.zeitVisible ||
-                  selfSettings?.abwesenheitenVisible
-                )
+
+              persoenlicherBereichOffen={
+                !!selfSettings?.floatingOpen
               }
+              persoenlicherBereichGeladen={
+                !selfSettingsLoading
+              }
+
               onSavedForDay={handleSavedForDay}
+
               onRefreshMitarbeiterBedarf={() => {
                 setRefreshMitarbeiterKey((prev) => prev + 1);
               }}
@@ -328,14 +328,6 @@ const SchichtCockpit = () => {
           )}
         </div>
 
-        {selfAnsichtAktiv && (
-          <SelfCockpitBereich
-            settings={selfSettings}
-            jahr={jahr}
-            refreshKey={dayRefreshKey}
-          />
-        )}
-
         {/* Popup zum Ändern eines Dienstes */}
         <SchichtDienstAendernForm
           offen={popupOffen}
@@ -355,6 +347,20 @@ const SchichtCockpit = () => {
           onSavedForDay={(payload) => handleSavedForDay(payload)}
         />
       </div>
+
+      <PersoenlicherBereichFloating
+        verfuegbar={persoenlicherBereichVerfuegbar}
+        settings={selfSettings}
+        onSettingsChange={updateSelfSettings}
+        offen={!!selfSettings?.floatingOpen}
+        onOffenChange={(nextOpen) =>
+          updateSelfSettings({
+            floatingOpen: !!nextOpen,
+          })
+        }
+        jahr={jahr}
+        refreshKey={dayRefreshKey}
+      />
 
       <MobileBlocker />
     </div>

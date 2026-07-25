@@ -258,8 +258,8 @@ const SelfNotizen = () => {
   };
 
   return (
-    <section className="h-full rounded-xl border border-gray-300 bg-gray-100/80 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/35">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-gray-300 bg-gray-100/80 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/35">
+      <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Private Notizen</h2>
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
@@ -278,7 +278,7 @@ const SelfNotizen = () => {
       </div>
 
       {editorOffen && (
-        <div className="mb-3 rounded-lg border border-gray-300 bg-white/80 p-2 dark:border-gray-600 dark:bg-gray-800/80">
+        <div className="mb-3 shrink-0 rounded-lg border border-gray-300 bg-white/80 p-2 dark:border-gray-600 dark:bg-gray-800/80">
           <textarea
             value={inhalt}
             onChange={(e) => setInhalt(e.target.value)}
@@ -339,7 +339,7 @@ const SelfNotizen = () => {
         </div>
       )}
 
-      <div className="pr-1" style={{ maxHeight: 420, overflowY: 'auto', scrollbarGutter: 'stable' }}>
+      <div className="min-h-0 flex-1 overflow-y-auto pr-2 pb-3" style={{ scrollbarGutter: 'stable' }}>
         {loading && (
           <div className="py-8 text-center text-xs text-gray-500">
             Notizen werden geladen...
