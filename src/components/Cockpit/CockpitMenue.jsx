@@ -14,6 +14,8 @@ const CockpitMenue = ({
   setAnsichtModus,
   wochenAnzahl,     
   setWochenAnzahl,
+  engpassDetektorAktiv,
+  setEngpassDetektorAktiv,
 }) => {
   // 🔹 userId zusätzlich holen
   const { sichtUnit: unit, userId } = useRollen();
@@ -224,6 +226,24 @@ useEffect(() => {
                 SollPlan anzeigen
               </label>
             </div>
+
+            {/* Engpass-Detektor ein-/ausblenden */}
+            <label
+              className={`flex items-center gap-2 px-3 py-1 rounded-md cursor-pointer border text-xs mr-3 ${
+                engpassDetektorAktiv
+                  ? 'bg-orange-100 dark:bg-orange-950/40 border-orange-400 text-orange-900 dark:text-orange-200'
+                  : 'bg-gray-100 dark:bg-gray-700 border-gray-400 text-gray-800 dark:text-gray-200'
+              }`}
+              title="Engpass-Detektor im Mitarbeiterbedarf ein- oder ausblenden"
+            >
+              <input
+                type="checkbox"
+                checked={!!engpassDetektorAktiv}
+                onChange={(e) => setEngpassDetektorAktiv?.(e.target.checked)}
+                className="accent-orange-500"
+              />
+              <span>Engpass-Detektor</span>
+            </label>
 
             {/* Alle Schichten */}
             {Object.keys(gruppenZähler || {}).length > 0 && (

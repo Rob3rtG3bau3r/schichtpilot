@@ -14,6 +14,7 @@ import ZusatzbedarfZeile from './ZusatzbedarfZeile';
 import ZusatzbedarfAnfrageModal from './ZusatzbedarfAnfrageModal';
 import { Info } from 'lucide-react';
 import { useZusatzbedarfStatus } from '../../hooks/useZusatzbedarfStatus';
+import EngpassDetektor from './EngpassDetektor';
 
 const FEATURE_TOOLTIP = 'tooltip_schichtuebersicht';
 const FEATURE_ANALYSE = 'bedarf_analyse';
@@ -215,12 +216,14 @@ const MitarbeiterBedarf = ({
   dayRefreshDatum = null,
   dayRefreshKey = 0,
   onSavedForDay,
+  engpassDetektorAktiv = false,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   
   const [tage, setTage] = useState([]);
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
+  const [engpassFreischichtReserve, setEngpassFreischichtReserve] = useState({});
   const [zusatzbedarfNamenMap, setZusatzbedarfNamenMap] = useState({});
 
   const {
@@ -1072,6 +1075,34 @@ const timeIssueCount = timeIssues?.length || 0;
       }
     }
 
+    // Engpass-Detektor: potenzielle Freischichtreserve vorbereiten.
+    // Nur echtes planmäßiges "-" zählt. U/K/KO usw. werden nicht als Reserve behandelt.
+    const freiMap = {};
+    for (const datum of arbeitsTage) {
+      const tag = dayjs(datum);
+      const freieUser = new Set(
+        dienste
+          .filter((d) => d.datum === datum)
+          .filter((d) => !isGrey(d.user, datum))
+          .filter((d) => String(d.ist_schicht?.kuerzel || '') === '-')
+          .map((d) => String(d.user))
+      );
+
+      let geeignet = 0;
+      for (const uid of freieUser) {
+        const hatAktiveRelevanteQuali = (qualis || []).some((q) => {
+          if (String(q.user_id) !== uid) return false;
+          const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
+          const endOk = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
+          return startOk && endOk && !!matrixMap[q.quali]?.relevant;
+        });
+
+        if (hatAktiveRelevanteQuali) geeignet += 1;
+      }
+
+      freiMap[datum] = geeignet;
+    }
+
     // 8) Farbleiste (Sonder-/Zeitbedarfe)
     const leiste = {};
     for (const tag of arbeitsTage) {
@@ -1118,6 +1149,12 @@ const timeIssueCount = timeIssues?.length || 0;
         return next;
       });
 
+      setEngpassFreischichtReserve((prev) => {
+        const next = { ...prev };
+        for (const datum of dateSet) next[datum] = freiMap[datum] || 0;
+        return next;
+      });
+
       setBedarfStatus((prev) => {
         const next = {
           F: { ...(prev?.F || {}) },
@@ -1139,6 +1176,7 @@ const timeIssueCount = timeIssues?.length || 0;
       });
     } else {
       setBedarfsLeiste(leiste);
+      setEngpassFreischichtReserve(freiMap);
       setBedarfStatus(status);
 
       const monthlyCounts = countMonthlyUnterdeckungen(status, tage);
@@ -1459,6 +1497,16 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
 
   return (
     <div className="overflow-x-visible relative rounded-xl shadow-xl border border-gray-300 dark:border-gray-700" style={{ overflowY: 'visible' }}>
+      {engpassDetektorAktiv && (
+        <EngpassDetektor
+          tage={tage}
+          bedarfStatus={bedarfStatus}
+          freischichtReserveByDate={engpassFreischichtReserve}
+          unit={unit}
+          heutigesDatum={heutigesDatum}
+        />
+      )}
+
       {/* Info-Button */}
       <button
         className="absolute pr-2 pt-2 top-0 right-0 text-blue-500 hover:text-blue-700 dark:text-blue-300 dark:hover:text-white"

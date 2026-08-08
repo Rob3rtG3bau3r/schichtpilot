@@ -65,6 +65,28 @@ const SchichtCockpit = () => {
   }, []);
 
   const [sollPlanAktiv, setSollPlanAktiv] = useState(false);
+  const [engpassDetektorAktiv, setEngpassDetektorAktiv] = useState(false);
+
+  // Sichtbarkeit des Engpass-Detektors je Unit lokal merken.
+  useEffect(() => {
+    if (!unit) return;
+    try {
+      setEngpassDetektorAktiv(localStorage.getItem(`sp_engpass_visible_${unit}`) === '1');
+    } catch {
+      setEngpassDetektorAktiv(false);
+    }
+  }, [unit]);
+
+  const handleEngpassDetektorAktiv = (aktiv) => {
+    const next = !!aktiv;
+    setEngpassDetektorAktiv(next);
+    if (!unit) return;
+    try {
+      localStorage.setItem(`sp_engpass_visible_${unit}`, next ? '1' : '0');
+    } catch {
+      // localStorage kann in restriktiven Browser-Kontexten blockiert sein.
+    }
+  };
   const [popupOffen, setPopupOffen] = useState(false);
   const [ausgewählterDienst, setAusgewählterDienst] = useState(null);
 
@@ -207,6 +229,8 @@ const SchichtCockpit = () => {
           setAnsichtModus={setAnsichtModus}
           wochenAnzahl={wochenAnzahl}
           setWochenAnzahl={setWochenAnzahl}
+          engpassDetektorAktiv={engpassDetektorAktiv}
+          setEngpassDetektorAktiv={handleEngpassDetektorAktiv}
         />
 
         <div
@@ -244,6 +268,7 @@ const SchichtCockpit = () => {
                   dayRefreshKey={dayRefreshKey}
                   dayRefreshUserId={dayRefreshUserId}
                   onSavedForDay={handleSavedForDay}
+                  engpassDetektorAktiv={engpassDetektorAktiv}
                 />
               )}
 

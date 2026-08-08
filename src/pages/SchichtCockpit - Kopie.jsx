@@ -13,6 +13,8 @@ import { Link } from 'react-router-dom';
 import Wochen_KalenderStruktur from '../components/Cockpit/Wochen_KalenderStruktur';
 import Wochen_Kampfliste from '../components/Cockpit/Wochen_KampfListe';
 import Wochen_MitarbeiterBedarf from '../components/Cockpit/Wochen_MitarbeiterBedarf';
+import PersoenlicherBereichFloating from '../components/Cockpit/PersoenlicherBereichFloating';
+import useSelfCockpitSettings from '../hooks/useSelfCockpitSettings';
 
 const MobileBlocker = () => (
   <div className="fixed inset-0 z-[9999] lg:hidden bg-gray-900 text-white flex items-center justify-center p-6">
@@ -35,6 +37,12 @@ const MobileBlocker = () => (
 const SchichtCockpit = () => {
   const [gruppenZähler, setGruppenZähler] = useState({});
   const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+  const {
+    persoenlicherBereichVerfuegbar,
+    settings: selfSettings,
+    updateSettings: updateSelfSettings,
+    loading: selfSettingsLoading,
+  } = useSelfCockpitSettings();
 
   const [jahr, setJahr] = useState(new Date().getFullYear());
   const [monat, setMonat] = useState(new Date().getMonth());
@@ -254,6 +262,13 @@ const SchichtCockpit = () => {
               dayRefreshKey={dayRefreshKey}
               dayRefreshUserId={dayRefreshUserId}
 
+              persoenlicherBereichOffen={
+                !!selfSettings?.floatingOpen
+              }
+              persoenlicherBereichGeladen={
+                !selfSettingsLoading
+              }
+
               onSavedForDay={handleSavedForDay}
 
               onRefreshMitarbeiterBedarf={() => {
@@ -332,6 +347,20 @@ const SchichtCockpit = () => {
           onSavedForDay={(payload) => handleSavedForDay(payload)}
         />
       </div>
+
+      <PersoenlicherBereichFloating
+        verfuegbar={persoenlicherBereichVerfuegbar}
+        settings={selfSettings}
+        onSettingsChange={updateSelfSettings}
+        offen={!!selfSettings?.floatingOpen}
+        onOffenChange={(nextOpen) =>
+          updateSelfSettings({
+            floatingOpen: !!nextOpen,
+          })
+        }
+        jahr={jahr}
+        refreshKey={dayRefreshKey}
+      />
 
       <MobileBlocker />
     </div>
