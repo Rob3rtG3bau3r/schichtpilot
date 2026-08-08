@@ -217,6 +217,10 @@ const MitarbeiterBedarf = ({
   dayRefreshKey = 0,
   onSavedForDay,
   engpassDetektorAktiv = false,
+  engpassSchichttausch = false,
+  setEngpassSchichttausch,
+  engpassFreischichten = false,
+  setEngpassFreischichten,
 }) => {
   const { sichtFirma: firma, sichtUnit: unit, rolle } = useRollen();
   
@@ -1504,6 +1508,10 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
           freischichtReserveByDate={engpassFreischichtReserve}
           unit={unit}
           heutigesDatum={heutigesDatum}
+          tauschBeruecksichtigen={engpassSchichttausch}
+          setTauschBeruecksichtigen={setEngpassSchichttausch}
+          freischichtenBeruecksichtigen={engpassFreischichten}
+          setFreischichtenBeruecksichtigen={setEngpassFreischichten}
         />
       )}
 

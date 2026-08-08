@@ -1,5 +1,5 @@
 // src/components/Cockpit/EngpassDetektor.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import { Settings, ShieldAlert } from 'lucide-react';
 
@@ -18,38 +18,13 @@ const EngpassDetektor = ({
   freischichtReserveByDate = {},
   unit,
   heutigesDatum,
+  tauschBeruecksichtigen = false,
+  setTauschBeruecksichtigen,
+  freischichtenBeruecksichtigen = false,
+  setFreischichtenBeruecksichtigen,
 }) => {
   const [settingsOffen, setSettingsOffen] = useState(false);
-  const [tauschBeruecksichtigen, setTauschBeruecksichtigen] = useState(false);
-  const [freischichtenBeruecksichtigen, setFreischichtenBeruecksichtigen] = useState(false);
   const [detailDatum, setDetailDatum] = useState(null);
-
-  // Einstellung bewusst lokal je Unit merken. Keine weitere Supabase-Abfrage.
-  useEffect(() => {
-    if (!unit) return;
-    try {
-      const raw = localStorage.getItem(`sp_engpass_${unit}`);
-      if (!raw) return;
-      const cfg = JSON.parse(raw);
-      if (typeof cfg.tausch === 'boolean') setTauschBeruecksichtigen(cfg.tausch);
-      if (typeof cfg.freischichten === 'boolean') {
-        setFreischichtenBeruecksichtigen(cfg.freischichten);
-      }
-    } catch {
-      // Alte/defekte lokale Einstellung ignorieren.
-    }
-  }, [unit]);
-
-  useEffect(() => {
-    if (!unit) return;
-    localStorage.setItem(
-      `sp_engpass_${unit}`,
-      JSON.stringify({
-        tausch: tauschBeruecksichtigen,
-        freischichten: freischichtenBeruecksichtigen,
-      })
-    );
-  }, [unit, tauschBeruecksichtigen, freischichtenBeruecksichtigen]);
 
   const analyseByDate = useMemo(() => {
     const out = {};
@@ -188,7 +163,7 @@ const EngpassDetektor = ({
                 <input
                   type="checkbox"
                   checked={tauschBeruecksichtigen}
-                  onChange={(e) => setTauschBeruecksichtigen(e.target.checked)}
+                  onChange={(e) => setTauschBeruecksichtigen?.(e.target.checked)}
                 />
                 Schichttausch berücksichtigen
               </label>
@@ -197,7 +172,7 @@ const EngpassDetektor = ({
                 <input
                   type="checkbox"
                   checked={freischichtenBeruecksichtigen}
-                  onChange={(e) => setFreischichtenBeruecksichtigen(e.target.checked)}
+                  onChange={(e) => setFreischichtenBeruecksichtigen?.(e.target.checked)}
                 />
                 Freischichten berücksichtigen
               </label>
@@ -219,7 +194,7 @@ const EngpassDetektor = ({
                 type="button"
                 key={`engpass-${datum}`}
                 onClick={() => bewertbar && setDetailDatum(datum)}
-                className={`w-[48px] min-w-[48px] h-[22px] rounded-sm border border-black/10 dark:border-white/10 transition-opacity ${
+                className={`w-[48px] min-w-[48px] h-[18px] text-xs rounded-sm border border-black/10 dark:border-white/10 transition-opacity ${
                   bewertbar
                     ? `${analyse.className} hover:opacity-80 cursor-pointer`
                     : 'bg-gray-300/30 dark:bg-gray-700/30 cursor-default'

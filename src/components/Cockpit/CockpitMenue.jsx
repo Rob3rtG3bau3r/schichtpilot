@@ -213,37 +213,26 @@ useEffect(() => {
         {/* Monats-Menü (nur in Monatsansicht) */}
         {isMonatsAnsicht && (
           <div className="flex flex-wrap items-center gap-2 ml-4">
-            {/* Sollplan-Checkbox */}
-            <div className="flex items-center mr-3">
-              <input
-                id="sollplan-toggle"
-                type="checkbox"
-                checked={sollPlanAktiv}
-                onChange={(e) => setSollPlanAktiv(e.target.checked)}
-                className="mr-2"
-              />
-              <label htmlFor="sollplan-toggle" className="text-xs md:text-sm">
-                SollPlan anzeigen
-              </label>
-            </div>
+{/* Sollplan-Checkbox */}
+<label className="flex items-center gap-2 mr-3 text-xs md:text-sm cursor-pointer">
+  <input
+    id="sollplan-toggle"
+    type="checkbox"
+    checked={sollPlanAktiv}
+    onChange={(e) => setSollPlanAktiv(e.target.checked)}
+  />
+  <span>SollPlan anzeigen</span>
+</label>
 
-            {/* Engpass-Detektor ein-/ausblenden */}
-            <label
-              className={`flex items-center gap-2 px-3 py-1 rounded-md cursor-pointer border text-xs mr-3 ${
-                engpassDetektorAktiv
-                  ? 'bg-orange-100 dark:bg-orange-950/40 border-orange-400 text-orange-900 dark:text-orange-200'
-                  : 'bg-gray-100 dark:bg-gray-700 border-gray-400 text-gray-800 dark:text-gray-200'
-              }`}
-              title="Engpass-Detektor im Mitarbeiterbedarf ein- oder ausblenden"
-            >
-              <input
-                type="checkbox"
-                checked={!!engpassDetektorAktiv}
-                onChange={(e) => setEngpassDetektorAktiv?.(e.target.checked)}
-                className="accent-orange-500"
-              />
-              <span>Engpass-Detektor</span>
-            </label>
+{/* Engpass-Detektor */}
+<label className="flex items-center gap-2 mr-3 text-xs md:text-sm cursor-pointer">
+  <input
+    type="checkbox"
+    checked={!!engpassDetektorAktiv}
+    onChange={(e) => setEngpassDetektorAktiv?.(e.target.checked)}
+  />
+  <span>Engpass-Detektor</span>
+</label>
 
             {/* Alle Schichten */}
             {Object.keys(gruppenZähler || {}).length > 0 && (

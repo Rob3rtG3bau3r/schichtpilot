@@ -36,7 +36,7 @@ const MobileBlocker = () => (
 
 const SchichtCockpit = () => {
   const [gruppenZähler, setGruppenZähler] = useState({});
-  const { sichtFirma: firma, sichtUnit: unit } = useRollen();
+  const { sichtFirma: firma, sichtUnit: unit, userId } = useRollen();
   const {
     persoenlicherBereichVerfuegbar,
     settings: selfSettings,
@@ -65,28 +65,81 @@ const SchichtCockpit = () => {
   }, []);
 
   const [sollPlanAktiv, setSollPlanAktiv] = useState(false);
+
+  // Engpass-Einstellungen: eine einzige Quelle in DB_UserSettings.
   const [engpassDetektorAktiv, setEngpassDetektorAktiv] = useState(false);
+  const [engpassSchichttausch, setEngpassSchichttausch] = useState(false);
+  const [engpassFreischichten, setEngpassFreischichten] = useState(false);
+  const [engpassSettingsGeladen, setEngpassSettingsGeladen] = useState(false);
 
-  // Sichtbarkeit des Engpass-Detektors je Unit lokal merken.
   useEffect(() => {
-    if (!unit) return;
-    try {
-      setEngpassDetektorAktiv(localStorage.getItem(`sp_engpass_visible_${unit}`) === '1');
-    } catch {
-      setEngpassDetektorAktiv(false);
-    }
-  }, [unit]);
+    let alive = true;
 
-  const handleEngpassDetektorAktiv = (aktiv) => {
-    const next = !!aktiv;
-    setEngpassDetektorAktiv(next);
-    if (!unit) return;
-    try {
-      localStorage.setItem(`sp_engpass_visible_${unit}`, next ? '1' : '0');
-    } catch {
-      // localStorage kann in restriktiven Browser-Kontexten blockiert sein.
-    }
-  };
+    const ladeEngpassSettings = async () => {
+      if (!userId) {
+        if (alive) setEngpassSettingsGeladen(true);
+        return;
+      }
+
+      setEngpassSettingsGeladen(false);
+
+      const { data, error } = await supabase
+        .from('DB_UserSettings')
+        .select('cockpit_engpass_visible, cockpit_engpass_schichttausch, cockpit_engpass_freischichten')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!alive) return;
+
+      if (error) {
+        console.error('❌ Engpass-Einstellungen konnten nicht geladen werden:', error.message || error);
+        setEngpassDetektorAktiv(false);
+        setEngpassSchichttausch(false);
+        setEngpassFreischichten(false);
+      } else {
+        setEngpassDetektorAktiv(!!data?.cockpit_engpass_visible);
+        setEngpassSchichttausch(!!data?.cockpit_engpass_schichttausch);
+        setEngpassFreischichten(!!data?.cockpit_engpass_freischichten);
+      }
+
+      setEngpassSettingsGeladen(true);
+    };
+
+    ladeEngpassSettings();
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || !engpassSettingsGeladen) return;
+
+    const speichereEngpassSettings = async () => {
+      const { error } = await supabase
+        .from('DB_UserSettings')
+        .upsert(
+          {
+            user_id: userId,
+            cockpit_engpass_visible: !!engpassDetektorAktiv,
+            cockpit_engpass_schichttausch: !!engpassSchichttausch,
+            cockpit_engpass_freischichten: !!engpassFreischichten,
+          },
+          { onConflict: 'user_id' }
+        );
+
+      if (error) {
+        console.error('❌ Engpass-Einstellungen konnten nicht gespeichert werden:', error.message || error);
+      }
+    };
+
+    speichereEngpassSettings();
+  }, [
+    userId,
+    engpassSettingsGeladen,
+    engpassDetektorAktiv,
+    engpassSchichttausch,
+    engpassFreischichten,
+  ]);
   const [popupOffen, setPopupOffen] = useState(false);
   const [ausgewählterDienst, setAusgewählterDienst] = useState(null);
 
@@ -230,7 +283,7 @@ const SchichtCockpit = () => {
           wochenAnzahl={wochenAnzahl}
           setWochenAnzahl={setWochenAnzahl}
           engpassDetektorAktiv={engpassDetektorAktiv}
-          setEngpassDetektorAktiv={handleEngpassDetektorAktiv}
+          setEngpassDetektorAktiv={setEngpassDetektorAktiv}
         />
 
         <div
@@ -269,6 +322,10 @@ const SchichtCockpit = () => {
                   dayRefreshUserId={dayRefreshUserId}
                   onSavedForDay={handleSavedForDay}
                   engpassDetektorAktiv={engpassDetektorAktiv}
+                  engpassSchichttausch={engpassSchichttausch}
+                  setEngpassSchichttausch={setEngpassSchichttausch}
+                  engpassFreischichten={engpassFreischichten}
+                  setEngpassFreischichten={setEngpassFreischichten}
                 />
               )}
 
