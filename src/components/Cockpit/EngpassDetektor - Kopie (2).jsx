@@ -22,35 +22,59 @@ const reserveWert = (cell) => {
 // ] }
 // Alle IDs müssen dasselbe Format haben. Pro Person wird maximal ein Einsatz
 // pro Planungstag zugelassen. Tauschoptionen müssen im Tagesbedarf abgebildet sein.
-const pruefeAusfaelle = (daten, mitFrei, mitTausch) => {
-  const geplant = [...new Set(daten.geplant)];
-  const bedarf = daten.bedarf.map((platz) => ({
-    ...platz,
-    kandidaten: [...new Set([
-      ...platz.direkt,
-      ...(mitFrei ? platz.frei ?? [] : []),
-      ...(mitTausch ? platz.tausch ?? [] : []),
-    ])],
-  }));
+const mitKandidaten = (bedarf, mitFrei, mitTausch) => bedarf.map((platz) => ({
+  ...platz,
+  kandidaten: [...new Set([
+    ...platz.direkt,
+    ...(mitFrei ? platz.frei ?? [] : []),
+    ...(mitTausch ? platz.tausch ?? [] : []),
+  ])],
+}));
 
-  const offenePlaetze = (ausfaelle) => {
-    const zuordnung = new Map();
+const ermittleOffenePlaetze = (bedarf, gesperrteIds) => {
+  const zuordnung = new Map();
 
-    // Bereits belegte Personen dürfen auf einen anderen passenden Platz wechseln.
-    const besetze = (platz, besucht) => {
-      for (const id of platz.kandidaten) {
-        if (ausfaelle.has(id) || besucht.has(id)) continue;
-        besucht.add(id);
-        if (!zuordnung.has(id) || besetze(zuordnung.get(id), besucht)) {
-          zuordnung.set(id, platz);
-          return true;
+  const besetze = (platz, besucht) => {
+    for (const id of platz.kandidaten) {
+      if (gesperrteIds.has(id) || besucht.has(id)) continue;
+      besucht.add(id);
+      if (!zuordnung.has(id) || besetze(zuordnung.get(id), besucht)) {
+        zuordnung.set(id, platz);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  return bedarf.filter((platz) => !besetze(platz, new Set()));
+};
+
+const zaehleMachbareWechsel = (bedarf, schicht) => {
+  const zielPlaetze = bedarf.filter((platz) => platz.schicht === schicht);
+  const ausfaelle = new Set(zielPlaetze.flatMap((platz) => platz.direkt));
+  const machbar = new Set();
+
+  for (const platz of zielPlaetze) {
+    const restbedarf = bedarf.filter((andererPlatz) => andererPlatz !== platz);
+    for (const id of platz.tausch ?? []) {
+      if (machbar.has(id)) continue;
+      // Den Wechsel fest einplanen und alle übrigen Plätze neu besetzen.
+      for (const ausfall of ausfaelle) {
+        if (id === ausfall) continue;
+        if (ermittleOffenePlaetze(restbedarf, new Set([id, ausfall])).length === 0) {
+          machbar.add(id);
+          break;
         }
       }
-      return false;
-    };
+    }
+  }
+  return machbar.size;
+};
 
-    return bedarf.filter((platz) => !besetze(platz, new Set()));
-  };
+const pruefeAusfaelle = (daten, mitFrei, mitTausch) => {
+  const geplant = [...new Set(daten.geplant)];
+  const bedarf = mitKandidaten(daten.bedarf, mitFrei, mitTausch);
+  const offenePlaetze = (ausfaelle) => ermittleOffenePlaetze(bedarf, ausfaelle);
 
   const unterdeckung = offenePlaetze(new Set());
   if (unterdeckung.length) {
@@ -92,6 +116,11 @@ const EngpassDetektor = ({
   bedarfStatus = { F: {}, S: {}, N: {} },
   freischichtReserveByDate = {},
   ausfallDatenByDate,
+  urlaubPuffer,
+  darfUrlaubPufferSpeichern = false,
+  urlaubFehler,
+  urlaubSpeichert,
+  onUrlaubPufferChange,
   heutigesDatum,
   tauschBeruecksichtigen = false,
   setTauschBeruecksichtigen,
@@ -226,6 +255,11 @@ const EngpassDetektor = ({
   ]);
 
   const detail = detailDatum ? analyseByDate?.[detailDatum] : null;
+  const detailBedarf = mitKandidaten(
+    ausfallDatenByDate?.[detailDatum]?.bedarf ?? [],
+    false, // Die Wechselzahl zeigt nur Lösungen mit eingeplanten Mitarbeitern.
+    tauschBeruecksichtigen,
+  );
 
   return (
     <>
@@ -267,6 +301,37 @@ const EngpassDetektor = ({
                 />
                 Freischichten berücksichtigen
               </label>
+
+              {[
+                ['engpass_urlaub_vor', 'Vor dem Urlaub'],
+                ['engpass_urlaub_nach', 'Nach dem Urlaub'],
+              ].map(([feld, label]) => (
+                darfUrlaubPufferSpeichern ? (
+                <label key={feld} className="flex items-center justify-between gap-2 py-1">
+                  {label}
+                  <select
+                    className="rounded border bg-white dark:bg-gray-800"
+                    value={urlaubPuffer?.[feld] ?? 0}
+                    disabled={!urlaubPuffer || urlaubSpeichert}
+                    onChange={(e) => onUrlaubPufferChange(feld, Number(e.target.value))}
+                  >
+                    <option value={0}>Aus</option>
+                    {Array.from({ length: 6 }, (_, i) => i + 1).map((tage) => (
+                      <option key={tage} value={tage}>{tage} {tage === 1 ? 'Tag' : 'Tage'}</option>
+                    ))}
+                  </select>
+                </label>
+                ) : (
+                  <div key={feld} className="flex items-center justify-between gap-2 py-1">
+                    <span>{label}</span>
+                    <span>{urlaubPuffer
+                      ? urlaubPuffer[feld] ? `${urlaubPuffer[feld]} Kalendertage` : 'Aus'
+                      : '–'}</span>
+                  </div>
+                )
+              ))}
+              <div className="mt-1 text-[10px]">Urlaubspuffer gelten für die gesamte Unit.</div>
+              {urlaubFehler && <div role="alert" className="mt-1 text-red-600">{urlaubFehler}</div>}
 
               <div className="mt-2 text-[10px] text-gray-500 dark:text-gray-400 leading-snug">
                 Ohne Optionen bewertet der Detektor nur die Reserve innerhalb der geplanten Schichten.
@@ -387,9 +452,45 @@ const EngpassDetektor = ({
                 <div>↔ Schichttausch wird in der Risikobewertung berücksichtigt.</div>
               )}
 
+              {(freischichtenBeruecksichtigen || tauschBeruecksichtigen) && (
+                <div>
+                  <div className="font-semibold">Potenzielle Kandidaten je Schicht</div>
+                  {detailBedarf.length > 0 ? (
+                    <>
+                      <ul className="mt-1 space-y-1">
+                        {SCHICHTEN.map((schicht) => {
+                          const plaetze = detailBedarf.filter((platz) => platz.schicht === schicht);
+                          const freie = new Set(plaetze.flatMap((platz) => platz.frei ?? []));
+
+                          return (
+                            <li key={schicht}>
+                              <b>{SCHICHT_LABEL[schicht]}</b>{' · '}
+                              {plaetze.length === 0
+                                ? 'Kein bewerteter Bedarf'
+                                : [
+                                  freischichtenBeruecksichtigen && `${freie.size} aus Frei`,
+                                  tauschBeruecksichtigen && `${zaehleMachbareWechsel(detailBedarf, schicht)} für Wechsel ohne Freischicht`,
+                                ].filter(Boolean).join(' · ')}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <div className="mt-1 text-gray-500 dark:text-gray-400">
+                        Eine Person kann für mehrere Schichten infrage kommen.
+                        Für die Wechselzahl müssen bei einem Einzelausfall alle
+                        Schichten mit eingeplanten Mitarbeitern besetzbar bleiben.
+                      </div>
+                    </>
+                  ) : (
+                    <div>Für diesen Tag liegen keine Kandidatenzahlen je Schicht vor.</div>
+                  )}
+                </div>
+              )}
+
               {freischichtenBeruecksichtigen && (
                 <div>
-                  ○ Potenzielle Freischichtreserve: <b>{detail.frei || 0}</b>.
+                  Potenzielle Freischichtreserve am Tag vor Prüfung je Schicht{' '}
+                  <b>{detail.frei || 0}</b>.
                 </div>
               )}
             </div>

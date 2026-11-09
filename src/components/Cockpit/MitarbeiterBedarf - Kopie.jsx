@@ -227,6 +227,50 @@ const MitarbeiterBedarf = ({
   const [tage, setTage] = useState([]);
   const [bedarfStatus, setBedarfStatus] = useState({ F: {}, S: {}, N: {} });
   const [bedarfsLeiste, setBedarfsLeiste] = useState({});
+  const [urlaubEinstellung, setUrlaubEinstellung] = useState(null);
+  const [urlaubFehler, setUrlaubFehler] = useState('');
+  const [urlaubSpeichert, setUrlaubSpeichert] = useState(false);
+  const darfUrlaubPufferSpeichern = rolle === 'Admin_Dev';
+  const urlaubScope = `${firma}|${unit}`;
+  const aktuellerUrlaubScope = useRef(urlaubScope);
+  aktuellerUrlaubScope.current = urlaubScope;
+  const urlaubPuffer = urlaubEinstellung?.scope === urlaubScope ? urlaubEinstellung : null;
+  const urlaubVor = urlaubPuffer?.engpass_urlaub_vor ?? 0;
+  const urlaubNach = urlaubPuffer?.engpass_urlaub_nach ?? 0;
+
+  useEffect(() => {
+    if (!firma || !unit || !engpassDetektorAktiv) return;
+    let aktiv = true;
+    setUrlaubFehler('');
+    const laden = async () => {
+      const { data, error } = await supabase.from('DB_Unit')
+        .select('engpass_urlaub_vor, engpass_urlaub_nach')
+        .eq('id', unit)
+        .single();
+      if (!aktiv) return;
+      if (error) setUrlaubFehler('Urlaubspuffer konnte nicht geladen werden.');
+      else setUrlaubEinstellung({ ...data, scope: urlaubScope });
+    };
+    laden();
+    return () => { aktiv = false; };
+  }, [firma, unit, urlaubScope, engpassDetektorAktiv]);
+
+  const speichereUrlaubPuffer = async (feld, wert) => {
+    if (!darfUrlaubPufferSpeichern) return;
+    setUrlaubSpeichert(true);
+    setUrlaubFehler('');
+    const { data, error } = await supabase.rpc('set_engpass_urlaubspuffer', {
+      p_unit_id: unit,
+      p_feld: feld,
+      p_tage: wert,
+    });
+    setUrlaubSpeichert(false);
+    if (aktuellerUrlaubScope.current !== urlaubScope) return;
+    if (error) setUrlaubFehler('Urlaubspuffer konnte nicht gespeichert werden.');
+    else setUrlaubEinstellung({ ...data, scope: urlaubScope });
+  };
+
+  const [ausfallDatenByDate, setAusfallDatenByDate] = useState({});
   const [engpassFreischichtReserve, setEngpassFreischichtReserve] = useState({});
   const [zusatzbedarfNamenMap, setZusatzbedarfNamenMap] = useState({});
 
@@ -510,7 +554,11 @@ const MitarbeiterBedarf = ({
   const ladeMitarbeiterBedarf = async (optionen = {}) => {
     if (!firma || !unit || tage.length === 0) return;
 
-    const onlyDates = normalisiereRefreshDates(optionen?.dates);
+    const refreshDates = normalisiereRefreshDates(optionen?.dates);
+    const onlyDates = normalisiereRefreshDates(refreshDates.flatMap((datum) =>
+      Array.from({ length: urlaubVor + urlaubNach + 3 }, (_, i) =>
+        dayjs(datum).add(i - urlaubVor - 1, 'day').format('YYYY-MM-DD'))
+    ));
     const istTeilRefresh = onlyDates.length > 0;
     const arbeitsTage = istTeilRefresh ? onlyDates : tage;
 
@@ -518,6 +566,12 @@ const MitarbeiterBedarf = ({
 
     const monthStart = arbeitsTage[0];
     const monthEnd = arbeitsTage[arbeitsTage.length - 1];
+
+    const dienstTage = [...new Set(arbeitsTage.flatMap((datum) =>
+      [-1, 0, 1].map((delta) => dayjs(datum).add(delta, 'day').format('YYYY-MM-DD'))
+    ))].sort();
+    const dienstVon = dienstTage[0];
+    const dienstBis = dienstTage[dienstTage.length - 1];
 
     // 0) Schichtzeiten (für Zeit-Prüfung)
     const shiftTimes = {}; // F|S|N -> {s,e} in Minuten
@@ -541,13 +595,13 @@ const MitarbeiterBedarf = ({
     }
 
     // 1) SOLL-PLAN
-    const { data: soll } = await supabase
+    const { data: soll, error: sollFehler } = await supabase
       .from('DB_SollPlan')
       .select('datum, schichtgruppe, kuerzel')
       .eq('firma_id', firma)
       .eq('unit_id', unit)
-      .gte('datum', monthStart)
-      .lte('datum', monthEnd);
+      .gte('datum', dienstVon)
+      .lte('datum', dienstBis);
 
     const planByDate = new Map(); // date -> Map(group -> kuerzel)
     (soll || []).forEach((r) => {
@@ -558,18 +612,18 @@ const MitarbeiterBedarf = ({
     });
 
     // 2) ZUWEISUNGEN
-    const { data: zuw } = await supabase
+    const { data: zuw, error: zuwFehler } = await supabase
       .from('DB_SchichtZuweisung')
       .select('user_id, schichtgruppe, von_datum, bis_datum')
       .eq('firma_id', firma)
       .eq('unit_id', unit)
-      .lte('von_datum', monthEnd)
-      .or(`bis_datum.is.null, bis_datum.gte.${monthStart}`);
+      .lte('von_datum', dienstBis)
+      .or(`bis_datum.is.null, bis_datum.gte.${dienstVon}`);
 
     const membersByDate = new Map();
-    (arbeitsTage || []).forEach((d) => membersByDate.set(d, new Map()));
+    (dienstTage || []).forEach((d) => membersByDate.set(d, new Map()));
     for (const z of zuw || []) {
-      for (const d of arbeitsTage) {
+      for (const d of dienstTage) {
         if (dayjs(z.von_datum).isAfter(d, 'day')) continue;
         if (z.bis_datum && dayjs(z.bis_datum).isBefore(d, 'day')) continue;
         const map = membersByDate.get(d);
@@ -581,13 +635,13 @@ const MitarbeiterBedarf = ({
     }
 
     // 3) KAMPFLISTE-OVERLAY (Änderungen + Zeiten + aenderung)
-  const { data: kampf } = await supabase
+  const { data: kampf, error: kampfFehler } = await supabase
     .from('DB_Kampfliste')
     .select('datum, user, aenderung, startzeit_ist, endzeit_ist, ist_schicht(id, kuerzel)')
     .eq('firma_id', firma)
     .eq('unit_id', unit)
-    .gte('datum', monthStart)
-    .lte('datum', monthEnd);
+    .gte('datum', dayjs(monthStart).subtract(Math.max(1, urlaubNach), 'day').format('YYYY-MM-DD'))
+    .lte('datum', dayjs(monthEnd).add(Math.max(1, urlaubVor), 'day').format('YYYY-MM-DD'));
 
 const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
 (kampf || []).forEach((r) => {
@@ -602,6 +656,18 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
 });
 
 
+    const urlaubTage = new Set((kampf || [])
+      .filter((r) => r.ist_schicht?.kuerzel === 'U')
+      .map((r) => `${r.datum?.slice(0, 10)}|${r.user}`));
+    const imUrlaubspuffer = (uid, datum) => {
+      if (kampfFehler && (urlaubVor || urlaubNach)) return true;
+      for (let delta = -urlaubNach; delta <= urlaubVor; delta += 1) {
+        const tag = dayjs(datum).add(delta, 'day').format('YYYY-MM-DD');
+        if (urlaubTage.has(`${tag}|${uid}`)) return true;
+      }
+      return false;
+    };
+
     // 4) FINAL: DIENSTE (inkl. Zeiten + aenderung)
     const dienste = [];
     const allUserIdsSet = new Set();
@@ -610,7 +676,7 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
     (kampf || []).forEach((r) => {
       if (r?.user) allUserIdsSet.add(r.user);
     });
-    for (const d of arbeitsTage) {
+    for (const d of dienstTage) {
       const planForDay = planByDate.get(d) || new Map();
       const mMap = membersByDate.get(d) || new Map();
 
@@ -635,6 +701,32 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
         allUserIdsSet.add(uid);
       }
     }
+
+    const dienstNachTagUndUser = new Map(
+      dienste.map((dienst) => [`${dienst.datum}|${dienst.user}`, dienst])
+    );
+    const hatRuhezeit = (uid, datum, schicht) => {
+      const ersatz = shiftTimes[schicht];
+      if (!ersatz || sollFehler || zuwFehler || kampfFehler) return false;
+
+      return [-1, 1].every((delta) => {
+        const nachbarDatum = dayjs(datum).add(delta, 'day').format('YYYY-MM-DD');
+        const dienst = dienstNachTagUndUser.get(`${nachbarDatum}|${uid}`);
+        if (!dienst) return false;
+        const kuerzel = dienst.ist_schicht.kuerzel;
+        if (kuerzel === '-') return true;
+
+        const zeit = dienst.aenderung
+          ? normalizeRange(timeToMin(dienst.start), timeToMin(dienst.end))
+          : shiftTimes[kuerzel];
+        if (!zeit) return false;
+
+        const ruheMinuten = delta < 0
+          ? ersatz.s - (zeit.e - 1440)
+          : zeit.s + 1440 - ersatz.e;
+        return ruheMinuten >= 11 * 60;
+      });
+    };
 
     // 5) Bedarf & Matrix
     // Die DB liefert nur die für den angefragten Zeitraum relevanten
@@ -678,6 +770,7 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
     const userIds = Array.from(allUserIdsSet);
 
     let qualis = [];
+    let engpassQualisVollstaendig = Array.isArray(qualiMatrix);
     if (userIds.length > 0) {
       for (const part of chunkArray(userIds, 200)) {
         const { data, error } = await supabase
@@ -698,6 +791,7 @@ const override = new Map(); // `${d}|${uid}` -> {kuerzel,start,end,aenderung}
           .eq('matrix.firma_id', firma)
           .eq('matrix.unit_id', unit)
           .eq('matrix.aktiv', true);
+        if (error) engpassQualisVollstaendig = false;
         if (!error && data?.length) qualis.push(...data);
       }
     }
@@ -795,7 +889,32 @@ if (istTeilRefresh) {
     // 7) Bewertung/Status
     const status = { F: {}, S: {}, N: {} };
 
+    const ausfallDaten = {};
     for (const datum of arbeitsTage) {
+      const tagesDienste = dienste.filter((d) => d.datum === datum && !isGrey(d.user, datum));
+      const geplanteDienste = tagesDienste.filter((d) => SHIFT_KUERZEL_SET.has(d.ist_schicht?.kuerzel));
+      const mitDienst = new Set(tagesDienste
+        .filter((d) => d.ist_schicht?.kuerzel !== '-')
+        .map((d) => String(d.user)));
+      const freieIds = new Set(tagesDienste
+        .filter((d) => d.ist_schicht?.kuerzel === '-' && !mitDienst.has(String(d.user)))
+        .map((d) => String(d.user)));
+      const tag = dayjs(datum);
+      const qualifizierteNachId = new Map();
+      for (const q of qualis) {
+        if (q.quali_start && !dayjs(q.quali_start).isSameOrBefore(tag, 'day')) continue;
+        if (q.quali_endet && !dayjs(q.quali_endet).isSameOrAfter(tag, 'day')) continue;
+        const qualiId = String(q.quali);
+        if (!qualifizierteNachId.has(qualiId)) qualifizierteNachId.set(qualiId, new Set());
+        qualifizierteNachId.get(qualiId).add(String(q.user_id));
+      }
+
+      // Das Tagesmodell unterstützt durchgehende Schichten. Segmentdienste
+      // verbleiben in der bisherigen zeitfensterbasierten Bewertung.
+      const ausfallTag = engpassQualisVollstaendig && !geplanteDienste.some((d) => d.aenderung)
+        ? { geplant: [], bedarf: [] }
+        : null;
+
       for (const schicht of ['F', 'S', 'N']) {
         // 1) Kandidaten (Zeitfenster)
         const bedarfTag = (bedarf || []).filter((b) => (!b.von || datum >= b.von) && (!b.bis || datum <= b.bis));
@@ -808,11 +927,7 @@ if (istTeilRefresh) {
         const bedarfHeute = bedarfTagSchicht.filter((b) => b.normalbetrieb === !hatZeitlich);
 
         // --- aktive User (nur nicht-ausgegraut) ---
-        const dayDienste = dienste
-          .filter((d) => d.datum === datum)
-          .filter((d) => !isGrey(d.user, datum))
-          // ✅ NUR echte Schichten zählen
-          .filter((d) => SHIFT_KUERZEL_SET.has(d.ist_schicht?.kuerzel));
+        const dayDienste = geplanteDienste;
 
 
 const shift = shiftTimes[schicht] || null;
@@ -879,7 +994,7 @@ const aktiveDienste = dayDienste.filter((d) => aktiveUser.includes(String(d.user
         const userQualiMap = {};
         const tag = dayjs(datum);
         for (const q of qualis) {
-          if (!aktiveUser.includes(q.user_id)) continue;
+          if (!aktiveUser.includes(String(q.user_id))) continue;
           const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
           const endOk = !q.quali_endet || dayjs(q.quali_endet).isSameOrAfter(tag, 'day');
           if (startOk && endOk) {
@@ -918,6 +1033,26 @@ const aktiveDienste = dayDienste.filter((d) => aktiveUser.includes(String(d.user
             },
           };
           continue;
+        }
+
+        if (ausfallTag) {
+          const direktIds = baseShiftDienste.map((d) => String(d.user));
+          ausfallTag.geplant.push(...direktIds);
+          for (const b of bedarfSortiert) {
+            const qualifizierte = qualifizierteNachId.get(String(b.quali_id));
+            const platz = {
+              schicht,
+              qualiId: String(b.quali_id),
+              arbeitsplatz: matrixMap[b.quali_id]?.bezeichnung || b.kuerzel,
+              direkt: direktIds.filter((id) => qualifizierte?.has(id)),
+              frei: [...freieIds].filter((id) =>
+                qualifizierte?.has(id) && !imUrlaubspuffer(id, datum) && hatRuhezeit(id, datum, schicht)
+              ),
+            };
+            for (let i = 0; i < Number(b.anzahl); i += 1) {
+              ausfallTag.bedarf.push(platz);
+            }
+          }
         }
 
         // --- Zusatzquali fehlt ---
@@ -1077,6 +1212,20 @@ const timeIssueCount = timeIssues?.length || 0;
                       },
         };
       }
+      if (ausfallTag?.bedarf.length) {
+        const bewerteteSchichten = new Set(ausfallTag.bedarf.map((platz) => platz.schicht));
+        const tauschKandidaten = geplanteDienste.filter((dienst) =>
+          bewerteteSchichten.has(dienst.ist_schicht.kuerzel)
+        );
+        for (const platz of ausfallTag.bedarf) {
+          const qualifizierte = qualifizierteNachId.get(platz.qualiId);
+          platz.tausch = tauschKandidaten
+            .filter((dienst) => dienst.ist_schicht.kuerzel !== platz.schicht)
+            .map((dienst) => String(dienst.user))
+            .filter((id) => qualifizierte?.has(id) && !imUrlaubspuffer(id, datum) && hatRuhezeit(id, datum, platz.schicht));
+        }
+        ausfallDaten[datum] = ausfallTag;
+      }
     }
 
     // Engpass-Detektor: potenzielle Freischichtreserve vorbereiten.
@@ -1094,6 +1243,7 @@ const timeIssueCount = timeIssues?.length || 0;
 
       let geeignet = 0;
       for (const uid of freieUser) {
+        if (imUrlaubspuffer(uid, datum)) continue;
         const hatAktiveRelevanteQuali = (qualis || []).some((q) => {
           if (String(q.user_id) !== uid) return false;
           const startOk = !q.quali_start || dayjs(q.quali_start).isSameOrBefore(tag, 'day');
@@ -1153,6 +1303,12 @@ const timeIssueCount = timeIssues?.length || 0;
         return next;
       });
 
+      setAusfallDatenByDate((prev) => {
+        const next = { ...prev };
+        for (const datum of dateSet) delete next[datum];
+        return { ...next, ...ausfallDaten };
+      });
+
       setEngpassFreischichtReserve((prev) => {
         const next = { ...prev };
         for (const datum of dateSet) next[datum] = freiMap[datum] || 0;
@@ -1181,6 +1337,7 @@ const timeIssueCount = timeIssues?.length || 0;
     } else {
       setBedarfsLeiste(leiste);
       setEngpassFreischichtReserve(freiMap);
+      setAusfallDatenByDate(ausfallDaten);
       setBedarfStatus(status);
 
       const monthlyCounts = countMonthlyUnterdeckungen(status, tage);
@@ -1198,7 +1355,7 @@ const timeIssueCount = timeIssues?.length || 0;
   useEffect(() => {
     ladeMitarbeiterBedarf();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tage, firma, unit, refreshKey]);
+  }, [tage, firma, unit, refreshKey, urlaubVor, urlaubNach]);
 
   useEffect(() => {
     if (!dayRefreshKey) return;
@@ -1505,8 +1662,14 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
         <EngpassDetektor
           tage={tage}
           bedarfStatus={bedarfStatus}
+          ausfallDatenByDate={ausfallDatenByDate}
           freischichtReserveByDate={engpassFreischichtReserve}
           unit={unit}
+          urlaubPuffer={urlaubPuffer}
+          darfUrlaubPufferSpeichern={darfUrlaubPufferSpeichern}
+          urlaubFehler={urlaubFehler}
+          urlaubSpeichert={urlaubSpeichert}
+          onUrlaubPufferChange={speichereUrlaubPuffer}
           heutigesDatum={heutigesDatum}
           tauschBeruecksichtigen={engpassSchichttausch}
           setTauschBeruecksichtigen={setEngpassSchichttausch}

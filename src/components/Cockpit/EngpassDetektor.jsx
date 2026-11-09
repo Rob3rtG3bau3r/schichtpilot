@@ -72,7 +72,6 @@ const zaehleMachbareWechsel = (bedarf, schicht) => {
 };
 
 const pruefeAusfaelle = (daten, mitFrei, mitTausch) => {
-  const geplant = [...new Set(daten.geplant)];
   const bedarf = mitKandidaten(daten.bedarf, mitFrei, mitTausch);
   const offenePlaetze = (ausfaelle) => ermittleOffenePlaetze(bedarf, ausfaelle);
 
@@ -81,15 +80,23 @@ const pruefeAusfaelle = (daten, mitFrei, mitTausch) => {
     return { score: 0, offenePlaetze: unterdeckung, geprueft: 0 };
   }
 
-  const einzelLuecken = geplant.flatMap((id) => offenePlaetze(new Set([id])));
+  const istBesetzungOffen = ermittleOffenePlaetze(
+    mitKandidaten(daten.bedarf, false, false), new Set(),
+  ).length > 0;
+  // Bei bereits offenen Diensten zählt auch, ob Ersatzkandidaten wegfallen können.
+  const ausfallPool = [...new Set(istBesetzungOffen
+    ? bedarf.flatMap((platz) => platz.kandidaten)
+    : daten.geplant)];
+
+  const einzelLuecken = ausfallPool.flatMap((id) => offenePlaetze(new Set([id])));
   if (einzelLuecken.length) {
     return { score: 35, offenePlaetze: einzelLuecken, geprueft: 1 };
   }
 
   const hatLuecke = (anzahl, start = 0, ausfaelle = new Set()) => {
     if (anzahl === 0) return offenePlaetze(ausfaelle).length > 0;
-    for (let index = start; index <= geplant.length - anzahl; index += 1) {
-      const id = geplant[index];
+    for (let index = start; index <= ausfallPool.length - anzahl; index += 1) {
+      const id = ausfallPool[index];
       ausfaelle.add(id);
       const luecke = hatLuecke(anzahl - 1, index + 1, ausfaelle);
       ausfaelle.delete(id);
@@ -99,7 +106,7 @@ const pruefeAusfaelle = (daten, mitFrei, mitTausch) => {
   };
 
   let abgesichert = 1;
-  for (let anzahl = 2; anzahl <= Math.min(3, geplant.length); anzahl += 1) {
+  for (let anzahl = 2; anzahl <= Math.min(3, ausfallPool.length); anzahl += 1) {
     if (hatLuecke(anzahl)) break;
     abgesichert = anzahl;
   }
@@ -138,7 +145,7 @@ const EngpassDetektor = ({
       const hatBedarf = cells.some((cell) => cell?.farbe);
 
       const daten = ausfallDatenByDate?.[datum];
-      const hatAusfallDaten = daten?.bedarf?.length > 0 && daten?.geplant?.length > 0;
+      const hatAusfallDaten = daten?.bedarf?.length > 0 && Array.isArray(daten.geplant);
 
       if (!hatBedarf && !hatAusfallDaten) {
         out[datum] = {
@@ -166,11 +173,11 @@ const EngpassDetektor = ({
         ? Number(freischichtReserveByDate?.[datum] || 0)
         : 0;
 
-      if (unterdeckte.length > 0) {
+      if (!hatAusfallDaten && unterdeckte.length > 0) {
         out[datum] = {
           status: 'rot',
           score: 0,
-          label: 'Unterdeckung',
+          label: 'Unterdeckung · Ersatz ungeprüft',
           reserves,
           reserveGesamt,
           reserveSchichten,
@@ -208,7 +215,7 @@ const EngpassDetektor = ({
 
       if (score === 0) {
         status = 'rot';
-        label = 'Unterdeckung';
+        label = 'Unterdeckung nicht abdeckbar';
         className = 'bg-red-600';
       } else if (score > 80) {
         status = 'gruen';
@@ -240,6 +247,7 @@ const EngpassDetektor = ({
         unterdeckte: score === 0
           ? [...new Set(ausfallAnalyse.offenePlaetze.map((platz) => platz.schicht))]
           : [],
+        geplanteUnterdeckung: unterdeckte,
         ausfallAnalyse,
       };
     }
@@ -417,8 +425,14 @@ const EngpassDetektor = ({
             <div className="mt-4 text-xs space-y-2">
               {detail.unterdeckte?.length > 0 ? (
                 <div>
-                  ❌ Unterdeckung in:{' '}
+                  {detail.ausfallAnalyse ? 'Offen trotz Ersatzoptionen' : 'Unterbesetzt · Ersatz ungeprüft'}{' · '}
                   <b>{detail.unterdeckte.map((s) => SCHICHT_LABEL[s] || s).join(', ')}</b>
+                </div>
+              ) : detail.geplanteUnterdeckung?.length > 0 ? (
+                <div>
+                  Geplant unterbesetzt in{' '}
+                  <b>{detail.geplanteUnterdeckung.map((s) => SCHICHT_LABEL[s]).join(', ')}</b>.
+                  Mit den gewählten Ersatzoptionen abdeckbar.
                 </div>
               ) : (
                 <div>✓ Der aktuelle Mindestbedarf aller bewerteten Schichten ist gedeckt.</div>
@@ -427,7 +441,7 @@ const EngpassDetektor = ({
               {detail.ausfallAnalyse?.geprueft > 0 && (
                 detail.ausfallAnalyse.offenePlaetze.length > 0 ? (
                   <div>
-                    Mögliche Lücken bei einem Einzelausfall{' '}
+                    Mögliche Lücken, wenn eine weitere Person wegfällt{' '}
                     <b>{[...new Set(detail.ausfallAnalyse.offenePlaetze.map(
                       ({ schicht, arbeitsplatz }) => `${SCHICHT_LABEL[schicht] || schicht} · ${arbeitsplatz}`,
                     ))].join(', ')}</b>
@@ -435,7 +449,7 @@ const EngpassDetektor = ({
                 ) : (
                   <div>
                     Alle geprüften Kombinationen mit bis zu{' '}
-                    <b>{detail.ausfallAnalyse.geprueft}</b> Ausfällen sind abdeckbar.
+                    <b>{detail.ausfallAnalyse.geprueft}</b> weiteren Ausfällen sind abdeckbar.
                   </div>
                 )
               )}

@@ -1885,7 +1885,7 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
       {/* Legende */}
       {infoOffen && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-900 text-black dark:text-white p-6 rounded-lg max-w-lg w-full shadow-xl">
+          <div className="bg-white dark:bg-gray-900 text-black dark:text-white p-6 rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-xl">
             <h3 className="text-lg font-bold mb-2">Bedarfsbewertung – Legende</h3>
             <ul className="list-disc list-inside text-sm space-y-1">
               <li>
@@ -1910,6 +1910,32 @@ const openAktionModalFromAnalyse = ({ datum, schicht }) => {
               <li>Ein Halb Grünes und Halb Rotes Feld zeigt eine Zeitliche Unterdeckung.</li>
               <li>Das BedarfsAnalyseModal kann nur am aktuellen Tag, oder an zukünftigen Tagen geöffnet werden.</li>
             </ul>
+            <section className="mt-5 border-t border-gray-200 pt-4 text-sm dark:border-gray-700">
+              <h4 className="mb-2 font-bold">Engpass-Detektor für die Urlaubsplanung</h4>
+              <p className="mb-2">
+                Die Bedarfszeile zeigt die geplante Besetzung je Schicht. Der Engpass-Detektor
+                bewertet den ganzen Tag. Er prüft zuerst, ob sich offene Arbeitsplätze mit den
+                aktivierten Ersatzoptionen besetzen lassen. Danach prüft er, wie viele weitere
+                Ausfälle die Besetzung verkraftet. So kann der Detektor auch dann Grün anzeigen,
+                wenn eine Schicht in der Bedarfszeile wegen eingetragenem Urlaub rot ist.
+              </p>
+              <ul className="list-disc space-y-1 pl-5">
+                <li><strong>Rot (0 Punkte).</strong> Mindestens ein Arbeitsplatz bleibt trotz Ersatzoptionen offen.</li>
+                <li><strong>Dunkelorange (35 Punkte).</strong> Der Bedarf ist abdeckbar, aber schon ein weiterer Ausfall kann eine Lücke verursachen.</li>
+                <li><strong>Gelb (60 Punkte), Blau (75 Punkte), Grün (90 Punkte).</strong> Alle geprüften Kombinationen mit bis zu einem, zwei bzw. drei weiteren Ausfällen sind abdeckbar.</li>
+              </ul>
+              <p className="mt-2">
+                Über das Zahnrad lassen sich Schichttausch und Freischichten einbeziehen. Für
+                Ersatz zählen passende Qualifikationen, die Ruhezeit und der Urlaubspuffer der Unit.
+                Bei einem Wechsel muss auch die abgebende Schicht besetzt bleiben. Eine Person kann
+                für mehrere Schichten infrage kommen und wird je Szenario höchstens einmal eingesetzt.
+              </p>
+              <p className="mt-2">
+                Ein Klick auf den Tageswert öffnet die Details. Steht dort
+                <strong> „Ersatz ungeprüft“</strong>, konnte der Detektor die Abdeckung für
+                diesen Tag anhand der verfügbaren Daten nicht prüfen.
+              </p>
+            </section>
             <div className="text-right mt-4">
               <button onClick={() => setInfoOffen(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
                 Schließen
